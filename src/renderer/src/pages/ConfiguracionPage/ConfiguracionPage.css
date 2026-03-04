@@ -1,0 +1,9 @@
+.configuracion-container {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.configuracion-container h2 {
+  font-size: 22px;
+  font-weight: 600;
+}

@@ -1,0 +1,17 @@
+.facturas-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.facturas-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.facturas-header h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0;
+}

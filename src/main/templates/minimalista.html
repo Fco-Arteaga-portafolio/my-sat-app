@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Courier New', monospace; font-size: 10px; color: #000; padding: 20px; background: #fff; }
+
+  .header { display: flex; justify-content: space-between; margin-bottom: 16px; }
+  .emisor-nombre { font-size: 14px; font-weight: bold; }
+  .emisor-datos { font-size: 9px; margin-top: 2px; }
+
+  .cfdi-box { border: 2px solid #000; padding: 8px; text-align: center; min-width: 200px; }
+  .cfdi-box .tipo { font-size: 12px; font-weight: bold; }
+  .cfdi-box .uuid { font-size: 8px; word-break: break-all; margin-top: 4px; }
+
+  .divider { border-top: 2px solid #000; margin: 10px 0; }
+  .divider-thin { border-top: 1px dashed #000; margin: 8px 0; }
+
+  .section-title { font-weight: bold; font-size: 11px; text-transform: uppercase; margin-bottom: 6px; border-bottom: 1px solid #000; padding-bottom: 2px; }
+
+  .datos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 10px; }
+  .dato .key { font-size: 8px; text-transform: uppercase; }
+  .dato .val { font-size: 10px; font-weight: bold; }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  th { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 6px; text-align: left; font-size: 10px; }
+  td { padding: 3px 6px; border-bottom: 1px dashed #ccc; font-size: 10px; }
+  .text-right { text-align: right; }
+
+  .totales { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .totales-box { min-width: 220px; }
+  .totales-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dashed #ccc; }
+  .totales-row.total { border-top: 2px solid #000; border-bottom: 2px solid #000; font-weight: bold; font-size: 13px; padding: 5px 0; }
+
+  .timbre { margin-top: 16px; border-top: 2px solid #000; padding-top: 10px; display: flex; gap: 12px; }
+  .timbre-qr img { width: 80px; height: 80px; }
+  .timbre-datos { flex: 1; font-size: 8px; }
+  .timbre-datos .row { margin-bottom: 2px; }
+  .sello { word-break: break-all; font-size: 7px; color: #555; margin-top: 2px; }
+
+  .section { margin-bottom: 14px; }
+  .footer { text-align: center; margin-top: 16px; font-size: 9px; border-top: 1px solid #000; padding-top: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="emisor-nombre">{{NOMBRE_EMISOR}}</div>
+    <div class="emisor-datos">RFC: {{RFC_EMISOR}}</div>
+    <div class="emisor-datos">Régimen: {{REGIMEN_FISCAL}}</div>
+    <div class="emisor-datos">Lugar Expedición: {{LUGAR_EXPEDICION}}</div>
+    <div class="emisor-datos">No. Certificado: {{NO_CERTIFICADO}}</div>
+    <div class="emisor-datos">Exportación: {{EXPORTACION}}</div>
+  </div>
+  <div class="cfdi-box">
+    <div class="tipo">{{TIPO_COMPROBANTE_LABEL}}</div>
+    {{#SERIE_FOLIO}}<div style="font-size:11px;font-weight:bold">{{SERIE_FOLIO}}</div>{{/SERIE_FOLIO}}
+    <div class="emisor-datos" style="margin-top:4px">{{FECHA}}</div>
+    <div class="uuid">{{UUID}}</div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<div class="section">
+  <div class="section-title">Receptor</div>
+  <div class="datos-grid">
+    <div class="dato"><div class="key">RFC</div><div class="val">{{RFC_RECEPTOR}}</div></div>
+    <div class="dato"><div class="key">Nombre</div><div class="val">{{NOMBRE_RECEPTOR}}</div></div>
+    <div class="dato"><div class="key">Código Postal</div><div class="val">{{CP_RECEPTOR}}</div></div>
+    <div class="dato"><div class="key">Régimen Fiscal</div><div class="val">{{REGIMEN_FISCAL_RECEPTOR}}</div></div>
+    <div class="dato"><div class="key">Uso CFDI</div><div class="val">{{USO_CFDI}}</div></div>
+    {{#FORMA_PAGO}}<div class="dato"><div class="key">Forma Pago</div><div class="val">{{FORMA_PAGO}}</div></div>{{/FORMA_PAGO}}
+    {{#METODO_PAGO}}<div class="dato"><div class="key">Método Pago</div><div class="val">{{METODO_PAGO}}</div></div>{{/METODO_PAGO}}
+    <div class="dato"><div class="key">Moneda</div><div class="val">{{MONEDA}}</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Conceptos</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Clave</th>
+        <th>No. Id.</th>
+        <th>Descripción</th>
+        <th class="text-right">Cant.</th>
+        <th>Unidad</th>
+        <th class="text-right">P.Unit</th>
+        <th class="text-right">Importe</th>
+        <th>Obj. Imp.</th>
+      </tr>
+    </thead>
+    <tbody>{{CONCEPTOS_ROWS}}</tbody>
+  </table>
+</div>
+
+{{#TIENE_IMPUESTOS}}
+<div class="section">
+  <div class="section-title">Impuestos</div>
+  <table>
+    <thead>
+      <tr><th>Tipo</th><th>Impuesto</th><th class="text-right">Tasa</th><th class="text-right">Importe</th></tr>
+    </thead>
+    <tbody>{{IMPUESTOS_ROWS}}</tbody>
+  </table>
+</div>
+{{/TIENE_IMPUESTOS}}
+
+<div class="totales">
+  <div class="totales-box">
+    <div class="totales-row"><span>Subtotal</span><span>{{SUBTOTAL}}</span></div>
+    {{#DESCUENTO}}<div class="totales-row"><span>Descuento</span><span>-{{DESCUENTO}}</span></div>{{/DESCUENTO}}
+    {{#IVA}}<div class="totales-row"><span>IVA</span><span>{{IVA}}</span></div>{{/IVA}}
+    {{#RETENCION}}<div class="totales-row"><span>Retenciones</span><span>-{{RETENCION}}</span></div>{{/RETENCION}}
+    <div class="totales-row total"><span>TOTAL</span><span>{{TOTAL}}</span></div>
+  </div>
+</div>
+
+{{#ES_NOMINA}}
+<div class="section" style="margin-top:12px">
+  <div class="section-title">Complemento Nomina</div>
+  <div class="datos-grid">
+    <div class="dato"><div class="key">Tipo</div><div class="val">{{TIPO_NOMINA}}</div></div>
+    <div class="dato"><div class="key">Fecha Pago</div><div class="val">{{FECHA_PAGO_NOMINA}}</div></div>
+    <div class="dato"><div class="key">Período</div><div class="val">{{PERIODO_NOMINA}}</div></div>
+    <div class="dato"><div class="key">Días Pagados</div><div class="val">{{DIAS_PAGADOS}}</div></div>
+    <div class="dato"><div class="key">Total Percepciones</div><div class="val">{{TOTAL_PERCEPCIONES}}</div></div>
+    <div class="dato"><div class="key">Total Deducciones</div><div class="val">{{TOTAL_DEDUCCIONES}}</div></div>
+  </div>
+  <div class="divider-thin"></div>
+  <strong>Percepciones</strong>
+  <table style="margin-top:4px">
+    <thead><tr><th>Tipo</th><th>Concepto</th><th class="text-right">Gravado</th><th class="text-right">Exento</th></tr></thead>
+    <tbody>{{PERCEPCIONES_ROWS}}</tbody>
+  </table>
+  <div class="divider-thin"></div>
+  <strong>Deducciones</strong>
+  <table style="margin-top:4px">
+    <thead><tr><th>Tipo</th><th>Concepto</th><th class="text-right">Importe</th></tr></thead>
+    <tbody>{{DEDUCCIONES_ROWS}}</tbody>
+  </table>
+</div>
+{{/ES_NOMINA}}
+
+{{#ES_PAGO}}
+<div class="section" style="margin-top:12px">
+  <div class="section-title">Complemento Pagos</div>
+  {{PAGOS_ROWS}}
+</div>
+{{/ES_PAGO}}
+
+<div class="timbre">
+  <div class="timbre-qr"><img src="{{QR_DATA_URL}}" /></div>
+  <div class="timbre-datos">
+    <div class="row"><strong>UUID:</strong> {{UUID}}</div>
+    <div class="row"><strong>Fecha Timbrado:</strong> {{FECHA_TIMBRADO}}</div>
+    <div class="row"><strong>RFC PAC:</strong> {{RFC_PAC}}</div>
+    <div class="row"><strong>No. Cert. SAT:</strong> {{NO_CERT_SAT}}</div>
+    <div class="row" style="margin-top:3px"><strong>Sello CFD:</strong></div>
+    <div class="sello">{{SELLO_CFD}}</div>
+    <div class="row" style="margin-top:3px"><strong>Sello SAT:</strong></div>
+    <div class="sello">{{SELLO_SAT}}</div>
+  </div>
+</div>
+
+<div class="footer">Este documento es una representación impresa de un CFDI</div>
+
+</body>
+</html>
