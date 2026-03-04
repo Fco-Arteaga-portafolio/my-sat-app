@@ -1,17 +1,16 @@
-.facturas-container {
+.facturas-resumen {
   display: flex;
-  flex-direction: column;
-}
-
-.facturas-header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #f6f8fa;
+  border-radius: 6px;
   margin-bottom: 16px;
+  font-size: 13px;
+  color: #4a5568;
 }
 
-.facturas-header h2 {
-  font-size: 22px;
-  font-weight: 600;
-  margin: 0;
+.resumen-sep {
+  color: #cbd5e0;
+  font-weight: 300;
 }

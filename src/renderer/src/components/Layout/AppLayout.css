@@ -1,14 +1,12 @@
 .app-logo {
-  color: #ffffff;
-  font-size: 16px;
-  font-weight: 700;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 20px 16px;
-  letter-spacing: 1px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   background: rgba(0,0,0,0.2);
+  min-height: 72px;
 }
-
 .app-content {
   margin: 20px;
   padding: 0;

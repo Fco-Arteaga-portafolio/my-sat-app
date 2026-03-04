@@ -1,5 +1,6 @@
 import { Layout, Menu, Badge } from 'antd'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
+import logoIcon from '../../../../../resources/icon.png'  // copia el icon.png a assets
 import { useState, useEffect } from 'react'
 import {
   FileTextOutlined,
@@ -11,10 +12,12 @@ import './AppLayout.css'
 
 const { Sider, Content } = Layout
 
+
 const AppLayout = (): JSX.Element => {
   const navigate = useNavigate()
   const location = useLocation()
   const [totalPendientes, setTotalPendientes] = useState(0)
+  const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
     cargarContador()
@@ -47,8 +50,16 @@ const AppLayout = (): JSX.Element => {
 
   return (
     <Layout style={{ height: '100%', background: '#f0f2f5' }}>
-      <Sider theme="dark" collapsible style={{ background: '#001529' }}>
-        <div className="app-logo">Gravix</div>
+      <Sider
+        theme="dark"
+        collapsible
+        collapsed={collapsed}
+        onCollapse={(value) => setCollapsed(value)}
+        style={{ background: '#001529' }}>
+        <div className="app-logo">
+          <img src={logoIcon} alt="Gravix" style={{ width: 32, height: 32, objectFit: 'contain' }} />
+          {!collapsed && <span style={{ marginLeft: 10, fontSize: 20, fontWeight: 700, color: '#fff' }}>Gravix</span>}
+        </div>
         <Menu
           theme="dark"
           mode="inline"

@@ -15,10 +15,13 @@ export const useFacturasPage = () => {
   const [modalPdfVisible, setModalPdfVisible] = useState(false)
   const [paginaActual, setPaginaActual] = useState(1)
   const [tamañoPagina, setTamañoPagina] = useState(20)
+  const [ultimaActualizacion, setUltimaActualizacion] = useState<Date | null>(null)
+  const [totalPendientes, setTotalPendientes] = useState(0)
 
   useEffect(() => {
     cargarFacturas()
     cargarConfiguracion()
+    cargarPendientes()
   }, [])
 
   const cargarFacturas = async () => {
@@ -26,6 +29,7 @@ export const useFacturasPage = () => {
     const res = await window.api.obtenerFacturas()
     if (res.success && res.facturas) {
       setFacturas(res.facturas)
+      setUltimaActualizacion(new Date())
     } else {
       setError('Error al cargar las facturas')
     }
@@ -36,6 +40,13 @@ export const useFacturasPage = () => {
     const res = await window.api.obtenerConfiguracion()
     if (res.success && res.config) {
       setConfiguracion({ rfc: res.config.rfc, nombre: '' })
+    }
+  }
+
+  const cargarPendientes = async () => {
+    const res = await window.api.contarPendientes()
+    if (res.success && res.total !== undefined) {
+      setTotalPendientes(res.total)
     }
   }
 
@@ -61,6 +72,24 @@ export const useFacturasPage = () => {
     return coincideBusqueda && coincideTipo && coincideEstado
   })
 
+  // Resumen financiero sobre facturas filtradas
+  const resumen = {
+    total: facturasFiltradas.length,
+    monto: facturasFiltradas.reduce((acc, f) => acc + (f.total || 0), 0),
+    pendientes: totalPendientes
+  }
+
+  const tiempoDesdeActualizacion = (): string => {
+    if (!ultimaActualizacion) return ''
+    const diff = Math.floor((new Date().getTime() - ultimaActualizacion.getTime()) / 1000 / 60)
+    if (diff === 0) return 'hace un momento'
+    if (diff === 1) return 'hace 1 minuto'
+    if (diff < 60) return `hace ${diff} minutos`
+    const horas = Math.floor(diff / 60)
+    if (horas === 1) return 'hace 1 hora'
+    return `hace ${horas} horas`
+  }
+
   const verDetalle = (factura: Factura) => {
     setFacturaDetalle(factura)
     setModalVisible(true)
@@ -83,28 +112,11 @@ export const useFacturasPage = () => {
 
   return {
     facturas: facturasFiltradas,
-    loading,
-    error,
-    busqueda,
-    filtroTipo,
-    filtroEstado,
-    configuracion,
-    setBusqueda,
-    setFiltroTipo,
-    setFiltroEstado,
-    cargarFacturas,
-    eliminar,
-    facturaDetalle,
-    modalVisible,
-    cerrarDetalle,
-    verDetalle,
-    facturaSeleccionadaPdf,
-    modalPdfVisible,
-    abrirModalPdf,
-    cerrarModalPdf,
-    paginaActual,
-    tamañoPagina,
-    setPaginaActual,
-    setTamañoPagina,
+    loading, error, busqueda, filtroTipo, filtroEstado, configuracion,
+    setBusqueda, setFiltroTipo, setFiltroEstado, cargarFacturas, eliminar,
+    facturaDetalle, modalVisible, cerrarDetalle, verDetalle,
+    facturaSeleccionadaPdf, modalPdfVisible, abrirModalPdf, cerrarModalPdf,
+    paginaActual, tamañoPagina, setPaginaActual, setTamañoPagina,
+    resumen, tiempoDesdeActualizacion
   }
 }

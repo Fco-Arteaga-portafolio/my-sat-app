@@ -23,11 +23,17 @@ function createWindow(): void {
     height: 670,
     show: false,
     autoHideMenuBar: true,
+    icon,
+    title: 'Gravix',  // ← agregar esto
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
     }
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.setTitle('Gravix')
   })
 
   mainWindow.on('ready-to-show', () => {
