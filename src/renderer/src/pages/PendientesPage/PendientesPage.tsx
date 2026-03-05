@@ -1,7 +1,6 @@
-import { Table, Button, Alert, Space, Tag, Card, Popconfirm, Progress, Form, Input } from 'antd'
+import { Table, Button, Alert, Space, Tag, Card, Popconfirm, Progress, Input } from 'antd'
 import { ReloadOutlined, DeleteOutlined, WarningOutlined } from '@ant-design/icons'
 import { usePendientesPage } from './PendientesPage.hook'
-import { DescargaPendiente } from '../../../../main/database/repositories/DescargaPendienteRepository'
 
 const tipoColor: Record<string, string> = {
   I: 'green', E: 'red', T: 'blue', N: 'purple', P: 'orange'
@@ -10,7 +9,7 @@ const tipoLabel: Record<string, string> = {
   I: 'Ingreso', E: 'Egreso', T: 'Traslado', N: 'Nómina', P: 'Pago'
 }
 
-const PendientesPage = (): JSX.Element => {
+const PendientesPage = () => {
   const {
     pendientes, loading, reintentando, resultado, error,
     configuracion, progreso, captchaBase64, captchaTexto, cargandoCaptcha,

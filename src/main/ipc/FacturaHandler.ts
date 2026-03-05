@@ -1,24 +1,21 @@
 import { ipcMain } from 'electron'
-import { FacturaService } from '../services/FacturaService'
+import { DescargaService } from '../services/DescargaService'
 import { ConfiguracionService } from '../services/ConfiguracionService'
 import { ParametrosBusqueda } from '../scraper/SatScraper'
 import { PdfService, Plantilla } from '../services/PdfService'
 
 export class FacturaHandler {
   constructor(
-    private readonly facturaService: FacturaService,
+    private readonly descargaService: DescargaService,
     private readonly configuracionService: ConfiguracionService
   ) { }
 
   registrar(): void {
     ipcMain.handle('obtener-captcha', async () => {
       try {
-        console.log('SCRAPER ID:', (this.facturaService as any).scraper === null ? 'null' : 'existe')
-        const imagenBase64 = await this.facturaService.obtenerCaptcha()
-        console.log('SCRAPER DESPUÉS:', (this.facturaService as any).scraper.context === null ? 'null' : 'tiene contexto')
+        const imagenBase64 = await this.descargaService.obtenerCaptcha()
         return { success: true, imagenBase64 }
       } catch (error) {
-        console.error('ERROR CAPTCHA:', error)
         return { success: false, error: String(error) }
       }
     })
@@ -31,13 +28,11 @@ export class FacturaHandler {
         const config = this.configuracionService.obtener()
         if (!config) return { success: false, error: 'No hay configuración guardada' }
 
-        const resultado = await this.facturaService.descargarFacturas(
+        const resultado = await this.descargaService.descargar(
           config,
           datos.params,
           datos.captcha,
-          (progreso) => {
-            event.sender.send('progreso-descarga', progreso)
-          }
+          (progreso) => event.sender.send('progreso-descarga', progreso)
         )
         return { success: true, total: resultado.total, errores: resultado.errores }
       } catch (error) {
@@ -54,7 +49,7 @@ export class FacturaHandler {
 
     ipcMain.handle('obtener-facturas', async () => {
       try {
-        const facturas = this.facturaService.obtenerTodas()
+        const facturas = this.descargaService.obtenerFacturas()
         return { success: true, facturas }
       } catch (error) {
         return { success: false, error: String(error) }
@@ -63,7 +58,7 @@ export class FacturaHandler {
 
     ipcMain.handle('eliminar-factura', async (_, uuid: string) => {
       try {
-        this.facturaService.eliminar(uuid)
+        this.descargaService.eliminarFactura(uuid)
         return { success: true }
       } catch (error) {
         return { success: false, error: String(error) }
@@ -73,7 +68,6 @@ export class FacturaHandler {
     ipcMain.handle('abrir-archivo', async (_, ruta: string) => {
       const { shell } = require('electron')
       const { platform } = require('os')
-
       if (platform() === 'win32') {
         await shell.openExternal(`file:///${ruta.replace(/\\/g, '/')}`)
       } else {
@@ -109,14 +103,13 @@ export class FacturaHandler {
         )
         return { success: true }
       } catch (error) {
-        console.error('ERROR PDF:', error)
         return { success: false, error: String(error) }
       }
     })
 
     ipcMain.handle('obtener-pendientes', async () => {
       try {
-        const pendientes = this.facturaService.obtenerPendientes()
+        const pendientes = this.descargaService.obtenerPendientes()
         return { success: true, pendientes }
       } catch (error) {
         return { success: false, error: String(error) }
@@ -125,7 +118,7 @@ export class FacturaHandler {
 
     ipcMain.handle('contar-pendientes', async () => {
       try {
-        const total = this.facturaService.contarPendientes()
+        const total = this.descargaService.contarPendientes()
         return { success: true, total }
       } catch (error) {
         return { success: false, error: String(error) }
@@ -134,7 +127,7 @@ export class FacturaHandler {
 
     ipcMain.handle('limpiar-pendientes', async () => {
       try {
-        this.facturaService.limpiarPendientes()
+        this.descargaService.limpiarPendientes()
         return { success: true }
       } catch (error) {
         return { success: false, error: String(error) }
@@ -146,12 +139,10 @@ export class FacturaHandler {
         const config = this.configuracionService.obtener()
         if (!config) return { success: false, error: 'No hay configuración guardada' }
 
-        const resultado = await this.facturaService.reintentarPendientes(
+        const resultado = await this.descargaService.reintentarPendientes(
           config,
           datos.captcha,
-          (progreso) => {
-            event.sender.send('progreso-descarga', progreso)
-          }
+          (progreso) => event.sender.send('progreso-descarga', progreso)
         )
         return { success: true, total: resultado.total, errores: resultado.errores }
       } catch (error) {

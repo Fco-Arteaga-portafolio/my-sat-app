@@ -2,7 +2,7 @@ import { Modal, Descriptions, Tag, Table, Divider, Spin } from 'antd'
 import { useState, useEffect } from 'react'
 import { Factura } from '../../../../main/database/repositories/FacturaRepository'
 import { parsearXml, FacturaParseada } from '../../utils/xmlParser'
-import { regimenFiscal, usoCFDI, formaPago, metodoPago, impuesto, tipoPercepcion, tipoDeduccion, cat } from '../../utils/catalogosSat'
+import { regimenFiscal, usoCFDI, formaPago, metodoPago, impuesto, cat } from '../../utils/catalogosSat'
 
 const tipoColor: Record<string, string> = {
   I: 'green', E: 'red', T: 'blue', N: 'purple', P: 'orange'
@@ -19,7 +19,7 @@ interface Props {
   onCerrar: () => void
 }
 
-const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element => {
+const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props) => {
   const [parseada, setParseada] = useState<FacturaParseada | null>(null)
   const [cargando, setCargando] = useState(false)
 
@@ -58,7 +58,7 @@ const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element
       {!cargando && parseada && (
         <>
           {/* Datos generales */}
-          <Divider orientation="left">Datos Generales</Divider>
+          <Divider titlePlacement="start">Datos Generales</Divider>
           <Descriptions bordered column={2} size="small">
             <Descriptions.Item label="UUID" span={2}>{factura?.uuid}</Descriptions.Item>
             {parseada.serie && <Descriptions.Item label="Serie">{parseada.serie}</Descriptions.Item>}
@@ -81,7 +81,7 @@ const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element
           </Descriptions>
 
           {/* Emisor */}
-          <Divider orientation="left">Emisor</Divider>
+          <Divider titlePlacement="start">Emisor</Divider>
           <Descriptions bordered column={2} size="small">
             <Descriptions.Item label="RFC">{parseada.rfcEmisor}</Descriptions.Item>
             <Descriptions.Item label="Nombre">{parseada.nombreEmisor}</Descriptions.Item>
@@ -89,7 +89,7 @@ const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element
           </Descriptions>
 
           {/* Receptor */}
-          <Divider orientation="left">Receptor</Divider>
+          <Divider titlePlacement="start">Receptor</Divider>
           <Descriptions bordered column={2} size="small">
             <Descriptions.Item label="RFC">{parseada.rfcReceptor}</Descriptions.Item>
             <Descriptions.Item label="Nombre">{parseada.nombreReceptor}</Descriptions.Item>
@@ -97,7 +97,7 @@ const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element
           </Descriptions>
 
           {/* Conceptos */}
-          <Divider orientation="left">Conceptos</Divider>
+          <Divider titlePlacement="start">Conceptos</Divider>
           <Table
             dataSource={parseada.conceptos}
             rowKey={(_, i) => String(i)}
@@ -116,7 +116,7 @@ const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element
           {/* Impuestos */}
           {parseada.impuestos.length > 0 && (
             <>
-              <Divider orientation="left">Impuestos</Divider>
+              <Divider titlePlacement="start">Impuestos</Divider>
               <Table
                 dataSource={parseada.impuestos}
                 rowKey={(_, i) => String(i)}
@@ -133,7 +133,7 @@ const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element
           )}
 
           {/* Totales */}
-          <Divider orientation="left">Totales</Divider>
+          <Divider titlePlacement="start">Totales</Divider>
           <Descriptions bordered column={2} size="small">
             <Descriptions.Item label="Subtotal">{fmt(parseada.subtotal)}</Descriptions.Item>
             {parseada.descuento ? <Descriptions.Item label="Descuento">{fmt(parseada.descuento)}</Descriptions.Item> : null}
@@ -145,7 +145,7 @@ const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element
           {/* Complemento Nómina */}
           {parseada.complementoNomina && (
             <>
-              <Divider orientation="left">Complemento Nómina</Divider>
+              <Divider titlePlacement="start">Complemento Nómina</Divider>
               <Descriptions bordered column={2} size="small">
                 <Descriptions.Item label="Tipo Nómina">{parseada.complementoNomina.tipoNomina === 'O' ? 'Ordinaria' : 'Extraordinaria'}</Descriptions.Item>
                 <Descriptions.Item label="Fecha Pago">{parseada.complementoNomina.fechaPago}</Descriptions.Item>
@@ -160,7 +160,7 @@ const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element
 
               {parseada.complementoNomina.percepciones.length > 0 && (
                 <>
-                  <Divider orientation="left" plain>Percepciones</Divider>
+                  <Divider titlePlacement="start" plain>Percepciones</Divider>
                   <Table
                     dataSource={parseada.complementoNomina.percepciones}
                     rowKey={(_, i) => String(i)}
@@ -178,7 +178,7 @@ const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element
 
               {parseada.complementoNomina.deducciones.length > 0 && (
                 <>
-                  <Divider orientation="left" plain>Deducciones</Divider>
+                  <Divider titlePlacement="start" plain>Deducciones</Divider>
                   <Table
                     dataSource={parseada.complementoNomina.deducciones}
                     rowKey={(_, i) => String(i)}
@@ -198,7 +198,7 @@ const FacturaDetalleModal = ({ factura, visible, onCerrar }: Props): JSX.Element
           {/* Complemento Pagos */}
           {parseada.complementoPago && (
             <>
-              <Divider orientation="left">Complemento Pagos</Divider>
+              <Divider titlePlacement="start">Complemento Pagos</Divider>
               {parseada.complementoPago.pagos.map((pago, i) => (
                 <div key={i}>
                   <Descriptions bordered column={2} size="small" style={{ marginBottom: 8 }}>

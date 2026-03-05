@@ -1,13 +1,15 @@
 import { SatScraper, ParametrosBusqueda, ProgresoDescarga } from '../scraper/SatScraper'
 import { FacturaRepository } from '../database/repositories/FacturaRepository'
 import { DescargaPendienteRepository } from '../database/repositories/DescargaPendienteRepository'
+import { XmlParserService } from './XmlParserService'
 import { Configuracion } from './ConfiguracionService'
 
-export class FacturaService {
+export class DescargaService {
   private scraper = new SatScraper()
+  private xmlParser = new XmlParserService()
 
   constructor(
-    private readonly repository: FacturaRepository,
+    private readonly facturaRepository: FacturaRepository,
     private readonly pendienteRepository: DescargaPendienteRepository
   ) { }
 
@@ -16,7 +18,7 @@ export class FacturaService {
     return await this.scraper.obtenerCaptcha()
   }
 
-  async descargarFacturas(
+  async descargar(
     config: Configuracion,
     params: ParametrosBusqueda,
     captcha?: string,
@@ -28,9 +30,10 @@ export class FacturaService {
       let guardadas = 0
       for (const f of facturas) {
         if (!f.urlDescarga) continue
-        const yaExiste = this.repository.obtenerPorUuid(f.uuid)
+        const yaExiste = this.facturaRepository.obtenerPorUuid(f.uuid)
         if (!yaExiste) {
-          this.repository.insertar({
+          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga)
+          this.facturaRepository.insertar({
             uuid: f.uuid,
             fecha_emision: f.fecha_emision,
             rfc_emisor: f.rfc_emisor,
@@ -43,56 +46,46 @@ export class FacturaService {
             estado: f.estado as 'vigente' | 'cancelado',
             xml: f.urlDescarga,
             tipo_descarga: params.tipo === 'recibidas' ? 'recibida' : 'emitida',
-            fecha_descarga: new Date().toISOString()
+            fecha_descarga: new Date().toISOString(),
+            ...camposXml
           })
-          // Si estaba pendiente y ahora se descargó, eliminarlo de pendientes
-          this.pendienteRepository.eliminar(f.uuid)
-          guardadas++
+
+        } else {
+          // Ya existe, solo actualizar campos del XML
+          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga)
+          this.facturaRepository.actualizar(f.uuid, {
+            xml: f.urlDescarga,
+            ...camposXml
+          })
         }
+        this.pendienteRepository.eliminar(f.uuid)
+        guardadas++
+
       }
 
-      // Guardar errores en tabla de pendientes
       for (const e of errores) {
-        this.pendienteRepository.insertar({
-          uuid: e.uuid,
-          rfc_emisor: e.fila.rfc_emisor,
-          nombre_emisor: e.fila.nombre_emisor,
-          rfc_receptor: e.fila.rfc_receptor,
-          nombre_receptor: e.fila.nombre_receptor,
-          fecha_emision: e.fila.fecha_emision,
-          total: e.fila.total,
-          tipo_comprobante: e.fila.tipo_comprobante,
-          estado: e.fila.estado,
-          url_descarga: e.fila.urlDescarga,
-          tipo_descarga: params.tipo === 'recibidas' ? 'recibida' : 'emitida',
-          error: e.error
-        })
+        if (e.fila) {
+          this.pendienteRepository.insertar({
+            uuid: e.uuid,
+            rfc_emisor: e.fila.rfc_emisor,
+            nombre_emisor: e.fila.nombre_emisor,
+            rfc_receptor: e.fila.rfc_receptor,
+            nombre_receptor: e.fila.nombre_receptor,
+            fecha_emision: e.fila.fecha_emision,
+            total: e.fila.total,
+            tipo_comprobante: e.fila.tipo_comprobante,
+            estado: e.fila.estado,
+            url_descarga: e.fila.urlDescarga,
+            tipo_descarga: params.tipo === 'recibidas' ? 'recibida' : 'emitida',
+            error: e.error
+          })
+        }
       }
 
       return { total: guardadas, errores }
     } finally {
       await this.scraper.cerrar()
     }
-  }
-
-  obtenerTodas() {
-    return this.repository.obtenerTodas()
-  }
-
-  eliminar(uuid: string) {
-    return this.repository.eliminar(uuid)
-  }
-
-  obtenerPendientes() {
-    return this.pendienteRepository.obtenerTodas()
-  }
-
-  contarPendientes() {
-    return this.pendienteRepository.contar()
-  }
-
-  limpiarPendientes() {
-    return this.pendienteRepository.limpiar()
   }
 
   async reintentarPendientes(
@@ -104,21 +97,18 @@ export class FacturaService {
       const pendientes = this.pendienteRepository.obtenerTodas()
       if (pendientes.length === 0) return { total: 0, errores: [] }
 
-      // Iniciar sesión
       await this.scraper.iniciar()
       const { facturas, errores } = await this.scraper.reintentarDescargas(
-        config,
-        captcha,
-        pendientes,
-        onProgreso
+        config, captcha, pendientes, onProgreso
       )
 
       let guardadas = 0
       for (const f of facturas) {
         if (!f.urlDescarga) continue
-        const yaExiste = this.repository.obtenerPorUuid(f.uuid)
+        const yaExiste = this.facturaRepository.obtenerPorUuid(f.uuid)
         if (!yaExiste) {
-          this.repository.insertar({
+          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga)
+          this.facturaRepository.insertar({
             uuid: f.uuid,
             fecha_emision: f.fecha_emision,
             rfc_emisor: f.rfc_emisor,
@@ -131,14 +121,14 @@ export class FacturaService {
             estado: f.estado as 'vigente' | 'cancelado',
             xml: f.urlDescarga,
             tipo_descarga: f.tipo_descarga as 'recibida' | 'emitida',
-            fecha_descarga: new Date().toISOString()
+            fecha_descarga: new Date().toISOString(),
+            ...camposXml
           })
           this.pendienteRepository.eliminar(f.uuid)
           guardadas++
         }
       }
 
-      // Actualizar errores en pendientes
       for (const e of errores) {
         const pendiente = pendientes.find(p => p.uuid === e.uuid)
         if (pendiente) {
@@ -150,5 +140,30 @@ export class FacturaService {
     } finally {
       await this.scraper.cerrar()
     }
+  }
+
+  // Consultas simples
+  obtenerFacturas() {
+    return this.facturaRepository.obtenerTodas()
+  }
+
+  obtenerFacturaPorUuid(uuid: string) {
+    return this.facturaRepository.obtenerPorUuid(uuid)
+  }
+
+  eliminarFactura(uuid: string) {
+    return this.facturaRepository.eliminar(uuid)
+  }
+
+  obtenerPendientes() {
+    return this.pendienteRepository.obtenerTodas()
+  }
+
+  contarPendientes() {
+    return this.pendienteRepository.contar()
+  }
+
+  limpiarPendientes() {
+    return this.pendienteRepository.limpiar()
   }
 }

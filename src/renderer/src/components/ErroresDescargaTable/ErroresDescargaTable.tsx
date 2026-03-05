@@ -1,5 +1,6 @@
 import { Card, Table, Tag } from 'antd'
 import { WarningOutlined } from '@ant-design/icons'
+import { JSX } from 'react'
 
 interface ErrorDescarga {
   uuid: string

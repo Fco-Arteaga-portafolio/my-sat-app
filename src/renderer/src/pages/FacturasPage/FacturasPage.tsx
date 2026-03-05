@@ -1,21 +1,22 @@
 import { Table, Input, Select, Button, Popconfirm, Alert, Space, Tag, Card, Tooltip } from 'antd'
-import { ReloadOutlined, DeleteOutlined, FileTextOutlined, FileSearchOutlined, FilePdfOutlined, WarningOutlined } from '@ant-design/icons'
+import { ReloadOutlined, DeleteOutlined, FileTextOutlined, FileSearchOutlined, FilePdfOutlined, DownloadOutlined, WarningOutlined } from '@ant-design/icons'
 import { useFacturasPage } from './FacturasPage.hook'
 import { Factura } from '../../../../main/database/repositories/FacturaRepository'
 import FacturaDetalleModal from '../../components/FacturaDetalleModal/FacturaDetalleModal'
 import SeleccionPlantillaModal from '../../components/SeleccionPlantillaModal/SeleccionPlantillaModal'
+import * as XLSX from 'xlsx'
 import './FacturasPage.css'
 
 const { Search } = Input
 const { Option } = Select
 
-const tipoColor: Record<string, string> = {
-  I: 'green', E: 'red', T: 'blue', N: 'purple', P: 'orange'
+const tipoColor: Record<string, string> = { I: 'green', E: 'red', T: 'blue', N: 'purple', P: 'orange' }
+const tipoLabel: Record<string, string> = { I: 'Ingreso', E: 'Egreso', T: 'Traslado', N: 'Nómina', P: 'Pago' }
+const formaPagoLabel: Record<string, string> = {
+  '01': 'Efectivo', '02': 'Cheque', '03': 'Transferencia', '04': 'Tarjeta de crédito',
+  '28': 'Tarjeta de débito', '99': 'Por definir'
 }
-
-const tipoLabel: Record<string, string> = {
-  I: 'Ingreso', E: 'Egreso', T: 'Traslado', N: 'Nómina', P: 'Pago'
-}
+const metodoPagoLabel: Record<string, string> = { 'PUE': 'PUE - Pago en una sola exhibición', 'PPD': 'PPD - Pago en parcialidades' }
 
 const FacturasPage = (): JSX.Element => {
   const {
@@ -32,63 +33,134 @@ const FacturasPage = (): JSX.Element => {
   const soloRecibidas = tieneRecibidas && !tieneEmitidas
   const soloEmitidas = tieneEmitidas && !tieneRecibidas
 
+  const fmt = (n: number) => (n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
+
+  const exportarExcel = () => {
+    const datos = facturas.map((f) => ({
+      'Tipo': f.tipo_descarga === 'recibida' ? 'Recibido' : 'Emitido',
+      'Versión CFDI': f.version || '',
+      'Folio Fiscal (UUID)': f.uuid,
+      'RFC Emisor': f.rfc_emisor,
+      'Razón Social Emisor': f.nombre_emisor,
+      'RFC Receptor': f.rfc_receptor,
+      'Razón Social Receptor': f.nombre_receptor,
+      'Serie': f.serie || '',
+      'Folio': f.folio || '',
+      'Fecha Emisión': f.fecha_emision,
+      'Fecha Timbrado': f.fecha_timbrado || '',
+      'Efecto': tipoLabel[f.tipo_comprobante] || f.tipo_comprobante,
+      'Estado': f.estado,
+      'Estado Cancelación': f.estado_cancelacion || '',
+      'Estado Proceso Cancelación': f.estado_proceso_cancelacion || '',
+      'Fecha Cancelación': f.fecha_cancelacion || '',
+      'Forma de Pago': f.forma_pago ? `${f.forma_pago} - ${formaPagoLabel[f.forma_pago] || ''}` : '',
+      'Método de Pago': f.metodo_pago || '',
+      'Moneda': f.moneda || '',
+      'Tipo de Cambio': f.tipo_cambio || 1,
+      'Subtotal': f.subtotal,
+      'Descuento': f.descuento || 0,
+      'Total Impuestos Trasladados': f.total_impuestos_trasladados || 0,
+      'Total Impuestos Retenidos': f.total_impuestos_retenidos || 0,
+      'Total': f.total,
+      'RFC PAC': f.rfc_pac || '',
+      'Folio Sustitución': f.folio_sustitucion || ''
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(datos)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Facturas')
+
+    // Ajustar ancho de columnas
+    const colWidths = Object.keys(datos[0] || {}).map(key => ({ wch: Math.max(key.length, 15) }))
+    ws['!cols'] = colWidths
+
+    XLSX.writeFile(wb, `Facturas_${new Date().toISOString().split('T')[0]}.xlsx`)
+  }
+
   const columnas = [
     {
-      title: 'UUID', dataIndex: 'uuid', key: 'uuid', width: 130,
+      title: 'UUID', dataIndex: 'uuid', key: 'uuid', width: 120, fixed: 'left' as const,
       render: (uuid: string) => (
         <Tooltip title={uuid}>
-          <span style={{ fontFamily: 'monospace', fontSize: 12, cursor: 'default' }}>
+          <span style={{ fontFamily: 'monospace', fontSize: 11, cursor: 'default' }}>
             {uuid.substring(0, 8)}...
           </span>
         </Tooltip>
       )
     },
     {
-      title: 'RFC Emisor', dataIndex: 'rfc_emisor', key: 'rfc_emisor', width: 140,
-      ellipsis: true, hidden: soloEmitidas
+      title: soloRecibidas ? 'RFC Emisor' : 'RFC Receptor',
+      dataIndex: soloRecibidas ? 'rfc_emisor' : 'rfc_receptor',
+      key: 'rfc', width: 140, ellipsis: true
     },
     {
-      title: 'Emisor', dataIndex: 'nombre_emisor', key: 'nombre_emisor', ellipsis: true, hidden: soloEmitidas,
-      render: (nombre: string) => (
-        <Tooltip title={nombre}>
-          <span>{nombre}</span>
-        </Tooltip>
-      )
+      title: soloRecibidas ? 'Emisor' : 'Receptor',
+      dataIndex: soloRecibidas ? 'nombre_emisor' : 'nombre_receptor',
+      key: 'nombre', ellipsis: true, width: 180,
+      render: (nombre: string) => <Tooltip title={nombre}><span>{nombre}</span></Tooltip>
     },
     {
-      title: 'RFC Receptor', dataIndex: 'rfc_receptor', key: 'rfc_receptor', width: 140,
-      ellipsis: true, hidden: soloRecibidas
+      title: 'Serie', dataIndex: 'serie', key: 'serie', width: 70,
+      render: (v: string) => v || '-'
     },
     {
-      title: 'Receptor', dataIndex: 'nombre_receptor', key: 'nombre_receptor', ellipsis: true, hidden: soloRecibidas,
-      render: (nombre: string) => (
-        <Tooltip title={nombre}>
-          <span>{nombre}</span>
-        </Tooltip>
-      )
+      title: 'Folio', dataIndex: 'folio', key: 'folio', width: 80,
+      render: (v: string) => v || '-'
     },
     {
-      title: 'Fecha', dataIndex: 'fecha_emision', key: 'fecha_emision', width: 150,
-      render: (fecha: string) => fecha?.replace('T', ' ')
+      title: 'Fecha Emisión', dataIndex: 'fecha_emision', key: 'fecha_emision', width: 150,
+      render: (f: string) => f?.replace('T', ' ')
     },
     {
-      title: 'Total', dataIndex: 'total', key: 'total', width: 120,
-      render: (total: number) => total?.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
+      title: 'Fecha Timbrado', dataIndex: 'fecha_timbrado', key: 'fecha_timbrado', width: 150,
+      render: (f: string) => f ? f.replace('T', ' ') : '-'
     },
     {
-      title: 'Tipo', dataIndex: 'tipo_comprobante', key: 'tipo_comprobante', width: 90,
-      render: (tipo: string) => <Tag color={tipoColor[tipo]}>{tipoLabel[tipo]}</Tag>
+      title: 'Efecto', dataIndex: 'tipo_comprobante', key: 'tipo_comprobante', width: 90,
+      render: (t: string) => <Tag color={tipoColor[t]}>{tipoLabel[t]}</Tag>
     },
     {
-      title: 'Estado', dataIndex: 'estado', key: 'estado', width: 100,
-      render: (estado: string) => (
-        <Tag color={estado === 'vigente' ? 'green' : 'red'}>
-          {estado?.charAt(0).toUpperCase() + estado?.slice(1)}
+      title: 'Estado', dataIndex: 'estado', key: 'estado', width: 90,
+      render: (e: string) => (
+        <Tag color={e === 'vigente' ? 'green' : 'red'}>
+          {e?.charAt(0).toUpperCase() + e?.slice(1)}
         </Tag>
       )
     },
     {
-      title: 'Acciones', key: 'acciones', width: 140,
+      title: 'Forma Pago', dataIndex: 'forma_pago', key: 'forma_pago', width: 100,
+      render: (v: string) => v ? <Tooltip title={formaPagoLabel[v]}><span>{v}</span></Tooltip> : '-'
+    },
+    {
+      title: 'Método', dataIndex: 'metodo_pago', key: 'metodo_pago', width: 80,
+      render: (v: string) => v ? <Tooltip title={metodoPagoLabel[v]}><span>{v}</span></Tooltip> : '-'
+    },
+    {
+      title: 'Moneda', dataIndex: 'moneda', key: 'moneda', width: 80,
+      render: (v: string) => v || '-'
+    },
+    {
+      title: 'Subtotal', dataIndex: 'subtotal', key: 'subtotal', width: 120,
+      render: (n: number) => fmt(n)
+    },
+    {
+      title: 'Descuento', dataIndex: 'descuento', key: 'descuento', width: 110,
+      render: (n: number) => n ? fmt(n) : '-'
+    },
+    {
+      title: 'IVA', dataIndex: 'total_impuestos_trasladados', key: 'iva', width: 110,
+      render: (n: number) => n ? fmt(n) : '-'
+    },
+    {
+      title: 'Retenciones', dataIndex: 'total_impuestos_retenidos', key: 'ret', width: 110,
+      render: (n: number) => n ? fmt(n) : '-'
+    },
+    {
+      title: 'Total', dataIndex: 'total', key: 'total', width: 120,
+      render: (n: number) => <strong>{fmt(n)}</strong>
+    },
+    {
+      title: 'Acciones', key: 'acciones', width: 140, fixed: 'right' as const,
       render: (_: unknown, record: Factura) => (
         <Space>
           <Tooltip title="Ver detalle">
@@ -113,12 +185,10 @@ const FacturasPage = (): JSX.Element => {
         </Space>
       )
     }
-  ].filter((col) => !col.hidden)
+  ]
 
   return (
     <div className="facturas-container">
-
-      {/* HEADER */}
       <div className="facturas-header">
         <h2>Facturas</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -127,13 +197,15 @@ const FacturasPage = (): JSX.Element => {
               Última actualización: {tiempoDesdeActualizacion()}
             </span>
           )}
+          <Button icon={<DownloadOutlined />} onClick={exportarExcel} disabled={facturas.length === 0}>
+            Exportar Excel
+          </Button>
           <Button icon={<ReloadOutlined />} onClick={cargarFacturas} loading={loading}>
             Actualizar
           </Button>
         </div>
       </div>
 
-      {/* RESUMEN */}
       {facturas.length > 0 && (
         <div className="facturas-resumen">
           <span><strong>{resumen.total.toLocaleString()}</strong> facturas</span>
@@ -160,7 +232,6 @@ const FacturasPage = (): JSX.Element => {
 
       {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
 
-      {/* FILTROS */}
       <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
         <Search
           placeholder="Buscar por UUID, emisor, receptor o RFC..."
@@ -209,7 +280,7 @@ const FacturasPage = (): JSX.Element => {
             </div>
           )
         }}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 1800 }}
       />
 
       <FacturaDetalleModal factura={facturaDetalle} visible={modalVisible} onCerrar={cerrarDetalle} />

@@ -3,7 +3,7 @@ import { SaveOutlined, FolderOpenOutlined } from '@ant-design/icons'
 import { useConfiguracionPage } from './ConfiguracionPage.hook'
 import './ConfiguracionPage.css'
 
-const ConfiguracionPage = (): JSX.Element => {
+const ConfiguracionPage = ()  => {
   const { config, loading, guardado, error, guardar, cambiarMetodo, cambiarCampo, seleccionarCer, seleccionarKey, seleccionarCarpeta } =
     useConfiguracionPage()
 

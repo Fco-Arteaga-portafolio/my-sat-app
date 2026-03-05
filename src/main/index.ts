@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -8,7 +8,7 @@ import { FacturaHandler } from './ipc/FacturaHandler'
 import { ConfiguracionHandler } from './ipc/ConfiguracionHandler'
 import { FacturaRepository } from './database/repositories/FacturaRepository'
 import { DescargaPendienteRepository } from './database/repositories/DescargaPendienteRepository'
-import { FacturaService } from './services/FacturaService'
+import { DescargaService } from './services/DescargaService'
 import { ConfiguracionService } from './services/ConfiguracionService'
 
 function initDatabase(): void {
@@ -63,11 +63,11 @@ app.whenReady().then(() => {
   const db = Database.getInstance()
 
   const facturaRepository = new FacturaRepository(db)
-  const descargaPendienteRepository = new DescargaPendienteRepository(db)
-  const configuracionService = new ConfiguracionService()
-  const facturaService = new FacturaService(facturaRepository, descargaPendienteRepository)
+const descargaPendienteRepository = new DescargaPendienteRepository(db)
+const configuracionService = new ConfiguracionService()
+const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository)
 
-  new FacturaHandler(facturaService, configuracionService).registrar()
+  new FacturaHandler(descargaService, configuracionService).registrar()
   new ConfiguracionHandler().registrar()
   createWindow()
 

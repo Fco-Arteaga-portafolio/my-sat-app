@@ -1,16 +1,16 @@
-import { chromium } from 'playwright'
 import * as fs from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
 import { FacturaParseada } from '../../renderer/src/utils/xmlParser'
 import { regimenFiscal, usoCFDI, formaPago, metodoPago, impuesto, tipoPercepcion, tipoDeduccion, cat } from '../../renderer/src/utils/catalogosSat'
+import { BrowserManager } from '../scraper/BrowserManager'
 
 export type Plantilla = 'clasica' | 'moderna' | 'minimalista'
 
 export class PdfService {
 
     async generarPdf(
-        xmlContenido: string,
+        _xmlContenido: string,
         parseada: FacturaParseada,
         uuid: string,
         plantilla: Plantilla,
@@ -173,8 +173,8 @@ export class PdfService {
     }
 
     private async htmlAPdf(html: string, rutaDestino: string): Promise<void> {
-        const browser = await chromium.launch({ headless: true })
-        const page = await browser.newPage()
+        const context = await BrowserManager.newContext()
+        const page = await context.newPage()
         await page.setContent(html, { waitUntil: 'networkidle' })
         await page.pdf({
             path: rutaDestino,
@@ -182,7 +182,7 @@ export class PdfService {
             margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' },
             printBackground: true
         })
-        await browser.close()
+         await context.close()
     }
 
     private reemplazar(html: string, clave: string, valor: string): string {

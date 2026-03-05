@@ -7,7 +7,7 @@ import dayjs from 'dayjs'
 
 const { Option } = Select
 
-const DescargaPage = (): JSX.Element => {
+const DescargaPage = () => {
   const {
     form, loading, cargandoCaptcha, captchaBase64, captchaTexto,
     error, resultado, configuracion, progreso, erroresDescarga,

@@ -1,6 +1,7 @@
-import { chromium, BrowserContext, Page } from 'playwright'
+import { BrowserContext, Page } from 'playwright'
 import { SatAuthService } from './SatAuthService'
 import { Configuracion } from '../services/ConfiguracionService'
+import { BrowserManager } from './BrowserManager'
 import { app } from 'electron'
 import * as fs from 'fs'
 import { join } from 'path'
@@ -66,8 +67,7 @@ export class SatScraper {
       return
     }
     console.log('Creando nuevo browser')
-    const browser = await chromium.launch({ headless: false })
-    this.context = await browser.newContext()
+    this.context = await BrowserManager.newContext()
     this.authService = new SatAuthService(this.context)
   }
 
@@ -156,8 +156,8 @@ export class SatScraper {
 
   private dividirEnMeses(fechaInicio: string, fechaFin: string): { inicio: string; fin: string }[] {
     // Formato entrada: DD/MM/YYYY
-    const [diaI, mesI, anioI] = fechaInicio.split('/').map(Number)
-    const [diaF, mesF, anioF] = fechaFin.split('/').map(Number)
+    const [_diaI, mesI, anioI] = fechaInicio.split('/').map(Number)
+    const [_diaF, mesF, anioF] = fechaFin.split('/').map(Number)
 
     const meses: { inicio: string; fin: string }[] = []
     let anio = anioI
@@ -345,7 +345,7 @@ export class SatScraper {
 
   async cerrar(): Promise<void> {
     if (this.context) {
-      await this.context.browser()?.close()
+      await this.context.close()
       this.context = null
       this.authService = null
     }

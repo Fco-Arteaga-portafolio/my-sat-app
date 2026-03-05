@@ -29,7 +29,7 @@ const plantillas = [
   }
 ]
 
-const SeleccionPlantillaModal = ({ factura, visible, onCerrar }: Props): JSX.Element => {
+const SeleccionPlantillaModal = ({ factura, visible, onCerrar }: Props) => {
   const [plantillaSeleccionada, setPlantillaSeleccionada] = useState<string>('clasica')
   const [generando, setGenerando] = useState(false)
 

@@ -13,7 +13,7 @@ import './AppLayout.css'
 const { Sider, Content } = Layout
 
 
-const AppLayout = (): JSX.Element => {
+const AppLayout = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const [totalPendientes, setTotalPendientes] = useState(0)

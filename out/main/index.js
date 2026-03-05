@@ -3,9 +3,10 @@ const electron = require("electron");
 const path = require("path");
 const utils = require("@electron-toolkit/utils");
 const BetterSqlite3 = require("better-sqlite3");
-const playwright = require("playwright");
 const fs = require("fs");
+const playwright = require("playwright");
 const axios = require("axios");
+const xmldom = require("@xmldom/xmldom");
 function _interopNamespaceDefault(e) {
   const n = Object.create(null, { [Symbol.toStringTag]: { value: "Module" } });
   if (e) {
@@ -91,6 +92,35 @@ function migration003(db) {
     )
   `);
 }
+function migration004(db) {
+  const cols = [
+    "serie TEXT",
+    "folio TEXT",
+    "fecha_timbrado TEXT",
+    "forma_pago TEXT",
+    "metodo_pago TEXT",
+    "moneda TEXT",
+    "tipo_cambio REAL",
+    "descuento REAL DEFAULT 0",
+    "total_impuestos_trasladados REAL DEFAULT 0",
+    "total_impuestos_retenidos REAL DEFAULT 0",
+    "estado_cancelacion TEXT",
+    "estado_proceso_cancelacion TEXT",
+    "fecha_cancelacion TEXT",
+    "version TEXT",
+    "rfc_pac TEXT",
+    "folio_sustitucion TEXT"
+  ];
+  for (const col of cols) {
+    const nombre = col.split(" ")[0];
+    try {
+      db.exec(`ALTER TABLE facturas ADD COLUMN ${col}`);
+      console.log(`Columna ${nombre} agregada`);
+    } catch {
+      console.log(`Columna ${nombre} ya existe`);
+    }
+  }
+}
 class MigrationRunner {
   constructor(db) {
     this.db = db;
@@ -112,7 +142,8 @@ class MigrationRunner {
     const migrations = [
       { nombre: "001_initial", fn: runMigration001 },
       { nombre: "002_tipo_descarga", fn: migration002 },
-      { nombre: "003_descargas_pendientes", fn: migration003 }
+      { nombre: "003_descargas_pendientes", fn: migration003 },
+      { nombre: "004_campos_cfdi", fn: migration004 }
     ];
     for (const migration of migrations) {
       const yaEjecutada = this.db.prepare(
@@ -277,8 +308,32 @@ const tipoDeduccion = {
   "021": "Cuotas obrero patronales"
 };
 const cat = (catalogo, clave) => catalogo[clave] ? `${clave} - ${catalogo[clave]}` : clave;
+class BrowserManager {
+  static browser = null;
+  static headless = process.env.NODE_ENV === "production";
+  // ← un solo lugar para cambiar
+  static setHeadless(value) {
+    this.headless = value;
+  }
+  static async getBrowser() {
+    if (!this.browser) {
+      this.browser = await playwright.chromium.launch({ headless: this.headless });
+    }
+    return this.browser;
+  }
+  static async newContext() {
+    const browser = await this.getBrowser();
+    return browser.newContext();
+  }
+  static async cerrar() {
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+    }
+  }
+}
 class PdfService {
-  async generarPdf(xmlContenido, parseada, uuid, plantilla, rutaDestino) {
+  async generarPdf(_xmlContenido, parseada, uuid, plantilla, rutaDestino) {
     const html = this.construirHtml(parseada, uuid, plantilla);
     await this.htmlAPdf(html, rutaDestino);
   }
@@ -403,8 +458,8 @@ class PdfService {
     return html;
   }
   async htmlAPdf(html, rutaDestino) {
-    const browser = await playwright.chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    const context = await BrowserManager.newContext();
+    const page = await context.newPage();
     await page.setContent(html, { waitUntil: "networkidle" });
     await page.pdf({
       path: rutaDestino,
@@ -412,7 +467,7 @@ class PdfService {
       margin: { top: "10mm", bottom: "10mm", left: "10mm", right: "10mm" },
       printBackground: true
     });
-    await browser.close();
+    await context.close();
   }
   reemplazar(html, clave, valor) {
     return html.replace(new RegExp(`{{${clave}}}`, "g"), valor || "");
@@ -442,19 +497,16 @@ class PdfService {
   }
 }
 class FacturaHandler {
-  constructor(facturaService, configuracionService) {
-    this.facturaService = facturaService;
+  constructor(descargaService, configuracionService) {
+    this.descargaService = descargaService;
     this.configuracionService = configuracionService;
   }
   registrar() {
     electron.ipcMain.handle("obtener-captcha", async () => {
       try {
-        console.log("SCRAPER ID:", this.facturaService.scraper === null ? "null" : "existe");
-        const imagenBase64 = await this.facturaService.obtenerCaptcha();
-        console.log("SCRAPER DESPUÉS:", this.facturaService.scraper.context === null ? "null" : "tiene contexto");
+        const imagenBase64 = await this.descargaService.obtenerCaptcha();
         return { success: true, imagenBase64 };
       } catch (error) {
-        console.error("ERROR CAPTCHA:", error);
         return { success: false, error: String(error) };
       }
     });
@@ -462,13 +514,11 @@ class FacturaHandler {
       try {
         const config = this.configuracionService.obtener();
         if (!config) return { success: false, error: "No hay configuración guardada" };
-        const resultado = await this.facturaService.descargarFacturas(
+        const resultado = await this.descargaService.descargar(
           config,
           datos.params,
           datos.captcha,
-          (progreso) => {
-            event.sender.send("progreso-descarga", progreso);
-          }
+          (progreso) => event.sender.send("progreso-descarga", progreso)
         );
         return { success: true, total: resultado.total, errores: resultado.errores };
       } catch (error) {
@@ -484,7 +534,7 @@ class FacturaHandler {
     });
     electron.ipcMain.handle("obtener-facturas", async () => {
       try {
-        const facturas = this.facturaService.obtenerTodas();
+        const facturas = this.descargaService.obtenerFacturas();
         return { success: true, facturas };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -492,7 +542,7 @@ class FacturaHandler {
     });
     electron.ipcMain.handle("eliminar-factura", async (_, uuid) => {
       try {
-        this.facturaService.eliminar(uuid);
+        this.descargaService.eliminarFactura(uuid);
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -528,13 +578,12 @@ class FacturaHandler {
         );
         return { success: true };
       } catch (error) {
-        console.error("ERROR PDF:", error);
         return { success: false, error: String(error) };
       }
     });
     electron.ipcMain.handle("obtener-pendientes", async () => {
       try {
-        const pendientes = this.facturaService.obtenerPendientes();
+        const pendientes = this.descargaService.obtenerPendientes();
         return { success: true, pendientes };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -542,7 +591,7 @@ class FacturaHandler {
     });
     electron.ipcMain.handle("contar-pendientes", async () => {
       try {
-        const total = this.facturaService.contarPendientes();
+        const total = this.descargaService.contarPendientes();
         return { success: true, total };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -550,7 +599,7 @@ class FacturaHandler {
     });
     electron.ipcMain.handle("limpiar-pendientes", async () => {
       try {
-        this.facturaService.limpiarPendientes();
+        this.descargaService.limpiarPendientes();
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -560,12 +609,10 @@ class FacturaHandler {
       try {
         const config = this.configuracionService.obtener();
         if (!config) return { success: false, error: "No hay configuración guardada" };
-        const resultado = await this.facturaService.reintentarPendientes(
+        const resultado = await this.descargaService.reintentarPendientes(
           config,
           datos.captcha,
-          (progreso) => {
-            event.sender.send("progreso-descarga", progreso);
-          }
+          (progreso) => event.sender.send("progreso-descarga", progreso)
         );
         return { success: true, total: resultado.total, errores: resultado.errores };
       } catch (error) {
@@ -687,13 +734,39 @@ class FacturaRepository {
   insertar(factura) {
     const stmt = this.db.prepare(`
     INSERT OR IGNORE INTO facturas 
-      (uuid, fecha_emision, rfc_emisor, nombre_emisor, rfc_receptor, 
-       nombre_receptor, subtotal, total, tipo_comprobante, estado, xml, tipo_descarga)
+      (uuid, version, serie, folio, fecha_emision, fecha_timbrado,
+       rfc_emisor, nombre_emisor, rfc_receptor, nombre_receptor,
+       subtotal, descuento, total_impuestos_trasladados, total_impuestos_retenidos,
+       total, tipo_comprobante, forma_pago, metodo_pago, moneda, tipo_cambio,
+       estado, estado_cancelacion, estado_proceso_cancelacion, fecha_cancelacion,
+       rfc_pac, folio_sustitucion, xml, tipo_descarga)
     VALUES
-      (@uuid, @fecha_emision, @rfc_emisor, @nombre_emisor, @rfc_receptor,
-       @nombre_receptor, @subtotal, @total, @tipo_comprobante, @estado, @xml, @tipo_descarga)
+      (@uuid, @version, @serie, @folio, @fecha_emision, @fecha_timbrado,
+       @rfc_emisor, @nombre_emisor, @rfc_receptor, @nombre_receptor,
+       @subtotal, @descuento, @total_impuestos_trasladados, @total_impuestos_retenidos,
+       @total, @tipo_comprobante, @forma_pago, @metodo_pago, @moneda, @tipo_cambio,
+       @estado, @estado_cancelacion, @estado_proceso_cancelacion, @fecha_cancelacion,
+       @rfc_pac, @folio_sustitucion, @xml, @tipo_descarga)
   `);
-    stmt.run(factura);
+    stmt.run({
+      version: null,
+      serie: null,
+      folio: null,
+      fecha_timbrado: null,
+      descuento: 0,
+      total_impuestos_trasladados: 0,
+      total_impuestos_retenidos: 0,
+      forma_pago: null,
+      metodo_pago: null,
+      moneda: null,
+      tipo_cambio: null,
+      estado_cancelacion: null,
+      estado_proceso_cancelacion: null,
+      fecha_cancelacion: null,
+      rfc_pac: null,
+      folio_sustitucion: null,
+      ...factura
+    });
   }
   obtenerTodas() {
     return this.db.prepare(`
@@ -714,6 +787,13 @@ class FacturaRepository {
   }
   eliminar(uuid) {
     this.db.prepare(`DELETE FROM facturas WHERE uuid = ?`).run(uuid);
+  }
+  actualizar(uuid, campos) {
+    const keys = Object.keys(campos).filter((k) => k !== "uuid");
+    if (keys.length === 0) return;
+    const sets = keys.map((k) => `${k} = @${k}`).join(", ");
+    const stmt = this.db.prepare(`UPDATE facturas SET ${sets} WHERE uuid = @uuid`);
+    stmt.run({ ...campos, uuid });
   }
 }
 class DescargaPendienteRepository {
@@ -839,8 +919,7 @@ class SatScraper {
       return;
     }
     console.log("Creando nuevo browser");
-    const browser = await playwright.chromium.launch({ headless: false });
-    this.context = await browser.newContext();
+    this.context = await BrowserManager.newContext();
     this.authService = new SatAuthService(this.context);
   }
   async obtenerCaptcha() {
@@ -894,8 +973,8 @@ class SatScraper {
     return { facturas, errores };
   }
   dividirEnMeses(fechaInicio, fechaFin) {
-    const [diaI, mesI, anioI] = fechaInicio.split("/").map(Number);
-    const [diaF, mesF, anioF] = fechaFin.split("/").map(Number);
+    const [_diaI, mesI, anioI] = fechaInicio.split("/").map(Number);
+    const [_diaF, mesF, anioF] = fechaFin.split("/").map(Number);
     const meses = [];
     let anio = anioI;
     let mes = mesI;
@@ -1040,7 +1119,7 @@ class SatScraper {
   }
   async cerrar() {
     if (this.context) {
-      await this.context.browser()?.close();
+      await this.context.close();
       this.context = null;
       this.authService = null;
     }
@@ -1129,25 +1208,62 @@ class SatScraper {
     return { facturas, errores };
   }
 }
-class FacturaService {
-  constructor(repository, pendienteRepository) {
-    this.repository = repository;
+class XmlParserService {
+  extraerCampos(rutaXml) {
+    try {
+      const contenido = fs__namespace.readFileSync(rutaXml, "utf-8");
+      const parser = new xmldom.DOMParser();
+      const doc = parser.parseFromString(contenido, "text/xml");
+      const ns = "http://www.sat.gob.mx/cfd/4";
+      const nsTfd = "http://www.sat.gob.mx/TimbreFiscalDigital";
+      const cfdi = doc.getElementsByTagNameNS(ns, "Comprobante")[0] || doc.documentElement;
+      const tfd = doc.getElementsByTagNameNS(nsTfd, "TimbreFiscalDigital")[0] || null;
+      const cfdiRelacionado = doc.getElementsByTagNameNS(ns, "CfdiRelacionado")[0] || null;
+      const impuestosEl = doc.getElementsByTagNameNS(ns, "Impuestos")[0] || null;
+      const getAttr = (el, attr) => el?.getAttribute(attr) || "";
+      const getFloat = (el, attr) => parseFloat(el?.getAttribute(attr) || "0") || 0;
+      return {
+        version: getAttr(cfdi, "Version"),
+        serie: getAttr(cfdi, "Serie"),
+        folio: getAttr(cfdi, "Folio"),
+        forma_pago: getAttr(cfdi, "FormaPago"),
+        metodo_pago: getAttr(cfdi, "MetodoPago"),
+        moneda: getAttr(cfdi, "Moneda"),
+        tipo_cambio: getFloat(cfdi, "TipoCambio"),
+        descuento: getFloat(cfdi, "Descuento"),
+        fecha_timbrado: getAttr(tfd, "FechaTimbrado"),
+        rfc_pac: getAttr(tfd, "RfcProvCertif"),
+        folio_sustitucion: getAttr(cfdiRelacionado, "UUID"),
+        total_impuestos_trasladados: getFloat(impuestosEl, "TotalImpuestosTrasladados"),
+        total_impuestos_retenidos: getFloat(impuestosEl, "TotalImpuestosRetenidos")
+      };
+    } catch (err) {
+      console.error("Error extrayendo campos XML:", err);
+      return {};
+    }
+  }
+}
+class DescargaService {
+  constructor(facturaRepository, pendienteRepository) {
+    this.facturaRepository = facturaRepository;
     this.pendienteRepository = pendienteRepository;
   }
   scraper = new SatScraper();
+  xmlParser = new XmlParserService();
   async obtenerCaptcha() {
     await this.scraper.iniciar();
     return await this.scraper.obtenerCaptcha();
   }
-  async descargarFacturas(config, params, captcha, onProgreso) {
+  async descargar(config, params, captcha, onProgreso) {
     try {
       const { facturas, errores } = await this.scraper.descargarFacturas(config, params, captcha, onProgreso);
       let guardadas = 0;
       for (const f of facturas) {
         if (!f.urlDescarga) continue;
-        const yaExiste = this.repository.obtenerPorUuid(f.uuid);
+        const yaExiste = this.facturaRepository.obtenerPorUuid(f.uuid);
         if (!yaExiste) {
-          this.repository.insertar({
+          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga);
+          this.facturaRepository.insertar({
             uuid: f.uuid,
             fecha_emision: f.fecha_emision,
             rfc_emisor: f.rfc_emisor,
@@ -1160,47 +1276,41 @@ class FacturaService {
             estado: f.estado,
             xml: f.urlDescarga,
             tipo_descarga: params.tipo === "recibidas" ? "recibida" : "emitida",
-            fecha_descarga: (/* @__PURE__ */ new Date()).toISOString()
+            fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
+            ...camposXml
           });
-          this.pendienteRepository.eliminar(f.uuid);
-          guardadas++;
+        } else {
+          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga);
+          this.facturaRepository.actualizar(f.uuid, {
+            xml: f.urlDescarga,
+            ...camposXml
+          });
         }
+        this.pendienteRepository.eliminar(f.uuid);
+        guardadas++;
       }
       for (const e of errores) {
-        this.pendienteRepository.insertar({
-          uuid: e.uuid,
-          rfc_emisor: e.fila.rfc_emisor,
-          nombre_emisor: e.fila.nombre_emisor,
-          rfc_receptor: e.fila.rfc_receptor,
-          nombre_receptor: e.fila.nombre_receptor,
-          fecha_emision: e.fila.fecha_emision,
-          total: e.fila.total,
-          tipo_comprobante: e.fila.tipo_comprobante,
-          estado: e.fila.estado,
-          url_descarga: e.fila.urlDescarga,
-          tipo_descarga: params.tipo === "recibidas" ? "recibida" : "emitida",
-          error: e.error
-        });
+        if (e.fila) {
+          this.pendienteRepository.insertar({
+            uuid: e.uuid,
+            rfc_emisor: e.fila.rfc_emisor,
+            nombre_emisor: e.fila.nombre_emisor,
+            rfc_receptor: e.fila.rfc_receptor,
+            nombre_receptor: e.fila.nombre_receptor,
+            fecha_emision: e.fila.fecha_emision,
+            total: e.fila.total,
+            tipo_comprobante: e.fila.tipo_comprobante,
+            estado: e.fila.estado,
+            url_descarga: e.fila.urlDescarga,
+            tipo_descarga: params.tipo === "recibidas" ? "recibida" : "emitida",
+            error: e.error
+          });
+        }
       }
       return { total: guardadas, errores };
     } finally {
       await this.scraper.cerrar();
     }
-  }
-  obtenerTodas() {
-    return this.repository.obtenerTodas();
-  }
-  eliminar(uuid) {
-    return this.repository.eliminar(uuid);
-  }
-  obtenerPendientes() {
-    return this.pendienteRepository.obtenerTodas();
-  }
-  contarPendientes() {
-    return this.pendienteRepository.contar();
-  }
-  limpiarPendientes() {
-    return this.pendienteRepository.limpiar();
   }
   async reintentarPendientes(config, captcha, onProgreso) {
     try {
@@ -1216,9 +1326,10 @@ class FacturaService {
       let guardadas = 0;
       for (const f of facturas) {
         if (!f.urlDescarga) continue;
-        const yaExiste = this.repository.obtenerPorUuid(f.uuid);
+        const yaExiste = this.facturaRepository.obtenerPorUuid(f.uuid);
         if (!yaExiste) {
-          this.repository.insertar({
+          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga);
+          this.facturaRepository.insertar({
             uuid: f.uuid,
             fecha_emision: f.fecha_emision,
             rfc_emisor: f.rfc_emisor,
@@ -1231,7 +1342,8 @@ class FacturaService {
             estado: f.estado,
             xml: f.urlDescarga,
             tipo_descarga: f.tipo_descarga,
-            fecha_descarga: (/* @__PURE__ */ new Date()).toISOString()
+            fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
+            ...camposXml
           });
           this.pendienteRepository.eliminar(f.uuid);
           guardadas++;
@@ -1247,6 +1359,25 @@ class FacturaService {
     } finally {
       await this.scraper.cerrar();
     }
+  }
+  // Consultas simples
+  obtenerFacturas() {
+    return this.facturaRepository.obtenerTodas();
+  }
+  obtenerFacturaPorUuid(uuid) {
+    return this.facturaRepository.obtenerPorUuid(uuid);
+  }
+  eliminarFactura(uuid) {
+    return this.facturaRepository.eliminar(uuid);
+  }
+  obtenerPendientes() {
+    return this.pendienteRepository.obtenerTodas();
+  }
+  contarPendientes() {
+    return this.pendienteRepository.contar();
+  }
+  limpiarPendientes() {
+    return this.pendienteRepository.limpiar();
   }
 }
 function initDatabase() {
@@ -1295,8 +1426,8 @@ electron.app.whenReady().then(() => {
   const facturaRepository = new FacturaRepository(db);
   const descargaPendienteRepository = new DescargaPendienteRepository(db);
   const configuracionService = new ConfiguracionService();
-  const facturaService = new FacturaService(facturaRepository, descargaPendienteRepository);
-  new FacturaHandler(facturaService, configuracionService).registrar();
+  const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository);
+  new FacturaHandler(descargaService, configuracionService).registrar();
   new ConfiguracionHandler().registrar();
   createWindow();
   electron.app.on("activate", function() {

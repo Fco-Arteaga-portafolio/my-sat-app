@@ -5,7 +5,7 @@ import DescargaPage from './pages/DescargaPage/DescargaPage'
 import FacturasPage from './pages/FacturasPage/FacturasPage'
 import PendientesPage from './pages/PendientesPage/PendientesPage'
 
-const App = (): JSX.Element => {
+const App = () => {
   return (
     <HashRouter>
       <Routes>
