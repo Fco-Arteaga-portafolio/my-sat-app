@@ -42,8 +42,8 @@ export const useConfiguracionPage = () => {
     setConfig({ ...config, metodoAuth: metodo })
   }
 
-  const cambiarCampo = (campo: keyof Configuracion, valor: string) => {
-    setConfig({ ...config, [campo]: valor })
+  const cambiarCampo = (campo: string, valor: string) => {
+    setConfig(prev => ({ ...prev, [campo]: valor }))
   }
 
   const seleccionarCer = async () => {

@@ -121,6 +121,23 @@ function migration004(db) {
     }
   }
 }
+function migration005(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS perfiles (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc               TEXT UNIQUE NOT NULL,
+      nombre            TEXT NOT NULL,
+      metodo_auth       TEXT CHECK(metodo_auth IN ('contrasena', 'efirma')) NOT NULL,
+      contrasena        TEXT,
+      ruta_cer          TEXT,
+      ruta_key          TEXT,
+      contrasena_fiel   TEXT,
+      carpeta_descarga  TEXT,
+      activo            INTEGER DEFAULT 0,
+      fecha_creacion    TEXT DEFAULT (datetime('now'))
+    )
+  `);
+}
 class MigrationRunner {
   constructor(db) {
     this.db = db;
@@ -143,7 +160,8 @@ class MigrationRunner {
       { nombre: "001_initial", fn: runMigration001 },
       { nombre: "002_tipo_descarga", fn: migration002 },
       { nombre: "003_descargas_pendientes", fn: migration003 },
-      { nombre: "004_campos_cfdi", fn: migration004 }
+      { nombre: "004_campos_cfdi", fn: migration004 },
+      { nombre: "005_perfiles", fn: migration005 }
     ];
     for (const migration of migrations) {
       const yaEjecutada = this.db.prepare(
@@ -628,38 +646,173 @@ class FacturaHandler {
     });
   }
 }
+class ProfileManager {
+  constructor(db) {
+    this.db = db;
+  }
+  static perfilActivo = null;
+  // ── Perfiles ──────────────────────────────────────────
+  obtenerTodos() {
+    return this.db.prepare("SELECT * FROM perfiles ORDER BY nombre ASC").all();
+  }
+  obtenerPorRfc(rfc) {
+    return this.db.prepare("SELECT * FROM perfiles WHERE rfc = ?").get(rfc);
+  }
+  insertar(perfil) {
+    this.db.prepare(`
+      INSERT OR REPLACE INTO perfiles
+        (rfc, nombre, metodo_auth, contrasena, ruta_cer, ruta_key, contrasena_fiel, carpeta_descarga)
+      VALUES
+        (@rfc, @nombre, @metodo_auth, @contrasena, @ruta_cer, @ruta_key, @contrasena_fiel, @carpeta_descarga)
+    `).run({
+      contrasena: null,
+      ruta_cer: null,
+      ruta_key: null,
+      contrasena_fiel: null,
+      carpeta_descarga: null,
+      ...perfil
+    });
+    this.crearTablasPerfil(perfil.rfc);
+  }
+  eliminar(rfc) {
+    this.db.prepare("DELETE FROM perfiles WHERE rfc = ?").run(rfc);
+  }
+  // ── Perfil activo ─────────────────────────────────────
+  static getPerfilActivo() {
+    return this.perfilActivo;
+  }
+  static setPerfilActivo(perfil) {
+    this.perfilActivo = perfil;
+  }
+  static limpiarPerfil() {
+    this.perfilActivo = null;
+  }
+  // ── Nombres de tablas dinámicos ───────────────────────
+  static getTablaFacturas(rfc) {
+    const r = rfc || this.perfilActivo?.rfc;
+    if (!r) throw new Error("No hay perfil activo");
+    return `facturas_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  }
+  static getTablaPendientes(rfc) {
+    const r = rfc || this.perfilActivo?.rfc;
+    if (!r) throw new Error("No hay perfil activo");
+    return `descargas_pendientes_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  }
+  // ── Crear tablas para un RFC nuevo ────────────────────
+  crearTablasPerfil(rfc) {
+    const tablaFacturas = ProfileManager.getTablaFacturas(rfc);
+    const tablaPendientes = ProfileManager.getTablaPendientes(rfc);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS ${tablaFacturas} (
+        id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid                            TEXT UNIQUE NOT NULL,
+        version                         TEXT,
+        serie                           TEXT,
+        folio                           TEXT,
+        fecha_emision                   TEXT,
+        fecha_timbrado                  TEXT,
+        rfc_emisor                      TEXT,
+        nombre_emisor                   TEXT,
+        rfc_receptor                    TEXT,
+        nombre_receptor                 TEXT,
+        subtotal                        REAL,
+        descuento                       REAL DEFAULT 0,
+        total_impuestos_trasladados     REAL DEFAULT 0,
+        total_impuestos_retenidos       REAL DEFAULT 0,
+        total                           REAL,
+        tipo_comprobante                TEXT,
+        forma_pago                      TEXT,
+        metodo_pago                     TEXT,
+        moneda                          TEXT,
+        tipo_cambio                     REAL,
+        estado                          TEXT,
+        estado_cancelacion              TEXT,
+        estado_proceso_cancelacion      TEXT,
+        fecha_cancelacion               TEXT,
+        rfc_pac                         TEXT,
+        folio_sustitucion               TEXT,
+        xml                             TEXT,
+        tipo_descarga                   TEXT CHECK(tipo_descarga IN ('recibida', 'emitida')),
+        fecha_descarga                  TEXT
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS ${tablaPendientes} (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid              TEXT UNIQUE NOT NULL,
+        rfc_emisor        TEXT,
+        nombre_emisor     TEXT,
+        rfc_receptor      TEXT,
+        nombre_receptor   TEXT,
+        fecha_emision     TEXT,
+        total             REAL,
+        tipo_comprobante  TEXT,
+        estado            TEXT,
+        url_descarga      TEXT,
+        tipo_descarga     TEXT CHECK(tipo_descarga IN ('recibida', 'emitida')),
+        error             TEXT,
+        intentos          INTEGER DEFAULT 1,
+        fecha_fallo       TEXT DEFAULT (datetime('now'))
+      )
+    `);
+  }
+}
 class ConfiguracionService {
-  configPath;
-  constructor() {
-    this.configPath = path.join(electron.app.getPath("userData"), "configuracion.json");
+  constructor(db) {
+    this.db = db;
   }
   guardar(config) {
     if (config.metodoAuth === "efirma") {
-      if (config.rutaCer) {
-        config.rutaCer = this.copiarArchivoEfirma(config.rutaCer, "cer");
-      }
-      if (config.rutaKey) {
-        config.rutaKey = this.copiarArchivoEfirma(config.rutaKey, "key");
-      }
+      if (config.rutaCer) config.rutaCer = this.copiarArchivoEfirma(config.rutaCer, "cer");
+      if (config.rutaKey) config.rutaKey = this.copiarArchivoEfirma(config.rutaKey, "key");
     }
-    fs__namespace.writeFileSync(this.configPath, JSON.stringify(config, null, 2), "utf-8");
+    this.db.prepare(`
+      UPDATE perfiles SET
+        metodo_auth = @metodo_auth,
+        contrasena = @contrasena,
+        ruta_cer = @ruta_cer,
+        ruta_key = @ruta_key,
+        contrasena_fiel = @contrasena_fiel,
+        carpeta_descarga = @carpeta_descarga
+      WHERE rfc = @rfc
+    `).run({
+      rfc: config.rfc,
+      metodo_auth: config.metodoAuth,
+      contrasena: config.contrasena || null,
+      ruta_cer: config.rutaCer || null,
+      ruta_key: config.rutaKey || null,
+      contrasena_fiel: config.contrasenaFiel || null,
+      carpeta_descarga: config.carpetaDescarga || null
+    });
+    const perfil = ProfileManager.getPerfilActivo();
+    if (perfil) {
+      ProfileManager.setPerfilActivo({
+        ...perfil,
+        metodo_auth: config.metodoAuth,
+        contrasena: config.contrasena,
+        ruta_cer: config.rutaCer,
+        ruta_key: config.rutaKey,
+        contrasena_fiel: config.contrasenaFiel,
+        carpeta_descarga: config.carpetaDescarga
+      });
+    }
   }
   obtener() {
-    try {
-      if (!fs__namespace.existsSync(this.configPath)) return null;
-      const data = fs__namespace.readFileSync(this.configPath, "utf-8");
-      return JSON.parse(data);
-    } catch {
-      return null;
-    }
-  }
-  limpiar() {
-    if (fs__namespace.existsSync(this.configPath)) {
-      fs__namespace.unlinkSync(this.configPath);
-    }
+    const perfil = ProfileManager.getPerfilActivo();
+    if (!perfil) return null;
+    return {
+      rfc: perfil.rfc,
+      metodoAuth: perfil.metodo_auth,
+      contrasena: perfil.contrasena,
+      rutaCer: perfil.ruta_cer,
+      rutaKey: perfil.ruta_key,
+      contrasenaFiel: perfil.contrasena_fiel,
+      carpetaDescarga: perfil.carpeta_descarga
+    };
   }
   copiarArchivoEfirma(rutaOrigen, tipo) {
-    const nombreArchivo = `efirma.${tipo}`;
+    const rfc = ProfileManager.getPerfilActivo()?.rfc || "default";
+    const nombreArchivo = `efirma_${rfc}.${tipo}`;
     const rutaDestino = path.join(electron.app.getPath("userData"), nombreArchivo);
     fs__namespace.copyFileSync(rutaOrigen, rutaDestino);
     return rutaDestino;
@@ -731,23 +884,26 @@ class FacturaRepository {
   constructor(db) {
     this.db = db;
   }
+  get tabla() {
+    return ProfileManager.getTablaFacturas();
+  }
   insertar(factura) {
     const stmt = this.db.prepare(`
-    INSERT OR IGNORE INTO facturas 
-      (uuid, version, serie, folio, fecha_emision, fecha_timbrado,
-       rfc_emisor, nombre_emisor, rfc_receptor, nombre_receptor,
-       subtotal, descuento, total_impuestos_trasladados, total_impuestos_retenidos,
-       total, tipo_comprobante, forma_pago, metodo_pago, moneda, tipo_cambio,
-       estado, estado_cancelacion, estado_proceso_cancelacion, fecha_cancelacion,
-       rfc_pac, folio_sustitucion, xml, tipo_descarga)
-    VALUES
-      (@uuid, @version, @serie, @folio, @fecha_emision, @fecha_timbrado,
-       @rfc_emisor, @nombre_emisor, @rfc_receptor, @nombre_receptor,
-       @subtotal, @descuento, @total_impuestos_trasladados, @total_impuestos_retenidos,
-       @total, @tipo_comprobante, @forma_pago, @metodo_pago, @moneda, @tipo_cambio,
-       @estado, @estado_cancelacion, @estado_proceso_cancelacion, @fecha_cancelacion,
-       @rfc_pac, @folio_sustitucion, @xml, @tipo_descarga)
-  `);
+      INSERT OR IGNORE INTO ${this.tabla}
+        (uuid, version, serie, folio, fecha_emision, fecha_timbrado,
+         rfc_emisor, nombre_emisor, rfc_receptor, nombre_receptor,
+         subtotal, descuento, total_impuestos_trasladados, total_impuestos_retenidos,
+         total, tipo_comprobante, forma_pago, metodo_pago, moneda, tipo_cambio,
+         estado, estado_cancelacion, estado_proceso_cancelacion, fecha_cancelacion,
+         rfc_pac, folio_sustitucion, xml, tipo_descarga)
+      VALUES
+        (@uuid, @version, @serie, @folio, @fecha_emision, @fecha_timbrado,
+         @rfc_emisor, @nombre_emisor, @rfc_receptor, @nombre_receptor,
+         @subtotal, @descuento, @total_impuestos_trasladados, @total_impuestos_retenidos,
+         @total, @tipo_comprobante, @forma_pago, @metodo_pago, @moneda, @tipo_cambio,
+         @estado, @estado_cancelacion, @estado_proceso_cancelacion, @fecha_cancelacion,
+         @rfc_pac, @folio_sustitucion, @xml, @tipo_descarga)
+    `);
     stmt.run({
       version: null,
       serie: null,
@@ -768,41 +924,40 @@ class FacturaRepository {
       ...factura
     });
   }
+  actualizar(uuid, campos) {
+    const keys = Object.keys(campos).filter((k) => k !== "uuid");
+    if (keys.length === 0) return;
+    const sets = keys.map((k) => `${k} = @${k}`).join(", ");
+    const stmt = this.db.prepare(`UPDATE ${this.tabla} SET ${sets} WHERE uuid = @uuid`);
+    stmt.run({ ...campos, uuid });
+  }
   obtenerTodas() {
-    return this.db.prepare(`
-      SELECT * FROM facturas ORDER BY fecha_emision DESC
-    `).all();
+    return this.db.prepare(`SELECT * FROM ${this.tabla} ORDER BY fecha_emision DESC`).all();
   }
   obtenerPorRfc(rfc) {
     return this.db.prepare(`
-      SELECT * FROM facturas 
+      SELECT * FROM ${this.tabla}
       WHERE rfc_emisor = ? OR rfc_receptor = ?
       ORDER BY fecha_emision DESC
     `).all(rfc, rfc);
   }
   obtenerPorUuid(uuid) {
-    return this.db.prepare(`
-      SELECT * FROM facturas WHERE uuid = ?
-    `).get(uuid);
+    return this.db.prepare(`SELECT * FROM ${this.tabla} WHERE uuid = ?`).get(uuid);
   }
   eliminar(uuid) {
-    this.db.prepare(`DELETE FROM facturas WHERE uuid = ?`).run(uuid);
-  }
-  actualizar(uuid, campos) {
-    const keys = Object.keys(campos).filter((k) => k !== "uuid");
-    if (keys.length === 0) return;
-    const sets = keys.map((k) => `${k} = @${k}`).join(", ");
-    const stmt = this.db.prepare(`UPDATE facturas SET ${sets} WHERE uuid = @uuid`);
-    stmt.run({ ...campos, uuid });
+    this.db.prepare(`DELETE FROM ${this.tabla} WHERE uuid = ?`).run(uuid);
   }
 }
 class DescargaPendienteRepository {
   constructor(db) {
     this.db = db;
   }
+  get tabla() {
+    return ProfileManager.getTablaPendientes();
+  }
   insertar(pendiente) {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO descargas_pendientes
+      INSERT OR REPLACE INTO ${this.tabla}
         (uuid, rfc_emisor, nombre_emisor, rfc_receptor, nombre_receptor,
          fecha_emision, total, tipo_comprobante, estado, url_descarga,
          tipo_descarga, error, intentos, fecha_fallo)
@@ -810,22 +965,22 @@ class DescargaPendienteRepository {
         (@uuid, @rfc_emisor, @nombre_emisor, @rfc_receptor, @nombre_receptor,
          @fecha_emision, @total, @tipo_comprobante, @estado, @url_descarga,
          @tipo_descarga, @error,
-         COALESCE((SELECT intentos + 1 FROM descargas_pendientes WHERE uuid = @uuid), 1),
+         COALESCE((SELECT intentos + 1 FROM ${this.tabla} WHERE uuid = @uuid), 1),
          datetime('now'))
     `);
     stmt.run(pendiente);
   }
   obtenerTodas() {
-    return this.db.prepare("SELECT * FROM descargas_pendientes ORDER BY fecha_fallo DESC").all();
+    return this.db.prepare(`SELECT * FROM ${this.tabla} ORDER BY fecha_fallo DESC`).all();
   }
   eliminar(uuid) {
-    this.db.prepare("DELETE FROM descargas_pendientes WHERE uuid = ?").run(uuid);
+    this.db.prepare(`DELETE FROM ${this.tabla} WHERE uuid = ?`).run(uuid);
   }
   limpiar() {
-    this.db.prepare("DELETE FROM descargas_pendientes").run();
+    this.db.prepare(`DELETE FROM ${this.tabla}`).run();
   }
   contar() {
-    const row = this.db.prepare("SELECT COUNT(*) as total FROM descargas_pendientes").get();
+    const row = this.db.prepare(`SELECT COUNT(*) as total FROM ${this.tabla}`).get();
     return row.total;
   }
 }
@@ -1380,6 +1535,64 @@ class DescargaService {
     return this.pendienteRepository.limpiar();
   }
 }
+class PerfilHandler {
+  constructor(profileManager) {
+    this.profileManager = profileManager;
+  }
+  registrar() {
+    electron.ipcMain.handle("obtener-perfiles", async () => {
+      try {
+        const perfiles = this.profileManager.obtenerTodos();
+        return { success: true, perfiles };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("crear-perfil", async (_, perfil) => {
+      try {
+        this.profileManager.insertar(perfil);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("eliminar-perfil", async (_, rfc) => {
+      try {
+        this.profileManager.eliminar(rfc);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("seleccionar-perfil", async (_, rfc) => {
+      try {
+        const perfil = this.profileManager.obtenerPorRfc(rfc);
+        if (!perfil) return { success: false, error: "Perfil no encontrado" };
+        ProfileManager.setPerfilActivo(perfil);
+        this.profileManager.crearTablasPerfil(rfc);
+        return { success: true, perfil };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("obtener-perfil-activo", async () => {
+      try {
+        const perfil = ProfileManager.getPerfilActivo();
+        return { success: true, perfil };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("cerrar-perfil", async () => {
+      try {
+        ProfileManager.limpiarPerfil();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
 function initDatabase() {
   const db = Database.getInstance();
   const migrationRunner = new MigrationRunner(db);
@@ -1425,8 +1638,10 @@ electron.app.whenReady().then(() => {
   const db = Database.getInstance();
   const facturaRepository = new FacturaRepository(db);
   const descargaPendienteRepository = new DescargaPendienteRepository(db);
-  const configuracionService = new ConfiguracionService();
+  const configuracionService = new ConfiguracionService(db);
   const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository);
+  const profileManager = new ProfileManager(db);
+  new PerfilHandler(profileManager).registrar();
   new FacturaHandler(descargaService, configuracionService).registrar();
   new ConfiguracionHandler().registrar();
   createWindow();

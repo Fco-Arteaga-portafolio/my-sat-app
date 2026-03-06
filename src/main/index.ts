@@ -10,6 +10,8 @@ import { FacturaRepository } from './database/repositories/FacturaRepository'
 import { DescargaPendienteRepository } from './database/repositories/DescargaPendienteRepository'
 import { DescargaService } from './services/DescargaService'
 import { ConfiguracionService } from './services/ConfiguracionService'
+import { ProfileManager } from './database/ProfileManager'
+import { PerfilHandler } from './ipc/PerfilHandler'
 
 function initDatabase(): void {
   const db = Database.getInstance()
@@ -63,10 +65,11 @@ app.whenReady().then(() => {
   const db = Database.getInstance()
 
   const facturaRepository = new FacturaRepository(db)
-const descargaPendienteRepository = new DescargaPendienteRepository(db)
-const configuracionService = new ConfiguracionService()
-const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository)
-
+  const descargaPendienteRepository = new DescargaPendienteRepository(db)
+  const configuracionService = new ConfiguracionService(db)
+  const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository)
+  const profileManager = new ProfileManager(db)
+  new PerfilHandler(profileManager).registrar()
   new FacturaHandler(descargaService, configuracionService).registrar()
   new ConfiguracionHandler().registrar()
   createWindow()

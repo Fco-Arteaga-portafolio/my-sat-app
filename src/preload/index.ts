@@ -18,6 +18,12 @@ const api = {
   obtenerPendientes: () => ipcRenderer.invoke('obtener-pendientes'),
   contarPendientes: () => ipcRenderer.invoke('contar-pendientes'),
   limpiarPendientes: () => ipcRenderer.invoke('limpiar-pendientes'),
+  obtenerPerfiles: () => ipcRenderer.invoke('obtener-perfiles'),
+  crearPerfil: (perfil: any) => ipcRenderer.invoke('crear-perfil', perfil),
+  eliminarPerfil: (rfc: string) => ipcRenderer.invoke('eliminar-perfil', rfc),
+  seleccionarPerfil: (rfc: string) => ipcRenderer.invoke('seleccionar-perfil', rfc),
+  obtenerPerfilActivo: () => ipcRenderer.invoke('obtener-perfil-activo'),
+  cerrarPerfil: () => ipcRenderer.invoke('cerrar-perfil'),
   reintentarPendientes: (datos: { captcha?: string }) => ipcRenderer.invoke('reintentar-pendientes', datos),
   generarPdf: (datos: { xmlContenido: string; parseada: any; uuid: string; plantilla: string; rutaDestino: string }) =>
     ipcRenderer.invoke('generar-pdf', datos),

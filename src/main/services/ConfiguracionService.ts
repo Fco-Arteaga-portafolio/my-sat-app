@@ -1,6 +1,8 @@
 import { app } from 'electron'
 import { join } from 'path'
 import * as fs from 'fs'
+import { ProfileManager } from '../database/ProfileManager'
+import BetterSqlite3 from 'better-sqlite3'
 
 export interface Configuracion {
   rfc: string
@@ -13,42 +15,66 @@ export interface Configuracion {
 }
 
 export class ConfiguracionService {
-  private readonly configPath: string
-
-  constructor() {
-    this.configPath = join(app.getPath('userData'), 'configuracion.json')
-  }
+  constructor(private readonly db: BetterSqlite3.Database) {}
 
   guardar(config: Configuracion): void {
     if (config.metodoAuth === 'efirma') {
-      if (config.rutaCer) {
-        config.rutaCer = this.copiarArchivoEfirma(config.rutaCer, 'cer')
-      }
-      if (config.rutaKey) {
-        config.rutaKey = this.copiarArchivoEfirma(config.rutaKey, 'key')
-      }
+      if (config.rutaCer) config.rutaCer = this.copiarArchivoEfirma(config.rutaCer, 'cer')
+      if (config.rutaKey) config.rutaKey = this.copiarArchivoEfirma(config.rutaKey, 'key')
     }
-    fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2), 'utf-8')
+
+    this.db.prepare(`
+      UPDATE perfiles SET
+        metodo_auth = @metodo_auth,
+        contrasena = @contrasena,
+        ruta_cer = @ruta_cer,
+        ruta_key = @ruta_key,
+        contrasena_fiel = @contrasena_fiel,
+        carpeta_descarga = @carpeta_descarga
+      WHERE rfc = @rfc
+    `).run({
+      rfc: config.rfc,
+      metodo_auth: config.metodoAuth,
+      contrasena: config.contrasena || null,
+      ruta_cer: config.rutaCer || null,
+      ruta_key: config.rutaKey || null,
+      contrasena_fiel: config.contrasenaFiel || null,
+      carpeta_descarga: config.carpetaDescarga || null
+    })
+
+    // Actualizar perfil activo en memoria
+    const perfil = ProfileManager.getPerfilActivo()
+    if (perfil) {
+      ProfileManager.setPerfilActivo({
+        ...perfil,
+        metodo_auth: config.metodoAuth,
+        contrasena: config.contrasena,
+        ruta_cer: config.rutaCer,
+        ruta_key: config.rutaKey,
+        contrasena_fiel: config.contrasenaFiel,
+        carpeta_descarga: config.carpetaDescarga
+      })
+    }
   }
 
   obtener(): Configuracion | null {
-    try {
-      if (!fs.existsSync(this.configPath)) return null
-      const data = fs.readFileSync(this.configPath, 'utf-8')
-      return JSON.parse(data) as Configuracion
-    } catch {
-      return null
-    }
-  }
+    const perfil = ProfileManager.getPerfilActivo()
+    if (!perfil) return null
 
-  limpiar(): void {
-    if (fs.existsSync(this.configPath)) {
-      fs.unlinkSync(this.configPath)
+    return {
+      rfc: perfil.rfc,
+      metodoAuth: perfil.metodo_auth,
+      contrasena: perfil.contrasena,
+      rutaCer: perfil.ruta_cer,
+      rutaKey: perfil.ruta_key,
+      contrasenaFiel: perfil.contrasena_fiel,
+      carpetaDescarga: perfil.carpeta_descarga
     }
   }
 
   copiarArchivoEfirma(rutaOrigen: string, tipo: 'cer' | 'key'): string {
-    const nombreArchivo = `efirma.${tipo}`
+    const rfc = ProfileManager.getPerfilActivo()?.rfc || 'default'
+    const nombreArchivo = `efirma_${rfc}.${tipo}`
     const rutaDestino = join(app.getPath('userData'), nombreArchivo)
     fs.copyFileSync(rutaOrigen, rutaDestino)
     return rutaDestino

@@ -6,11 +6,13 @@ import {
   FileTextOutlined,
   DownloadOutlined,
   SettingOutlined,
-  WarningOutlined
+  WarningOutlined,
+  SwapOutlined,
+  UserOutlined
 } from '@ant-design/icons'
 import './AppLayout.css'
 
-const { Sider, Content } = Layout
+const { Sider, Content, Header } = Layout
 
 
 const AppLayout = () => {
@@ -18,9 +20,13 @@ const AppLayout = () => {
   const location = useLocation()
   const [totalPendientes, setTotalPendientes] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
+  const [perfilActivo, setPerfilActivo] = useState<{ rfc: string; nombre: string } | null>(null)
 
   useEffect(() => {
     cargarContador()
+    window.api.obtenerPerfilActivo().then((res) => {
+      if (res.success && res.perfil) setPerfilActivo(res.perfil)
+    })
   }, [location.pathname])
 
   const cargarContador = async () => {
@@ -67,8 +73,54 @@ const AppLayout = () => {
           items={menuItems}
           onClick={({ key }) => navigate(key)}
         />
+        <div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 'auto' }}>
+          <div
+            onClick={async () => {
+              await window.api.cerrarPerfil()
+              navigate('/perfiles')
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              color: '#8c9db5', cursor: 'pointer', padding: '8px 4px',
+              borderRadius: 6, fontSize: 13
+            }}
+          >
+            <SwapOutlined />
+            {!collapsed && <span>Cambiar contribuyente</span>}
+          </div>
+        </div>
       </Sider>
       <Layout style={{ height: '100%', overflowY: 'auto', background: '#f0f2f5' }}>
+        <Header style={{
+          background: '#fff',
+          padding: '0 24px',
+          height: 48,
+          lineHeight: '48px',
+          borderBottom: '1px solid #e8ecf0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0
+        }}>
+          <span style={{ fontSize: 13, color: '#8c9db5' }}>Contribuyente activo</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: '50%',
+              background: '#001529', display: 'flex',
+              alignItems: 'center', justifyContent: 'center'
+            }}>
+              <UserOutlined style={{ fontSize: 13, color: '#fff' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#1a2332', lineHeight: 1.3 }}>
+                {perfilActivo?.nombre}
+              </div>
+              <div style={{ fontSize: 11, color: '#8c9db5', lineHeight: 1.3 }}>
+                {perfilActivo?.rfc}
+              </div>
+            </div>
+          </div>
+        </Header>
         <Content className="app-content">
           <Outlet />
         </Content>

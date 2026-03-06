@@ -19,6 +19,12 @@ declare global {
       obtenerPendientes(): Promise<any>
       reintentarPendientes(data: any): Promise<any>
       limpiarPendientes(): Promise<void>
+      obtenerPerfiles(): Promise<any>
+      crearPerfil(perfil: any): Promise<any>
+      eliminarPerfil(rfc: string): Promise<any>
+      seleccionarPerfil(rfc: string): Promise<any>
+      obtenerPerfilActivo(): Promise<any>
+      cerrarPerfil(): Promise<any>
     }
   }
 }

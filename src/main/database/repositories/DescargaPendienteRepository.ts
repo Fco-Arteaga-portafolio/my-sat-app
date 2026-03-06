@@ -1,4 +1,5 @@
 import BetterSqlite3 from 'better-sqlite3'
+import { ProfileManager } from '../ProfileManager'
 
 export interface DescargaPendiente {
   id?: number
@@ -21,9 +22,13 @@ export interface DescargaPendiente {
 export class DescargaPendienteRepository {
   constructor(private readonly db: BetterSqlite3.Database) {}
 
+  private get tabla(): string {
+    return ProfileManager.getTablaPendientes()
+  }
+
   insertar(pendiente: DescargaPendiente): void {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO descargas_pendientes
+      INSERT OR REPLACE INTO ${this.tabla}
         (uuid, rfc_emisor, nombre_emisor, rfc_receptor, nombre_receptor,
          fecha_emision, total, tipo_comprobante, estado, url_descarga,
          tipo_descarga, error, intentos, fecha_fallo)
@@ -31,26 +36,26 @@ export class DescargaPendienteRepository {
         (@uuid, @rfc_emisor, @nombre_emisor, @rfc_receptor, @nombre_receptor,
          @fecha_emision, @total, @tipo_comprobante, @estado, @url_descarga,
          @tipo_descarga, @error,
-         COALESCE((SELECT intentos + 1 FROM descargas_pendientes WHERE uuid = @uuid), 1),
+         COALESCE((SELECT intentos + 1 FROM ${this.tabla} WHERE uuid = @uuid), 1),
          datetime('now'))
     `)
     stmt.run(pendiente)
   }
 
   obtenerTodas(): DescargaPendiente[] {
-    return this.db.prepare('SELECT * FROM descargas_pendientes ORDER BY fecha_fallo DESC').all() as DescargaPendiente[]
+    return this.db.prepare(`SELECT * FROM ${this.tabla} ORDER BY fecha_fallo DESC`).all() as DescargaPendiente[]
   }
 
   eliminar(uuid: string): void {
-    this.db.prepare('DELETE FROM descargas_pendientes WHERE uuid = ?').run(uuid)
+    this.db.prepare(`DELETE FROM ${this.tabla} WHERE uuid = ?`).run(uuid)
   }
 
   limpiar(): void {
-    this.db.prepare('DELETE FROM descargas_pendientes').run()
+    this.db.prepare(`DELETE FROM ${this.tabla}`).run()
   }
 
   contar(): number {
-    const row = this.db.prepare('SELECT COUNT(*) as total FROM descargas_pendientes').get() as { total: number }
+    const row = this.db.prepare(`SELECT COUNT(*) as total FROM ${this.tabla}`).get() as { total: number }
     return row.total
   }
 }

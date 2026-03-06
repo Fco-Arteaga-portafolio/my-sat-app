@@ -25,6 +25,12 @@ declare global {
     obtenerPendientes: () => Promise<{ success: boolean; pendientes?: any[]; error?: string }>
     contarPendientes: () => Promise<{ success: boolean; total?: number; error?: string }>
     limpiarPendientes: () => Promise<{ success: boolean; error?: string }>
+    obtenerPerfiles: () => Promise<{ success: boolean; perfiles?: any[]; error?: string }>
+    crearPerfil: (perfil: any) => Promise<{ success: boolean; error?: string }>
+    eliminarPerfil: (rfc: string) => Promise<{ success: boolean; error?: string }>
+    seleccionarPerfil: (rfc: string) => Promise<{ success: boolean; perfil?: any; error?: string }>
+    obtenerPerfilActivo: () => Promise<{ success: boolean; perfil?: any; error?: string }>
     reintentarPendientes: (datos: { captcha?: string }) => Promise<{ success: boolean; total?: number; errores?: any[]; error?: string }>
+    cerrarPerfil(): Promise<any>
   }
 }
