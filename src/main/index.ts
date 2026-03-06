@@ -12,6 +12,7 @@ import { DescargaService } from './services/DescargaService'
 import { ConfiguracionService } from './services/ConfiguracionService'
 import { ProfileManager } from './database/ProfileManager'
 import { PerfilHandler } from './ipc/PerfilHandler'
+import { ImportacionHandler } from './ipc/ImportacionHandler'
 
 function initDatabase(): void {
   const db = Database.getInstance()
@@ -63,7 +64,7 @@ app.whenReady().then(() => {
 
   initDatabase()
   const db = Database.getInstance()
-
+  new ImportacionHandler(db).registrar()
   const facturaRepository = new FacturaRepository(db)
   const descargaPendienteRepository = new DescargaPendienteRepository(db)
   const configuracionService = new ConfiguracionService(db)

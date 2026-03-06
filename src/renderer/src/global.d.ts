@@ -25,6 +25,9 @@ declare global {
       seleccionarPerfil(rfc: string): Promise<any>
       obtenerPerfilActivo(): Promise<any>
       cerrarPerfil(): Promise<any>
+      seleccionarXmls(): Promise<{ success: boolean; rutas: string[] }>
+      seleccionarCarpetaXml(): Promise<{ success: boolean; rutas: string[] }>
+      importarXmls(rutas: string[]): Promise<{ success: boolean; importadas: number; omitidas: number; errores: any[] }>
     }
   }
 }

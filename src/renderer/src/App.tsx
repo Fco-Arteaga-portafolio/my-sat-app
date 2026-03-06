@@ -6,6 +6,7 @@ import DescargaPage from './pages/DescargaPage/DescargaPage'
 import FacturasPage from './pages/FacturasPage/FacturasPage'
 import PendientesPage from './pages/PendientesPage/PendientesPage'
 import PerfilesPage from './pages/PerfilesPage/PerfilesPage'
+import ImportacionPage from './pages/ImportacionPage/ImportacionPage'
 
 const App = () => {
   const [perfilListo, setPerfilListo] = useState<boolean | null>(null)
@@ -28,6 +29,7 @@ const App = () => {
           <Route path="/descarga" element={<DescargaPage />} />
           <Route path="/facturas" element={<FacturasPage />} />
           <Route path="/pendientes" element={<PendientesPage />} />
+          <Route path="/importacion" element={<ImportacionPage />} />
         </Route>
       </Routes>
     </HashRouter>

@@ -24,6 +24,9 @@ const api = {
   seleccionarPerfil: (rfc: string) => ipcRenderer.invoke('seleccionar-perfil', rfc),
   obtenerPerfilActivo: () => ipcRenderer.invoke('obtener-perfil-activo'),
   cerrarPerfil: () => ipcRenderer.invoke('cerrar-perfil'),
+  seleccionarXmls: () => ipcRenderer.invoke('seleccionar-xmls'),
+  seleccionarCarpetaXml: () => ipcRenderer.invoke('seleccionar-carpeta-xml'),
+  importarXmls: (rutas: string[]) => ipcRenderer.invoke('importar-xmls', rutas),
   reintentarPendientes: (datos: { captcha?: string }) => ipcRenderer.invoke('reintentar-pendientes', datos),
   generarPdf: (datos: { xmlContenido: string; parseada: any; uuid: string; plantilla: string; rutaDestino: string }) =>
     ipcRenderer.invoke('generar-pdf', datos),

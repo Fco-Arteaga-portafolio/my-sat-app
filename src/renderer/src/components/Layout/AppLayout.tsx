@@ -8,7 +8,8 @@ import {
   SettingOutlined,
   WarningOutlined,
   SwapOutlined,
-  UserOutlined
+  UserOutlined,
+  UploadOutlined
 } from '@ant-design/icons'
 import './AppLayout.css'
 
@@ -40,18 +41,17 @@ const AppLayout = () => {
     { key: '/facturas', icon: <FileTextOutlined />, label: 'Facturas' },
     { key: '/descarga', icon: <DownloadOutlined />, label: 'Descargar' },
     {
-      key: '/pendientes',
-      icon: <WarningOutlined />,
-      label: (
+      key: '/pendientes', icon: <WarningOutlined />, label: (
         <span style={{ color: 'inherit' }}>
           Pendientes
           {totalPendientes > 0 && (
             <Badge count={totalPendientes} size="small" style={{ marginLeft: 8 }} />
           )}
-        </span>
-      )
+        </span>)
     },
+    { key: '/importacion', icon: <UploadOutlined />, label: 'Importar' },
     { key: '/configuracion', icon: <SettingOutlined />, label: 'Configuración' }
+
   ]
 
   return (

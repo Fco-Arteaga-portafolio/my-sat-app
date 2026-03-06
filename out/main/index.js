@@ -23,6 +23,7 @@ function _interopNamespaceDefault(e) {
   n.default = e;
   return Object.freeze(n);
 }
+const path__namespace = /* @__PURE__ */ _interopNamespaceDefault(path);
 const fs__namespace = /* @__PURE__ */ _interopNamespaceDefault(fs);
 const icon = path.join(__dirname, "../../resources/icon.png");
 class Database {
@@ -1375,17 +1376,29 @@ class XmlParserService {
       const tfd = doc.getElementsByTagNameNS(nsTfd, "TimbreFiscalDigital")[0] || null;
       const cfdiRelacionado = doc.getElementsByTagNameNS(ns, "CfdiRelacionado")[0] || null;
       const impuestosEl = doc.getElementsByTagNameNS(ns, "Impuestos")[0] || null;
+      const emisor = doc.getElementsByTagNameNS(ns, "Emisor")[0] || null;
+      const receptor = doc.getElementsByTagNameNS(ns, "Receptor")[0] || null;
       const getAttr = (el, attr) => el?.getAttribute(attr) || "";
       const getFloat = (el, attr) => parseFloat(el?.getAttribute(attr) || "0") || 0;
+      const tipoTexto = getAttr(cfdi, "TipoDeComprobante");
       return {
+        uuid: getAttr(tfd, "UUID"),
         version: getAttr(cfdi, "Version"),
         serie: getAttr(cfdi, "Serie"),
         folio: getAttr(cfdi, "Folio"),
+        fecha_emision: getAttr(cfdi, "Fecha"),
         forma_pago: getAttr(cfdi, "FormaPago"),
         metodo_pago: getAttr(cfdi, "MetodoPago"),
         moneda: getAttr(cfdi, "Moneda"),
         tipo_cambio: getFloat(cfdi, "TipoCambio"),
         descuento: getFloat(cfdi, "Descuento"),
+        subtotal: getFloat(cfdi, "SubTotal"),
+        total: getFloat(cfdi, "Total"),
+        tipo_comprobante: tipoTexto,
+        rfc_emisor: getAttr(emisor, "Rfc"),
+        nombre_emisor: getAttr(emisor, "Nombre"),
+        rfc_receptor: getAttr(receptor, "Rfc"),
+        nombre_receptor: getAttr(receptor, "Nombre"),
         fecha_timbrado: getAttr(tfd, "FechaTimbrado"),
         rfc_pac: getAttr(tfd, "RfcProvCertif"),
         folio_sustitucion: getAttr(cfdiRelacionado, "UUID"),
@@ -1593,6 +1606,83 @@ class PerfilHandler {
     });
   }
 }
+class ImportacionHandler {
+  constructor(db) {
+    this.db = db;
+  }
+  xmlParser = new XmlParserService();
+  registrar() {
+    electron.ipcMain.handle("seleccionar-xmls", async () => {
+      const result = await electron.dialog.showOpenDialog({
+        title: "Seleccionar archivos XML",
+        filters: [{ name: "XML", extensions: ["xml"] }],
+        properties: ["openFile", "multiSelections"]
+      });
+      return { success: true, rutas: result.canceled ? [] : result.filePaths };
+    });
+    electron.ipcMain.handle("seleccionar-carpeta-xml", async () => {
+      const result = await electron.dialog.showOpenDialog({
+        title: "Seleccionar carpeta con XMLs",
+        properties: ["openDirectory"]
+      });
+      if (result.canceled) return { success: true, rutas: [] };
+      const carpeta = result.filePaths[0];
+      const archivos = fs__namespace.readdirSync(carpeta).filter((f) => f.toLowerCase().endsWith(".xml")).map((f) => path__namespace.join(carpeta, f));
+      return { success: true, rutas: archivos };
+    });
+    electron.ipcMain.handle("importar-xmls", async (_, rutas) => {
+      const repository = new FacturaRepository(this.db);
+      let importadas = 0;
+      let omitidas = 0;
+      const errores = [];
+      for (const ruta of rutas) {
+        try {
+          const contenido = fs__namespace.readFileSync(ruta, "utf-8");
+          const camposXml = this.xmlParser.extraerCampos(ruta);
+          const perfil = ProfileManager.getPerfilActivo();
+          const rfcActivo = perfil?.rfc;
+          if (!camposXml.uuid) {
+            errores.push({ archivo: path__namespace.basename(ruta), error: "No se encontró UUID en el XML" });
+            continue;
+          }
+          if (camposXml.rfc_emisor !== rfcActivo && camposXml.rfc_receptor !== rfcActivo) {
+            errores.push({
+              archivo: path__namespace.basename(ruta),
+              error: `El XML no pertenece al contribuyente activo (${rfcActivo})`
+            });
+            continue;
+          }
+          const yaExiste = repository.obtenerPorUuid(camposXml.uuid);
+          if (yaExiste) {
+            omitidas++;
+            continue;
+          }
+          const tipoDes = camposXml.rfc_receptor === perfil?.rfc ? "recibida" : "emitida";
+          repository.insertar({
+            uuid: camposXml.uuid,
+            fecha_emision: camposXml.fecha_emision || "",
+            rfc_emisor: camposXml.rfc_emisor || "",
+            nombre_emisor: camposXml.nombre_emisor || "",
+            rfc_receptor: camposXml.rfc_receptor || "",
+            nombre_receptor: camposXml.nombre_receptor || "",
+            subtotal: camposXml.subtotal || 0,
+            total: camposXml.total || 0,
+            tipo_comprobante: camposXml.tipo_comprobante || "I",
+            estado: "vigente",
+            xml: ruta,
+            tipo_descarga: tipoDes,
+            fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
+            ...camposXml
+          });
+          importadas++;
+        } catch (err) {
+          errores.push({ archivo: path__namespace.basename(ruta), error: err.message });
+        }
+      }
+      return { success: true, importadas, omitidas, errores };
+    });
+  }
+}
 function initDatabase() {
   const db = Database.getInstance();
   const migrationRunner = new MigrationRunner(db);
@@ -1636,6 +1726,7 @@ electron.app.whenReady().then(() => {
   });
   initDatabase();
   const db = Database.getInstance();
+  new ImportacionHandler(db).registrar();
   const facturaRepository = new FacturaRepository(db);
   const descargaPendienteRepository = new DescargaPendienteRepository(db);
   const configuracionService = new ConfiguracionService(db);

@@ -15,19 +15,33 @@ export class XmlParserService {
       const tfd = doc.getElementsByTagNameNS(nsTfd, 'TimbreFiscalDigital')[0] || null
       const cfdiRelacionado = doc.getElementsByTagNameNS(ns, 'CfdiRelacionado')[0] || null
       const impuestosEl = doc.getElementsByTagNameNS(ns, 'Impuestos')[0] || null
+      const emisor = doc.getElementsByTagNameNS(ns, 'Emisor')[0] || null
+      const receptor = doc.getElementsByTagNameNS(ns, 'Receptor')[0] || null
 
       const getAttr = (el: any, attr: string) => el?.getAttribute(attr) || ''
       const getFloat = (el: any, attr: string) => parseFloat(el?.getAttribute(attr) || '0') || 0
 
+      // Tipo comprobante
+      const tipoTexto = getAttr(cfdi, 'TipoDeComprobante')
+
       return {
+        uuid: getAttr(tfd, 'UUID'),
         version: getAttr(cfdi, 'Version'),
         serie: getAttr(cfdi, 'Serie'),
         folio: getAttr(cfdi, 'Folio'),
+        fecha_emision: getAttr(cfdi, 'Fecha'),
         forma_pago: getAttr(cfdi, 'FormaPago'),
         metodo_pago: getAttr(cfdi, 'MetodoPago'),
         moneda: getAttr(cfdi, 'Moneda'),
         tipo_cambio: getFloat(cfdi, 'TipoCambio'),
         descuento: getFloat(cfdi, 'Descuento'),
+        subtotal: getFloat(cfdi, 'SubTotal'),
+        total: getFloat(cfdi, 'Total'),
+        tipo_comprobante: tipoTexto,
+        rfc_emisor: getAttr(emisor, 'Rfc'),
+        nombre_emisor: getAttr(emisor, 'Nombre'),
+        rfc_receptor: getAttr(receptor, 'Rfc'),
+        nombre_receptor: getAttr(receptor, 'Nombre'),
         fecha_timbrado: getAttr(tfd, 'FechaTimbrado'),
         rfc_pac: getAttr(tfd, 'RfcProvCertif'),
         folio_sustitucion: getAttr(cfdiRelacionado, 'UUID'),

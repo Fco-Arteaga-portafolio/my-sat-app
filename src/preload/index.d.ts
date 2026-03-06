@@ -32,5 +32,8 @@ declare global {
     obtenerPerfilActivo: () => Promise<{ success: boolean; perfil?: any; error?: string }>
     reintentarPendientes: (datos: { captcha?: string }) => Promise<{ success: boolean; total?: number; errores?: any[]; error?: string }>
     cerrarPerfil(): Promise<any>
+    seleccionarXmls(): Promise<{ success: boolean; rutas: string[] }>
+    seleccionarCarpetaXml(): Promise<{ success: boolean; rutas: string[] }>
+    importarXmls(rutas: string[]): Promise<{ success: boolean; importadas: number; omitidas: number; errores: any[] }>
   }
 }
