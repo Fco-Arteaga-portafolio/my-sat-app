@@ -1,17 +1,17 @@
 import { ipcMain, dialog } from 'electron'
 import { ConfiguracionService, Configuracion } from '../services/ConfiguracionService'
+import BetterSqlite3 from 'better-sqlite3'
 
 export class ConfiguracionHandler {
   private readonly configuracionService: ConfiguracionService
 
-  constructor() {
-    this.configuracionService = new ConfiguracionService()
+  constructor(db: BetterSqlite3.Database) {
+    this.configuracionService = new ConfiguracionService(db)
   }
 
   registrar(): void {
     this.handleGuardar()
     this.handleObtener()
-    this.handleLimpiar()
     this.handleSeleccionarArchivo()
     this.handleSeleccionarCarpeta()
   }
@@ -32,18 +32,6 @@ export class ConfiguracionHandler {
       try {
         const config = this.configuracionService.obtener()
         return { success: true, config }
-      } catch (error) {
-        return { success: false, error: String(error) }
-      }
-    })
-  }
-
-
-  private handleLimpiar(): void {
-    ipcMain.handle('limpiar-configuracion', async () => {
-      try {
-        this.configuracionService.limpiar()
-        return { success: true }
       } catch (error) {
         return { success: false, error: String(error) }
       }

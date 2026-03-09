@@ -72,7 +72,7 @@ app.whenReady().then(() => {
   const profileManager = new ProfileManager(db)
   new PerfilHandler(profileManager).registrar()
   new FacturaHandler(descargaService, configuracionService).registrar()
-  new ConfiguracionHandler().registrar()
+  new ConfiguracionHandler(db).registrar()
   createWindow()
 
   app.on('activate', function () {

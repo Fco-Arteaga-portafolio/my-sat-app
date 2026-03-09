@@ -821,13 +821,12 @@ class ConfiguracionService {
 }
 class ConfiguracionHandler {
   configuracionService;
-  constructor() {
-    this.configuracionService = new ConfiguracionService();
+  constructor(db) {
+    this.configuracionService = new ConfiguracionService(db);
   }
   registrar() {
     this.handleGuardar();
     this.handleObtener();
-    this.handleLimpiar();
     this.handleSeleccionarArchivo();
     this.handleSeleccionarCarpeta();
   }
@@ -846,16 +845,6 @@ class ConfiguracionHandler {
       try {
         const config = this.configuracionService.obtener();
         return { success: true, config };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-  }
-  handleLimpiar() {
-    electron.ipcMain.handle("limpiar-configuracion", async () => {
-      try {
-        this.configuracionService.limpiar();
-        return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };
       }
@@ -1637,7 +1626,6 @@ class ImportacionHandler {
       const errores = [];
       for (const ruta of rutas) {
         try {
-          const contenido = fs__namespace.readFileSync(ruta, "utf-8");
           const camposXml = this.xmlParser.extraerCampos(ruta);
           const perfil = ProfileManager.getPerfilActivo();
           const rfcActivo = perfil?.rfc;
@@ -1734,7 +1722,7 @@ electron.app.whenReady().then(() => {
   const profileManager = new ProfileManager(db);
   new PerfilHandler(profileManager).registrar();
   new FacturaHandler(descargaService, configuracionService).registrar();
-  new ConfiguracionHandler().registrar();
+  new ConfiguracionHandler(db).registrar();
   createWindow();
   electron.app.on("activate", function() {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();

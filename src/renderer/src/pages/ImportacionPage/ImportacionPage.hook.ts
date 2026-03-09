@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState } from 'react' 
 
 interface ResultadoImportacion {
   importadas: number
@@ -11,6 +11,7 @@ export const useImportacionPage = () => {
   const [importando, setImportando] = useState(false)
   const [resultado, setResultado] = useState<ResultadoImportacion | null>(null)
   const [error, setError] = useState<string | null>(null)
+  //const { perfil } = useContribuyente()
 
   const seleccionarArchivos = async () => {
     const res = await window.api.seleccionarXmls()

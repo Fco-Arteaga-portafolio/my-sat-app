@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { DescargaPendiente } from '../../../../main/database/repositories/DescargaPendienteRepository'
 import { ProgresoDescarga } from '../../../../main/scraper/SatScraper'
+import { useContribuyente } from '@renderer/context/ContribuyenteContext'
 
 export const usePendientesPage = () => {
   const [pendientes, setPendientes] = useState<DescargaPendiente[]>([])
@@ -13,14 +14,15 @@ export const usePendientesPage = () => {
   const [captchaBase64, setCaptchaBase64] = useState<string | null>(null)
   const [captchaTexto, setCaptchaTexto] = useState('')
   const [cargandoCaptcha, setCargandoCaptcha] = useState(false)
+  const { perfil } = useContribuyente()
 
   useEffect(() => {
-    cargarPendientes()
     cargarConfiguracion()
     window.api.onProgresoDescarga((p: ProgresoDescarga) => {
       setProgreso(p)
     })
-  }, [])
+    if (perfil) cargarPendientes()
+  }, [perfil?.rfc])
 
   const cargarConfiguracion = async () => {
     const res = await window.api.obtenerConfiguracion()

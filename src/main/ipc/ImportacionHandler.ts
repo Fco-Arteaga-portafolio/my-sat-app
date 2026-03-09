@@ -42,7 +42,7 @@ export class ImportacionHandler {
 
       for (const ruta of rutas) {
         try {
-          const contenido = fs.readFileSync(ruta, 'utf-8')
+          //const contenido = fs.readFileSync(ruta, 'utf-8')
           const camposXml = this.xmlParser.extraerCampos(ruta)
           const perfil = ProfileManager.getPerfilActivo()
           const rfcActivo = perfil?.rfc

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom' 
 
 export interface Perfil {
   id?: number
@@ -13,7 +13,8 @@ export interface Perfil {
   carpeta_descarga?: string
 }
 
-export const usePerfilesPage = (onPerfilSeleccionado?: () => void) => {
+export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) => {
+ // const { setPerfil } = useContribuyente()
   const navigate = useNavigate()
   const [perfiles, setPerfiles] = useState<Perfil[]>([])
   const [loading, setLoading] = useState(false)
@@ -44,10 +45,8 @@ export const usePerfilesPage = (onPerfilSeleccionado?: () => void) => {
   const seleccionar = async (rfc: string) => {
     const res = await window.api.seleccionarPerfil(rfc)
     if (res.success) {
-      onPerfilSeleccionado?.()
-      setTimeout(() => navigate('/facturas'), 100)  // ← pequeño delay para que React actualice
-    } else {
-      setError(res.error || 'Error al seleccionar perfil')
+      onPerfilSeleccionado?.(res.perfil)  // ← pasa el perfil completo
+      navigate('/facturas')
     }
   }
 

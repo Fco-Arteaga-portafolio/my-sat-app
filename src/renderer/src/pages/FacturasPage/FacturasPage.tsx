@@ -18,7 +18,7 @@ const formaPagoLabel: Record<string, string> = {
 }
 const metodoPagoLabel: Record<string, string> = { 'PUE': 'PUE - Pago en una sola exhibición', 'PPD': 'PPD - Pago en parcialidades' }
 
-const FacturasPage = (): JSX.Element => {
+const FacturasPage = ()  => {
   const {
     facturas, loading, error, busqueda, filtroTipo, filtroEstado, configuracion,
     setBusqueda, setFiltroTipo, setFiltroEstado, cargarFacturas, eliminar,

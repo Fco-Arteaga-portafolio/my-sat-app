@@ -1,6 +1,7 @@
 import { Layout, Menu, Badge } from 'antd'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
-import logoIcon from '../../../../../resources/icon.png'  // copia el icon.png a assets
+import { useContribuyente } from '../../context/ContribuyenteContext'
+import logoIcon from '../../../../../resources/icon.png'
 import { useState, useEffect } from 'react'
 import {
   FileTextOutlined,
@@ -17,17 +18,15 @@ const { Sider, Content, Header } = Layout
 
 
 const AppLayout = () => {
-  const navigate = useNavigate()
+
   const location = useLocation()
   const [totalPendientes, setTotalPendientes] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
-  const [perfilActivo, setPerfilActivo] = useState<{ rfc: string; nombre: string } | null>(null)
+  const { perfil, setPerfil } = useContribuyente()  // ← solo del context
+  const navigate = useNavigate()
 
   useEffect(() => {
     cargarContador()
-    window.api.obtenerPerfilActivo().then((res) => {
-      if (res.success && res.perfil) setPerfilActivo(res.perfil)
-    })
   }, [location.pathname])
 
   const cargarContador = async () => {
@@ -77,6 +76,7 @@ const AppLayout = () => {
           <div
             onClick={async () => {
               await window.api.cerrarPerfil()
+              setPerfil(null)
               navigate('/perfiles')
             }}
             style={{
@@ -113,10 +113,10 @@ const AppLayout = () => {
             </div>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#1a2332', lineHeight: 1.3 }}>
-                {perfilActivo?.nombre}
+                {perfil?.nombre}
               </div>
               <div style={{ fontSize: 11, color: '#8c9db5', lineHeight: 1.3 }}>
-                {perfilActivo?.rfc}
+                {perfil?.rfc}
               </div>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Factura } from '../../../../main/database/repositories/FacturaRepository'
+import { useContribuyente } from '../../context/ContribuyenteContext'
 
 export const useFacturasPage = () => {
   const [facturas, setFacturas] = useState<Factura[]>([])
@@ -17,12 +18,13 @@ export const useFacturasPage = () => {
   const [tamañoPagina, setTamañoPagina] = useState(20)
   const [ultimaActualizacion, setUltimaActualizacion] = useState<Date | null>(null)
   const [totalPendientes, setTotalPendientes] = useState(0)
+  const { perfil } = useContribuyente()
 
   useEffect(() => {
-    cargarFacturas()
     cargarConfiguracion()
     cargarPendientes()
-  }, [])
+    if (perfil) cargarFacturas()
+  }, [perfil?.rfc])
 
   const cargarFacturas = async () => {
     setLoading(true)

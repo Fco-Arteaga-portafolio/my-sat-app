@@ -3,12 +3,13 @@ import { PlusOutlined, UserOutlined, DeleteOutlined, LoginOutlined } from '@ant-
 import { usePerfilesPage } from './PerfilesPage.hook'
 import ContribuyenteForm from '../../components/ContribuyenteForm/ContribuyenteForm'
 
-const PerfilesPage = ({ onPerfilSeleccionado }: { onPerfilSeleccionado?: () => void }) => {
+const PerfilesPage = ({ onPerfilSeleccionado }: { onPerfilSeleccionado?: (perfil: any) => void }) => {
   const {
     perfiles, loading, modalVisible, error, form,
     setModalVisible, seleccionar, guardar, eliminar,
     cambiarForm, seleccionarCarpeta, seleccionarCer, seleccionarKey
   } = usePerfilesPage(onPerfilSeleccionado)
+  // PerfilesPage.tsx
 
   return (
     <div style={{
