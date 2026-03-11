@@ -1,28 +1,22 @@
-import { Layout, Menu, Badge } from 'antd'
+import { Layout, Menu } from 'antd'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useContribuyente } from '../../context/ContribuyenteContext'
 import logoIcon from '../../../../../resources/icon.png'
 import { useState, useEffect } from 'react'
 import {
-  FileTextOutlined,
-  DownloadOutlined,
-  SettingOutlined,
-  WarningOutlined,
-  SwapOutlined,
-  UserOutlined,
-  UploadOutlined
+  HomeOutlined, FileTextOutlined, AuditOutlined,
+  BarChartOutlined, SafetyOutlined, BulbOutlined,
+  SettingOutlined, SwapOutlined, UserOutlined
 } from '@ant-design/icons'
 import './AppLayout.css'
 
 const { Sider, Content, Header } = Layout
 
-
 const AppLayout = () => {
-
   const location = useLocation()
   const [totalPendientes, setTotalPendientes] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
-  const { perfil, setPerfil } = useContribuyente()  // ← solo del context
+  const { perfil, setPerfil } = useContribuyente()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -37,52 +31,54 @@ const AppLayout = () => {
   }
 
   const menuItems = [
-    { key: '/facturas', icon: <FileTextOutlined />, label: 'Facturas' },
-    { key: '/descarga', icon: <DownloadOutlined />, label: 'Descargar' },
-    {
-      key: '/pendientes', icon: <WarningOutlined />, label: (
-        <span style={{ color: 'inherit' }}>
-          Pendientes
-          {totalPendientes > 0 && (
-            <Badge count={totalPendientes} size="small" style={{ marginLeft: 8 }} />
-          )}
-        </span>)
-    },
-    { key: '/importacion', icon: <UploadOutlined />, label: 'Importar' },
-    { key: '/configuracion', icon: <SettingOutlined />, label: 'Configuración' }
-
+    { key: '/inicio', icon: <HomeOutlined />, label: 'Inicio' },
+    { key: '/facturas-hub', icon: <FileTextOutlined />, label: 'Facturas' },
+    { key: '/cfdi', icon: <AuditOutlined />, label: 'CFDI' },
+    { key: '/reportes', icon: <BarChartOutlined />, label: 'Reportes' },
+    { key: '/cumplimiento', icon: <SafetyOutlined />, label: 'Cumplimiento' },
+    { key: '/inteligencia', icon: <BulbOutlined />, label: 'Inteligencia' },
+    { key: '/configuracion', icon: <SettingOutlined />, label: 'Configuración' },
   ]
 
+  const selectedKey = () => {
+    if (location.pathname.startsWith('/facturas')) return '/facturas-hub'
+    if (location.pathname.startsWith('/descarga')) return '/cfdi'
+    if (location.pathname.startsWith('/pendientes')) return '/cfdi'
+    if (location.pathname.startsWith('/importacion')) return '/cfdi'
+    if (location.pathname.startsWith('/clientes')) return '/inteligencia'
+    if (location.pathname.startsWith('/proveedores')) return '/inteligencia'
+    if (location.pathname.startsWith('/empleados')) return '/inteligencia'
+    if (location.pathname.startsWith('/patrones')) return '/inteligencia'
+    return location.pathname
+  }
+
   return (
-    <Layout style={{ height: '100%', background: '#f0f2f5' }}>
+    <Layout className="ant-layout" style={{ height: '100vh' }}>
       <Sider
         theme="dark"
         collapsible
         collapsed={collapsed}
         onCollapse={(value) => setCollapsed(value)}
-        style={{ background: '#001529' }}>
+        style={{ background: '#001529' }}
+      >
         <div className="app-logo">
-          <img src={logoIcon} alt="Gravix" style={{ width: 32, height: 32, objectFit: 'contain' }} />
-          {!collapsed && <span style={{ marginLeft: 10, fontSize: 20, fontWeight: 700, color: '#fff' }}>Gravix</span>}
+          <img src={logoIcon} alt="IFRAT" style={{ width: 32, height: 32, objectFit: 'contain' }} />
+          {!collapsed && <span style={{ marginLeft: 10, fontSize: 20, fontWeight: 700, color: '#fff' }}>IFRAT</span>}
         </div>
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={[selectedKey()]}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
         />
-        <div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 'auto' }}>
+        <div className="app-cambiar-contribuyente-footer">
           <div
+            className="app-cambiar-contribuyente"
             onClick={async () => {
               await window.api.cerrarPerfil()
               setPerfil(null)
               navigate('/perfiles')
-            }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              color: '#8c9db5', cursor: 'pointer', padding: '8px 4px',
-              borderRadius: 6, fontSize: 13
             }}
           >
             <SwapOutlined />
@@ -90,34 +86,16 @@ const AppLayout = () => {
           </div>
         </div>
       </Sider>
-      <Layout style={{ height: '100%', overflowY: 'auto', background: '#f0f2f5' }}>
-        <Header style={{
-          background: '#fff',
-          padding: '0 24px',
-          height: 48,
-          lineHeight: '48px',
-          borderBottom: '1px solid #e8ecf0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexShrink: 0
-        }}>
-          <span style={{ fontSize: 13, color: '#8c9db5' }}>Contribuyente activo</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{
-              width: 28, height: 28, borderRadius: '50%',
-              background: '#001529', display: 'flex',
-              alignItems: 'center', justifyContent: 'center'
-            }}>
+      <Layout className="app-layout-inner" style={{ height: '100%' }}>
+        <Header className="app-header">
+          <span className="app-header-label">Contribuyente activo</span>
+          <div className="app-header-perfil">
+            <div className="app-header-avatar">
               <UserOutlined style={{ fontSize: 13, color: '#fff' }} />
             </div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#1a2332', lineHeight: 1.3 }}>
-                {perfil?.nombre}
-              </div>
-              <div style={{ fontSize: 11, color: '#8c9db5', lineHeight: 1.3 }}>
-                {perfil?.rfc}
-              </div>
+              <div className="app-header-nombre">{perfil?.nombre}</div>
+              <div className="app-header-rfc">{perfil?.rfc}</div>
             </div>
           </div>
         </Header>

@@ -1,12 +1,19 @@
 import { Button, Card, Alert, Divider } from 'antd'
 import { SaveOutlined } from '@ant-design/icons'
 import { useConfiguracionPage } from './ConfiguracionPage.hook'
-import ContribuyenteForm from '../../components/ContribuyenteForm/ContribuyenteForm'
+import ContribuyenteForm from '../../components/ContribuyenteForm/ContribuyenteForm' 
 import './ConfiguracionPage.css'
 
+
+
 const ConfiguracionPage = () => {
-  const { config, loading, guardado, error, guardar, cambiarCampo, seleccionarCer, seleccionarKey, seleccionarCarpeta } =
-    useConfiguracionPage()
+  const {
+    config, loading, guardado, error, guardar, cambiarCampo,
+    seleccionarCer, seleccionarKey,
+    seleccionarCarpetaEmitidos, seleccionarCarpetaRecibidos,
+    moverSlot, toggleSlot
+  } = useConfiguracionPage()
+
 
   return (
     <div className="configuracion-container">
@@ -14,13 +21,13 @@ const ConfiguracionPage = () => {
       <Divider />
 
       {guardado && (
-        <Alert message="Configuración guardada correctamente" type="success" showIcon style={{ marginBottom: 24 }} />
+        <Alert message="Configuración guardada correctamente" type="success" showIcon className="configuracion-alert" />
       )}
       {error && (
-        <Alert message={error} type="error" showIcon style={{ marginBottom: 24 }} />
+        <Alert message={error} type="error" showIcon className="configuracion-alert" />
       )}
 
-      <Card title="Datos de acceso">
+      <Card title="Datos de acceso"> 
         <ContribuyenteForm
           data={{
             rfc: config.rfc,
@@ -29,17 +36,26 @@ const ConfiguracionPage = () => {
             rutaCer: config.rutaCer,
             rutaKey: config.rutaKey,
             contrasenaFiel: config.contrasenaFiel,
-            carpetaDescarga: config.carpetaDescarga
+            carpetaEmitidos: config.carpetaEmitidos,
+            carpetaRecibidos: config.carpetaRecibidos,
+            estructuraEmitidos: config.estructuraEmitidos,
+            estructuraRecibidos: config.estructuraRecibidos,
+            plantillaDefault: config.plantillaDefault,
+            configNombreArchivo: config.configNombreArchivo
           }}
           onChange={cambiarCampo}
           onSeleccionarCer={seleccionarCer}
           onSeleccionarKey={seleccionarKey}
-          onSeleccionarCarpeta={seleccionarCarpeta}
+          onSeleccionarCarpetaEmitidos={seleccionarCarpetaEmitidos}
+          onSeleccionarCarpetaRecibidos={seleccionarCarpetaRecibidos}
+          onMoverSlot={moverSlot}
+          onToggleSlot={toggleSlot}
         />
-        <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={guardar}>
-          Guardar configuración
-        </Button>
       </Card>
+
+      <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={guardar} size="large">
+        Guardar configuración
+      </Button>
     </div>
   )
 }

@@ -12,12 +12,19 @@ export interface Perfil {
   carpeta_descarga?: string
   activo?: number
   fecha_creacion?: string
+  // Configuración PDF
+  plantilla_default?: string
+  carpeta_emitidos?: string
+  carpeta_recibidos?: string
+  estructura_emitidos?: string
+  estructura_recibidos?: string
+  config_nombre_archivo?: string
 }
 
 export class ProfileManager {
   private static perfilActivo: Perfil | null = null
 
-  constructor(private readonly db: BetterSqlite3.Database) {}
+  constructor(private readonly db: BetterSqlite3.Database) { }
 
   // ── Perfiles ──────────────────────────────────────────
   obtenerTodos(): Perfil[] {
@@ -42,13 +49,11 @@ export class ProfileManager {
       carpeta_descarga: null,
       ...perfil
     })
-    // Crear tablas para este RFC si no existen
     this.crearTablasPerfil(perfil.rfc)
   }
 
   eliminar(rfc: string): void {
     this.db.prepare('DELETE FROM perfiles WHERE rfc = ?').run(rfc)
-    // Las tablas se mantienen por seguridad — se pueden limpiar manualmente
   }
 
   // ── Perfil activo ─────────────────────────────────────
@@ -77,64 +82,87 @@ export class ProfileManager {
     return `descargas_pendientes_${r.replace(/[^a-zA-Z0-9]/g, '_')}`
   }
 
+  static getRfcActivo(): string {
+    return ProfileManager.perfilActivo?.rfc || ''
+  }
+
   // ── Crear tablas para un RFC nuevo ────────────────────
   crearTablasPerfil(rfc: string): void {
-    const tablaFacturas = ProfileManager.getTablaFacturas(rfc)
-    const tablaPendientes = ProfileManager.getTablaPendientes(rfc)
+    const r = rfc.replace(/[^A-Z0-9]/gi, '')
 
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS ${tablaFacturas} (
-        id                              INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid                            TEXT UNIQUE NOT NULL,
-        version                         TEXT,
-        serie                           TEXT,
-        folio                           TEXT,
-        fecha_emision                   TEXT,
-        fecha_timbrado                  TEXT,
-        rfc_emisor                      TEXT,
-        nombre_emisor                   TEXT,
-        rfc_receptor                    TEXT,
-        nombre_receptor                 TEXT,
-        subtotal                        REAL,
-        descuento                       REAL DEFAULT 0,
-        total_impuestos_trasladados     REAL DEFAULT 0,
-        total_impuestos_retenidos       REAL DEFAULT 0,
-        total                           REAL,
-        tipo_comprobante                TEXT,
-        forma_pago                      TEXT,
-        metodo_pago                     TEXT,
-        moneda                          TEXT,
-        tipo_cambio                     REAL,
-        estado                          TEXT,
-        estado_cancelacion              TEXT,
-        estado_proceso_cancelacion      TEXT,
-        fecha_cancelacion               TEXT,
-        rfc_pac                         TEXT,
-        folio_sustitucion               TEXT,
-        xml                             TEXT,
-        tipo_descarga                   TEXT CHECK(tipo_descarga IN ('recibida', 'emitida')),
-        fecha_descarga                  TEXT
-      )
-    `)
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS facturas_${r} (
+    uuid TEXT PRIMARY KEY,
+    version TEXT, serie TEXT, folio TEXT,
+    fecha_emision TEXT, fecha_timbrado TEXT,
+    rfc_emisor TEXT, nombre_emisor TEXT,
+    rfc_receptor TEXT, nombre_receptor TEXT,
+    subtotal REAL, descuento REAL,
+    total_impuestos_trasladados REAL,
+    total_impuestos_retenidos REAL,
+    total REAL, tipo_comprobante TEXT,
+    forma_pago TEXT, metodo_pago TEXT,
+    moneda TEXT, tipo_cambio REAL,
+    estado TEXT, estado_cancelacion TEXT,
+    estado_proceso_cancelacion TEXT,
+    fecha_cancelacion TEXT, rfc_pac TEXT,
+    folio_sustitucion TEXT, xml TEXT,
+    tipo_descarga TEXT, fecha_descarga TEXT
+)`).run()
 
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS ${tablaPendientes} (
-        id                INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid              TEXT UNIQUE NOT NULL,
-        rfc_emisor        TEXT,
-        nombre_emisor     TEXT,
-        rfc_receptor      TEXT,
-        nombre_receptor   TEXT,
-        fecha_emision     TEXT,
-        total             REAL,
-        tipo_comprobante  TEXT,
-        estado            TEXT,
-        url_descarga      TEXT,
-        tipo_descarga     TEXT CHECK(tipo_descarga IN ('recibida', 'emitida')),
-        error             TEXT,
-        intentos          INTEGER DEFAULT 1,
-        fecha_fallo       TEXT DEFAULT (datetime('now'))
-      )
-    `)
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS descargas_pendientes_${r} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT UNIQUE, rfc_emisor TEXT, nombre_emisor TEXT,
+    rfc_receptor TEXT, nombre_receptor TEXT,
+    fecha_emision TEXT, total REAL,
+    tipo_comprobante TEXT, estado TEXT,
+    url_descarga TEXT, tipo_descarga TEXT,
+    error TEXT, intentos INTEGER, fecha_fallo TEXT
+)`).run()
+
+    this.db.prepare(`
+    CREATE TABLE IF NOT EXISTS clientes_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      contacto TEXT, notas TEXT,
+      limite_credito REAL, dias_credito INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run()
+
+    this.db.prepare(`
+    CREATE TABLE IF NOT EXISTS proveedores_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      contacto TEXT, notas TEXT,
+      limite_credito REAL, dias_credito INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run()
+
+    this.db.prepare(`
+    CREATE TABLE IF NOT EXISTS empleados_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      notas TEXT, puesto TEXT, fecha_ingreso DATE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run()
+
+    this.db.prepare(`
+    CREATE TABLE IF NOT EXISTS patrones_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      contacto TEXT, notas TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run()
   }
 }

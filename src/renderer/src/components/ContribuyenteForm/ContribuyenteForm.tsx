@@ -1,5 +1,15 @@
-import { Form, Input, Button, Radio, Alert, Space } from 'antd'
-import { FolderOpenOutlined } from '@ant-design/icons'
+import { Form, Input, Button, Radio, Alert, Space, Tabs, Switch, Typography } from 'antd'
+import { FolderOpenOutlined, HolderOutlined } from '@ant-design/icons'
+import { SlotCarpeta, ConfigNombreArchivo } from '../../../../main/services/ConfiguracionService'
+import './ContribuyenteForm.css'
+
+const { Text } = Typography
+
+const PLANTILLAS = [
+  { id: 'clasica',     nombre: 'Clásica',     descripcion: 'Fondo blanco, tipografía formal, estilo corporativo' },
+  { id: 'moderna',     nombre: 'Moderna',     descripcion: 'Diseño limpio con acento azul, tipografía moderna' },
+  { id: 'minimalista', nombre: 'Minimalista', descripcion: 'Sin colores, ideal para imprimir en blanco y negro' }
+]
 
 export interface ContribuyenteFormData {
   rfc: string
@@ -9,24 +19,76 @@ export interface ContribuyenteFormData {
   rutaCer?: string
   rutaKey?: string
   contrasenaFiel?: string
-  carpetaDescarga?: string
+  // Carpetas
+  carpetaEmitidos?: string
+  carpetaRecibidos?: string
+  estructuraEmitidos?: SlotCarpeta[]
+  estructuraRecibidos?: SlotCarpeta[]
+  // PDF
+  plantillaDefault?: string
+  configNombreArchivo?: ConfigNombreArchivo
 }
 
 interface Props {
   data: ContribuyenteFormData
-  onChange: (campo: string, valor: string) => void
+  onChange: (campo: string, valor: any) => void
   onSeleccionarCer: () => void
   onSeleccionarKey: () => void
-  onSeleccionarCarpeta: () => void
+  onSeleccionarCarpetaEmitidos: () => void
+  onSeleccionarCarpetaRecibidos: () => void
   mostrarNombre?: boolean
   mostrarRfc?: boolean
+  onMoverSlot?: (tipo: 'emitidos' | 'recibidos', desde: number, hasta: number) => void
+  onToggleSlot?: (tipo: 'emitidos' | 'recibidos', id: string, activo: boolean) => void
 }
 
 const ContribuyenteForm = ({
-  data, onChange, onSeleccionarCer, onSeleccionarKey,
-  onSeleccionarCarpeta, mostrarNombre = false, mostrarRfc = true
+  data, onChange,
+  onSeleccionarCer, onSeleccionarKey,
+  onSeleccionarCarpetaEmitidos, onSeleccionarCarpetaRecibidos,
+  mostrarNombre = false, mostrarRfc = true,
+  onMoverSlot, onToggleSlot
 }: Props) => {
-  return (
+
+  const moverSlot = (tipo: 'emitidos' | 'recibidos', desde: number, hasta: number) => {
+    onMoverSlot?.(tipo, desde, hasta)
+  }
+
+  const toggleSlot = (tipo: 'emitidos' | 'recibidos', id: string, activo: boolean) => {
+    onToggleSlot?.(tipo, id, activo)
+  }
+
+  const previewNombre = () => {
+    const partes: string[] = []
+    if (data.configNombreArchivo?.rfcEmisor)   partes.push('RFC_EMISOR')
+    if (data.configNombreArchivo?.rfcReceptor) partes.push('RFC_RECEPTOR')
+    partes.push('UUID')
+    return partes.join('_') + '.pdf'
+  }
+
+  const renderEstructura = (tipo: 'emitidos' | 'recibidos', slots: SlotCarpeta[]) => (
+    <div className="cf-estructura-lista">
+      {slots.map((slot, index) => (
+        <div key={slot.id} className={`cf-estructura-slot ${!slot.activo ? 'cf-estructura-slot--inactivo' : ''}`}>
+          <span className="cf-estructura-drag"><HolderOutlined /></span>
+          <Switch
+            size="small"
+            checked={slot.activo}
+            onChange={(checked) => toggleSlot(tipo, slot.id, checked)}
+          />
+          <span className="cf-estructura-label">{slot.label}</span>
+          <div className="cf-estructura-acciones">
+            <Button type="text" size="small" disabled={index === 0}
+              onClick={() => moverSlot(tipo, index, index - 1)}>↑</Button>
+            <Button type="text" size="small" disabled={index === slots.length - 1}
+              onClick={() => moverSlot(tipo, index, index + 1)}>↓</Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+
+  const tabAcceso = (
     <Form layout="vertical">
       {mostrarRfc && (
         <Form.Item label="RFC" required>
@@ -43,7 +105,7 @@ const ContribuyenteForm = ({
         <Form.Item label="Nombre / Razón social" required>
           <Input
             value={data.nombre}
-            onChange={(e) => onChange('nombre', e.target.value.toUpperCase())} 
+            onChange={(e) => onChange('nombre', e.target.value.toUpperCase())}
             placeholder="Nombre del contribuyente"
           />
         </Form.Item>
@@ -97,14 +159,90 @@ const ContribuyenteForm = ({
           </Form.Item>
         </>
       )}
-
-      <Form.Item label="Carpeta de descarga de XMLs">
-        <Space.Compact style={{ width: '100%' }}>
-          <Input value={data.carpetaDescarga} placeholder="Carpeta donde se guardarán los XMLs" readOnly />
-          <Button icon={<FolderOpenOutlined />} onClick={onSeleccionarCarpeta}>Buscar</Button>
-        </Space.Compact>
-      </Form.Item>
     </Form>
+  )
+
+  const tabCarpetas = (
+    <div className="cf-carpetas-grid">
+      {/* Emitidos */}
+      <div className="cf-carpeta-seccion">
+        <Text strong>Emitidos</Text>
+        <div className="cf-carpeta-ruta">
+          <Input value={data.carpetaEmitidos || ''} readOnly placeholder="Sin carpeta seleccionada" />
+          <Button icon={<FolderOpenOutlined />} onClick={onSeleccionarCarpetaEmitidos}>Seleccionar</Button>
+        </div>
+        <Text type="secondary" className="cf-sublabel">Subcarpetas (arrastra para reordenar)</Text>
+        {renderEstructura('emitidos', data.estructuraEmitidos || [])}
+      </div>
+
+      {/* Recibidos */}
+      <div className="cf-carpeta-seccion">
+        <Text strong>Recibidos</Text>
+        <div className="cf-carpeta-ruta">
+          <Input value={data.carpetaRecibidos || ''} readOnly placeholder="Sin carpeta seleccionada" />
+          <Button icon={<FolderOpenOutlined />} onClick={onSeleccionarCarpetaRecibidos}>Seleccionar</Button>
+        </div>
+        <Text type="secondary" className="cf-sublabel">Subcarpetas (arrastra para reordenar)</Text>
+        {renderEstructura('recibidos', data.estructuraRecibidos || [])}
+      </div>
+    </div>
+  )
+
+  const tabPdf = (
+    <div className="cf-pdf">
+      <Form layout="vertical">
+        <Form.Item label="Plantilla por defecto">
+          <div className="cf-plantilla-lista">
+            {PLANTILLAS.map((p) => (
+              <div
+                key={p.id}
+                className={`cf-plantilla-opcion ${(data.plantillaDefault || 'clasica') === p.id ? 'cf-plantilla-opcion--activa' : ''}`}
+                onClick={() => onChange('plantillaDefault', p.id)}
+              >
+                <Radio checked={(data.plantillaDefault || 'clasica') === p.id} onChange={() => onChange('plantillaDefault', p.id)}>
+                  <strong>{p.nombre}</strong>
+                  <span className="cf-plantilla-desc">{p.descripcion}</span>
+                </Radio>
+              </div>
+            ))}
+          </div>
+        </Form.Item>
+
+        <Form.Item label="Nombre del archivo PDF/XML">
+          <p className="cf-hint">El UUID siempre se incluye. Activa los segmentos adicionales:</p>
+          <div className="cf-nombre-opciones">
+            <div className="cf-nombre-opcion">
+              <Switch
+                checked={data.configNombreArchivo?.rfcEmisor ?? true}
+                onChange={(v) => onChange('configNombreArchivo', { ...data.configNombreArchivo, rfcEmisor: v })}
+              />
+              <span>RFC Emisor</span>
+            </div>
+            <div className="cf-nombre-opcion">
+              <Switch
+                checked={data.configNombreArchivo?.rfcReceptor ?? false}
+                onChange={(v) => onChange('configNombreArchivo', { ...data.configNombreArchivo, rfcReceptor: v })}
+              />
+              <span>RFC Receptor</span>
+            </div>
+          </div>
+          <div className="cf-nombre-preview">
+            <Text type="secondary">Vista previa: </Text>
+            <Text code>{previewNombre()}</Text>
+          </div>
+        </Form.Item>
+      </Form>
+    </div>
+  )
+
+  return (
+    <Tabs
+      items={[
+        { key: 'acceso',   label: 'Acceso',   children: tabAcceso },
+        { key: 'carpetas', label: 'Carpetas', children: tabCarpetas },
+        { key: 'pdf',      label: 'PDF',      children: tabPdf }
+      ]}
+    />
   )
 }
 

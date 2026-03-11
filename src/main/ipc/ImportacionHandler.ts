@@ -1,13 +1,16 @@
 import { ipcMain, dialog } from 'electron'
 import { XmlParserService } from '../services/XmlParserService'
 import { FacturaRepository } from '../database/repositories/FacturaRepository'
+import { RutaArchivoService } from '../services/RutaArchivoService'
 import { ProfileManager } from '../database/ProfileManager'
+import { CatalogoRepository } from '../database/repositories/CatalogoRepository'
 import * as fs from 'fs'
 import * as path from 'path'
 import BetterSqlite3 from 'better-sqlite3'
 
 export class ImportacionHandler {
   private xmlParser = new XmlParserService()
+  private rutaService = new RutaArchivoService()
 
   constructor(private readonly db: BetterSqlite3.Database) { }
 
@@ -42,7 +45,6 @@ export class ImportacionHandler {
 
       for (const ruta of rutas) {
         try {
-          //const contenido = fs.readFileSync(ruta, 'utf-8')
           const camposXml = this.xmlParser.extraerCampos(ruta)
           const perfil = ProfileManager.getPerfilActivo()
           const rfcActivo = perfil?.rfc
@@ -67,8 +69,18 @@ export class ImportacionHandler {
             continue
           }
 
-          // Determinar tipo de descarga según RFC activo  
-          const tipoDes = camposXml.rfc_receptor === perfil?.rfc ? 'recibida' : 'emitida'
+          // Determinar tipo de descarga según RFC activo
+          const tipoDes = camposXml.rfc_receptor === rfcActivo ? 'recibida' : 'emitida'
+
+          // Calcular ruta destino y copiar XML
+          const rutaDestino = this.rutaService.construirRutaXml({
+            uuid: camposXml.uuid,
+            fecha_emision: camposXml.fecha_emision || '',
+            rfc_emisor: camposXml.rfc_emisor || '',
+            rfc_receptor: camposXml.rfc_receptor || '',
+            tipo_descarga: tipoDes
+          })
+          fs.copyFileSync(ruta, rutaDestino)
 
           repository.insertar({
             uuid: camposXml.uuid,
@@ -81,7 +93,7 @@ export class ImportacionHandler {
             total: camposXml.total || 0,
             tipo_comprobante: camposXml.tipo_comprobante || 'I',
             estado: 'vigente',
-            xml: ruta,
+            xml: rutaDestino,
             tipo_descarga: tipoDes,
             fecha_descarga: new Date().toISOString(),
             ...camposXml
@@ -92,6 +104,8 @@ export class ImportacionHandler {
         }
       }
 
+      const catalogoRepo = new CatalogoRepository(this.db)
+      catalogoRepo.sincronizarTodos()
       return { success: true, importadas, omitidas, errores }
     })
   }

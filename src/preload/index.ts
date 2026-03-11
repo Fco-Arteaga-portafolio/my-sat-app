@@ -25,11 +25,22 @@ const api = {
   obtenerPerfilActivo: () => ipcRenderer.invoke('obtener-perfil-activo'),
   cerrarPerfil: () => ipcRenderer.invoke('cerrar-perfil'),
   seleccionarXmls: () => ipcRenderer.invoke('seleccionar-xmls'),
+  obtenerPdfFactura: (datos: any) => ipcRenderer.invoke('obtener-pdf-factura', datos),
   seleccionarCarpetaXml: () => ipcRenderer.invoke('seleccionar-carpeta-xml'),
   importarXmls: (rutas: string[]) => ipcRenderer.invoke('importar-xmls', rutas),
+  dashboardKpis: (año: number, mes: number) => ipcRenderer.invoke('dashboard-kpis', año, mes),
+  dashboardFlujoAnual: (año: number) => ipcRenderer.invoke('dashboard-flujo-anual', año),
+  dashboardTopProveedores: (año: number, mes: number) => ipcRenderer.invoke('dashboard-top-proveedores', año, mes),
+  dashboardTopClientes: (año: number, mes: number) => ipcRenderer.invoke('dashboard-top-clientes', año, mes),
   reintentarPendientes: (datos: { captcha?: string }) => ipcRenderer.invoke('reintentar-pendientes', datos),
+  obtenerConteos: () => ipcRenderer.invoke('dashboard-obtener-conteos'),
   generarPdf: (datos: { xmlContenido: string; parseada: any; uuid: string; plantilla: string; rutaDestino: string }) =>
     ipcRenderer.invoke('generar-pdf', datos),
+  catalogoObtener: (tipo: string) => ipcRenderer.invoke('catalogo-obtener', tipo),
+  catalogoObtenerPorRfc: (tipo: string, rfc: string) => ipcRenderer.invoke('catalogo-obtener-por-rfc', tipo, rfc),
+  catalogoActualizar: (tipo: string, rfc: string, datos: any) => ipcRenderer.invoke('catalogo-actualizar', tipo, rfc, datos),
+  catalogoSincronizar: () => ipcRenderer.invoke('catalogo-sincronizar'),
+  facturasDrillDown: (rfc: string) => ipcRenderer.invoke('facturas-drill-down', rfc),
   onProgresoDescarga: (callback: (progreso: any) => void) => {
     ipcRenderer.on('progreso-descarga', (_, progreso) => callback(progreso))
 

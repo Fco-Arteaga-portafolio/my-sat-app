@@ -35,7 +35,7 @@ export interface Factura {
 }
 
 export class FacturaRepository {
-  constructor(private readonly db: BetterSqlite3.Database) {}
+  constructor(private readonly db: BetterSqlite3.Database) { }
 
   private get tabla(): string {
     return ProfileManager.getTablaFacturas()
@@ -94,5 +94,15 @@ export class FacturaRepository {
 
   eliminar(uuid: string): void {
     this.db.prepare(`DELETE FROM ${this.tabla} WHERE uuid = ?`).run(uuid)
+  }
+
+  obtenerDrillDown(rfc: string): Factura[] {
+    return this.db.prepare(`
+    SELECT * FROM ${this.tabla}
+    WHERE (rfc_emisor = ? OR rfc_receptor = ?)
+      AND tipo_comprobante IN ('I', 'E')
+      AND estado = 'vigente'
+    ORDER BY fecha_emision DESC
+  `).all(rfc, rfc) as Factura[]
   }
 }

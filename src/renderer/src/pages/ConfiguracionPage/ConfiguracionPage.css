@@ -1,9 +1,135 @@
 .configuracion-container {
-  max-width: 600px;
+  max-width: 820px;
   margin: 0 auto;
 }
 
 .configuracion-container h2 {
   font-size: 22px;
   font-weight: 600;
+}
+
+.configuracion-alert {
+  margin-bottom: 24px;
+}
+
+.configuracion-hint {
+  color: #888;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+/* ── Plantilla ── */
+.plantilla-lista {
+  width: 100%;
+}
+
+.plantilla-opcion {
+  padding: 12px 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  width: 100%;
+}
+
+.plantilla-opcion:hover {
+  border-color: #1a73e8;
+}
+
+.plantilla-opcion--activa {
+  border: 2px solid #1a73e8;
+  background: #f0f7ff;
+}
+
+.plantilla-descripcion {
+  color: #888;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+/* ── Carpetas ── */
+.carpetas-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+
+.carpeta-seccion {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.carpeta-ruta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.carpeta-input {
+  flex: 1;
+}
+
+.carpeta-sublabel {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* ── Estructura slots ── */
+.estructura-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.estructura-slot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  transition: opacity 0.2s;
+}
+
+.estructura-slot--inactivo {
+  opacity: 0.45;
+}
+
+.estructura-drag {
+  cursor: grab;
+  color: #bbb;
+  font-size: 14px;
+}
+
+.estructura-label {
+  flex: 1;
+  font-size: 13px;
+}
+
+.estructura-acciones {
+  display: flex;
+  gap: 2px;
+}
+
+/* ── Nombre archivo ── */
+.nombre-opciones {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 16px;
+}
+
+.nombre-opcion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.nombre-preview {
+  padding: 10px 14px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  font-size: 13px;
 }

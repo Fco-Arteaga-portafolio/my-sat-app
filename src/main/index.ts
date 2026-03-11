@@ -13,11 +13,17 @@ import { ConfiguracionService } from './services/ConfiguracionService'
 import { ProfileManager } from './database/ProfileManager'
 import { PerfilHandler } from './ipc/PerfilHandler'
 import { ImportacionHandler } from './ipc/ImportacionHandler'
+import { DashboardHandler } from './ipc/DashboardHandler'
+import { CatalogoHandler } from './ipc/CatalogoHandler'
 
 function initDatabase(): void {
   const db = Database.getInstance()
   const migrationRunner = new MigrationRunner(db)
-  migrationRunner.run()
+  try {
+    migrationRunner.run()
+  } catch (err) {
+    console.error('Error en migraciones:', err)
+  }
 }
 
 function createWindow(): void {
@@ -27,7 +33,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     icon,
-    title: 'Gravix',  // ← agregar esto
+    title: 'IFRAT',  // ← agregar esto
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -36,7 +42,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow.setTitle('Gravix')
+    mainWindow.setTitle('IFRAT - Inteligencia Fiscal para la Revisión y Administración Tributaria')
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -73,6 +79,8 @@ app.whenReady().then(() => {
   new PerfilHandler(profileManager).registrar()
   new FacturaHandler(descargaService, configuracionService).registrar()
   new ConfiguracionHandler(db).registrar()
+  new DashboardHandler(db).registrar()
+  new CatalogoHandler(db).registrar()
   createWindow()
 
   app.on('activate', function () {

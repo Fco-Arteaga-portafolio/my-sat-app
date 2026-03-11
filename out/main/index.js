@@ -139,6 +139,83 @@ function migration005(db) {
     )
   `);
 }
+const migration006 = (db) => {
+  const perfiles = db.prepare("SELECT rfc FROM perfiles").all();
+  for (const { rfc } of perfiles) {
+    const r = rfc.replace(/[^A-Z0-9]/gi, "");
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS clientes_${r} (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        rfc             TEXT UNIQUE NOT NULL,
+        nombre          TEXT,
+        telefono        TEXT,
+        email           TEXT,
+        direccion       TEXT,
+        contacto        TEXT,
+        notas           TEXT,
+        limite_credito  REAL,
+        dias_credito    INTEGER,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS proveedores_${r} (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        rfc             TEXT UNIQUE NOT NULL,
+        nombre          TEXT,
+        telefono        TEXT,
+        email           TEXT,
+        direccion       TEXT,
+        contacto        TEXT,
+        notas           TEXT,
+        limite_credito  REAL,
+        dias_credito    INTEGER,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS empleados_${r} (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        rfc             TEXT UNIQUE NOT NULL,
+        nombre          TEXT,
+        telefono        TEXT,
+        email           TEXT,
+        direccion       TEXT,
+        notas           TEXT,
+        puesto          TEXT,
+        fecha_ingreso   DATE,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS patrones_${r} (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        rfc             TEXT UNIQUE NOT NULL,
+        nombre          TEXT,
+        telefono        TEXT,
+        email           TEXT,
+        direccion       TEXT,
+        contacto        TEXT,
+        notas           TEXT,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+  }
+};
+function migration007(db) {
+  db.exec(`
+    ALTER TABLE perfiles ADD COLUMN plantilla_default     TEXT NOT NULL DEFAULT 'clasica';
+    ALTER TABLE perfiles ADD COLUMN carpeta_emitidos      TEXT;
+    ALTER TABLE perfiles ADD COLUMN carpeta_recibidos     TEXT;
+    ALTER TABLE perfiles ADD COLUMN estructura_emitidos   TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE perfiles ADD COLUMN estructura_recibidos  TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE perfiles ADD COLUMN config_nombre_archivo TEXT NOT NULL DEFAULT '{}';
+  `);
+}
 class MigrationRunner {
   constructor(db) {
     this.db = db;
@@ -162,7 +239,9 @@ class MigrationRunner {
       { nombre: "002_tipo_descarga", fn: migration002 },
       { nombre: "003_descargas_pendientes", fn: migration003 },
       { nombre: "004_campos_cfdi", fn: migration004 },
-      { nombre: "005_perfiles", fn: migration005 }
+      { nombre: "005_perfiles", fn: migration005 },
+      { nombre: "006_catalogos", fn: migration006 },
+      { nombre: "007_config_pdf", fn: migration007 }
     ];
     for (const migration of migrations) {
       const yaEjecutada = this.db.prepare(
@@ -353,10 +432,10 @@ class BrowserManager {
 }
 class PdfService {
   async generarPdf(_xmlContenido, parseada, uuid, plantilla, rutaDestino) {
-    const html = this.construirHtml(parseada, uuid, plantilla);
+    const html = await this.construirHtml(parseada, uuid, plantilla);
     await this.htmlAPdf(html, rutaDestino);
   }
-  construirHtml(parseada, uuid, plantilla) {
+  async construirHtml(parseada, uuid, plantilla) {
     const templatePath = path.join(electron.app.getAppPath(), "src", "main", "templates", `${plantilla}.html`);
     let html = fs__namespace.readFileSync(templatePath, "utf-8");
     const fmt = (n) => (n || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
@@ -472,7 +551,7 @@ class PdfService {
     html = this.reemplazar(html, "SELLO_CFD", t?.selloCFD || "");
     html = this.reemplazar(html, "SELLO_SAT", t?.selloSAT || "");
     const qrUrl = `https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id=${uuid}&re=${parseada.rfcEmisor}&rr=${parseada.rfcReceptor}&tt=${parseada.total}&fe=${(t?.selloCFD || "").slice(-8)}`;
-    const qrDataUrl = this.generarQrSvg(qrUrl);
+    const qrDataUrl = await this.generarQrDataUrl(qrUrl);
     html = this.reemplazar(html, "QR_DATA_URL", qrDataUrl);
     return html;
   }
@@ -510,9 +589,22 @@ class PdfService {
     }
     return html;
   }
-  // QR simple en SVG (sin dependencias externas)
-  generarQrSvg(url) {
-    return `https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(url)}`;
+  /* QR simple en SVG (sin dependencias externas)
+  private generarQrSvg(url: string): string {
+      // Usamos una URL de API pública para generar el QR como data URL
+      return `https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(url)}`
+  }*/
+  async generarQrDataUrl(url) {
+    const QRCode = require("qrcode");
+    return await QRCode.toDataURL(url, {
+      width: 256,
+      margin: 2,
+      errorCorrectionLevel: "H",
+      rendererOpts: {
+        quality: 1
+        // Asegura la máxima calidad en la generación
+      }
+    });
   }
 }
 class FacturaHandler {
@@ -645,6 +737,31 @@ class FacturaHandler {
         return { success: false, error: mensaje };
       }
     });
+    electron.ipcMain.handle("facturas-drill-down", async (_, rfc) => {
+      try {
+        const data = this.descargaService.obtenerDrillDown(rfc);
+        return { success: true, data };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("obtener-pdf-factura", async (_, datos) => {
+      try {
+        const fs2 = require("fs");
+        const rutaPdf = datos.rutaXml.replace(/\.xml$/i, ".pdf");
+        if (!fs2.existsSync(rutaPdf)) {
+          const xmlContenido = fs2.readFileSync(datos.rutaXml, "utf-8");
+          const pdfService = new PdfService();
+          const plantilla = this.configuracionService.obtener()?.plantillaDefault ?? "clasica";
+          await pdfService.generarPdf(xmlContenido, datos.parseada, datos.uuid, plantilla, rutaPdf);
+        }
+        const buffer = fs2.readFileSync(rutaPdf);
+        const base64 = buffer.toString("base64");
+        return { success: true, base64, rutaPdf };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
   }
 }
 class ProfileManager {
@@ -699,65 +816,94 @@ class ProfileManager {
     if (!r) throw new Error("No hay perfil activo");
     return `descargas_pendientes_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
   }
+  static getRfcActivo() {
+    return ProfileManager.perfilActivo?.rfc || "";
+  }
   // ── Crear tablas para un RFC nuevo ────────────────────
   crearTablasPerfil(rfc) {
-    const tablaFacturas = ProfileManager.getTablaFacturas(rfc);
-    const tablaPendientes = ProfileManager.getTablaPendientes(rfc);
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS ${tablaFacturas} (
-        id                              INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid                            TEXT UNIQUE NOT NULL,
-        version                         TEXT,
-        serie                           TEXT,
-        folio                           TEXT,
-        fecha_emision                   TEXT,
-        fecha_timbrado                  TEXT,
-        rfc_emisor                      TEXT,
-        nombre_emisor                   TEXT,
-        rfc_receptor                    TEXT,
-        nombre_receptor                 TEXT,
-        subtotal                        REAL,
-        descuento                       REAL DEFAULT 0,
-        total_impuestos_trasladados     REAL DEFAULT 0,
-        total_impuestos_retenidos       REAL DEFAULT 0,
-        total                           REAL,
-        tipo_comprobante                TEXT,
-        forma_pago                      TEXT,
-        metodo_pago                     TEXT,
-        moneda                          TEXT,
-        tipo_cambio                     REAL,
-        estado                          TEXT,
-        estado_cancelacion              TEXT,
-        estado_proceso_cancelacion      TEXT,
-        fecha_cancelacion               TEXT,
-        rfc_pac                         TEXT,
-        folio_sustitucion               TEXT,
-        xml                             TEXT,
-        tipo_descarga                   TEXT CHECK(tipo_descarga IN ('recibida', 'emitida')),
-        fecha_descarga                  TEXT
-      )
-    `);
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS ${tablaPendientes} (
-        id                INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid              TEXT UNIQUE NOT NULL,
-        rfc_emisor        TEXT,
-        nombre_emisor     TEXT,
-        rfc_receptor      TEXT,
-        nombre_receptor   TEXT,
-        fecha_emision     TEXT,
-        total             REAL,
-        tipo_comprobante  TEXT,
-        estado            TEXT,
-        url_descarga      TEXT,
-        tipo_descarga     TEXT CHECK(tipo_descarga IN ('recibida', 'emitida')),
-        error             TEXT,
-        intentos          INTEGER DEFAULT 1,
-        fecha_fallo       TEXT DEFAULT (datetime('now'))
-      )
-    `);
+    const r = rfc.replace(/[^A-Z0-9]/gi, "");
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS facturas_${r} (
+    uuid TEXT PRIMARY KEY,
+    version TEXT, serie TEXT, folio TEXT,
+    fecha_emision TEXT, fecha_timbrado TEXT,
+    rfc_emisor TEXT, nombre_emisor TEXT,
+    rfc_receptor TEXT, nombre_receptor TEXT,
+    subtotal REAL, descuento REAL,
+    total_impuestos_trasladados REAL,
+    total_impuestos_retenidos REAL,
+    total REAL, tipo_comprobante TEXT,
+    forma_pago TEXT, metodo_pago TEXT,
+    moneda TEXT, tipo_cambio REAL,
+    estado TEXT, estado_cancelacion TEXT,
+    estado_proceso_cancelacion TEXT,
+    fecha_cancelacion TEXT, rfc_pac TEXT,
+    folio_sustitucion TEXT, xml TEXT,
+    tipo_descarga TEXT, fecha_descarga TEXT
+)`).run();
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS descargas_pendientes_${r} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT UNIQUE, rfc_emisor TEXT, nombre_emisor TEXT,
+    rfc_receptor TEXT, nombre_receptor TEXT,
+    fecha_emision TEXT, total REAL,
+    tipo_comprobante TEXT, estado TEXT,
+    url_descarga TEXT, tipo_descarga TEXT,
+    error TEXT, intentos INTEGER, fecha_fallo TEXT
+)`).run();
+    this.db.prepare(`
+    CREATE TABLE IF NOT EXISTS clientes_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      contacto TEXT, notas TEXT,
+      limite_credito REAL, dias_credito INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+    this.db.prepare(`
+    CREATE TABLE IF NOT EXISTS proveedores_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      contacto TEXT, notas TEXT,
+      limite_credito REAL, dias_credito INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+    this.db.prepare(`
+    CREATE TABLE IF NOT EXISTS empleados_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      notas TEXT, puesto TEXT, fecha_ingreso DATE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+    this.db.prepare(`
+    CREATE TABLE IF NOT EXISTS patrones_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      contacto TEXT, notas TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
   }
 }
+const ESTRUCTURA_DEFAULT = [
+  { id: "contribuyente", label: "Contribuyente", activo: true },
+  { id: "ejercicio", label: "Ejercicio", activo: true },
+  { id: "periodo", label: "Periodo", activo: false },
+  { id: "emisor", label: "Emisor", activo: false },
+  { id: "receptor", label: "Receptor", activo: false }
+];
+const CONFIG_NOMBRE_DEFAULT = {
+  rfcEmisor: true,
+  rfcReceptor: false
+};
 class ConfiguracionService {
   constructor(db) {
     this.db = db;
@@ -769,12 +915,18 @@ class ConfiguracionService {
     }
     this.db.prepare(`
       UPDATE perfiles SET
-        metodo_auth = @metodo_auth,
-        contrasena = @contrasena,
-        ruta_cer = @ruta_cer,
-        ruta_key = @ruta_key,
-        contrasena_fiel = @contrasena_fiel,
-        carpeta_descarga = @carpeta_descarga
+        metodo_auth            = @metodo_auth,
+        contrasena             = @contrasena,
+        ruta_cer               = @ruta_cer,
+        ruta_key               = @ruta_key,
+        contrasena_fiel        = @contrasena_fiel,
+        carpeta_descarga       = @carpeta_descarga,
+        plantilla_default      = @plantilla_default,
+        carpeta_emitidos       = @carpeta_emitidos,
+        carpeta_recibidos      = @carpeta_recibidos,
+        estructura_emitidos    = @estructura_emitidos,
+        estructura_recibidos   = @estructura_recibidos,
+        config_nombre_archivo  = @config_nombre_archivo
       WHERE rfc = @rfc
     `).run({
       rfc: config.rfc,
@@ -783,7 +935,13 @@ class ConfiguracionService {
       ruta_cer: config.rutaCer || null,
       ruta_key: config.rutaKey || null,
       contrasena_fiel: config.contrasenaFiel || null,
-      carpeta_descarga: config.carpetaDescarga || null
+      carpeta_descarga: config.carpetaDescarga || null,
+      plantilla_default: config.plantillaDefault || "clasica",
+      carpeta_emitidos: config.carpetaEmitidos || null,
+      carpeta_recibidos: config.carpetaRecibidos || null,
+      estructura_emitidos: JSON.stringify(config.estructuraEmitidos ?? ESTRUCTURA_DEFAULT),
+      estructura_recibidos: JSON.stringify(config.estructuraRecibidos ?? ESTRUCTURA_DEFAULT),
+      config_nombre_archivo: JSON.stringify(config.configNombreArchivo ?? CONFIG_NOMBRE_DEFAULT)
     });
     const perfil = ProfileManager.getPerfilActivo();
     if (perfil) {
@@ -794,7 +952,13 @@ class ConfiguracionService {
         ruta_cer: config.rutaCer,
         ruta_key: config.rutaKey,
         contrasena_fiel: config.contrasenaFiel,
-        carpeta_descarga: config.carpetaDescarga
+        carpeta_descarga: config.carpetaDescarga,
+        plantilla_default: config.plantillaDefault || "clasica",
+        carpeta_emitidos: config.carpetaEmitidos,
+        carpeta_recibidos: config.carpetaRecibidos,
+        estructura_emitidos: JSON.stringify(config.estructuraEmitidos ?? ESTRUCTURA_DEFAULT),
+        estructura_recibidos: JSON.stringify(config.estructuraRecibidos ?? ESTRUCTURA_DEFAULT),
+        config_nombre_archivo: JSON.stringify(config.configNombreArchivo ?? CONFIG_NOMBRE_DEFAULT)
       });
     }
   }
@@ -808,8 +972,30 @@ class ConfiguracionService {
       rutaCer: perfil.ruta_cer,
       rutaKey: perfil.ruta_key,
       contrasenaFiel: perfil.contrasena_fiel,
-      carpetaDescarga: perfil.carpeta_descarga
+      carpetaDescarga: perfil.carpeta_descarga,
+      plantillaDefault: perfil.plantilla_default || "clasica",
+      carpetaEmitidos: perfil.carpeta_emitidos,
+      carpetaRecibidos: perfil.carpeta_recibidos,
+      estructuraEmitidos: this.parsearEstructura(perfil.estructura_emitidos),
+      estructuraRecibidos: this.parsearEstructura(perfil.estructura_recibidos),
+      configNombreArchivo: this.parsearConfigNombre(perfil.config_nombre_archivo)
     };
+  }
+  parsearEstructura(json) {
+    try {
+      if (!json || json === "[]") return [...ESTRUCTURA_DEFAULT];
+      return JSON.parse(json);
+    } catch {
+      return [...ESTRUCTURA_DEFAULT];
+    }
+  }
+  parsearConfigNombre(json) {
+    try {
+      if (!json || json === "{}") return { ...CONFIG_NOMBRE_DEFAULT };
+      return JSON.parse(json);
+    } catch {
+      return { ...CONFIG_NOMBRE_DEFAULT };
+    }
   }
   copiarArchivoEfirma(rutaOrigen, tipo) {
     const rfc = ProfileManager.getPerfilActivo()?.rfc || "default";
@@ -936,6 +1122,15 @@ class FacturaRepository {
   }
   eliminar(uuid) {
     this.db.prepare(`DELETE FROM ${this.tabla} WHERE uuid = ?`).run(uuid);
+  }
+  obtenerDrillDown(rfc) {
+    return this.db.prepare(`
+    SELECT * FROM ${this.tabla}
+    WHERE (rfc_emisor = ? OR rfc_receptor = ?)
+      AND tipo_comprobante IN ('I', 'E')
+      AND estado = 'vigente'
+    ORDER BY fecha_emision DESC
+  `).all(rfc, rfc);
   }
 }
 class DescargaPendienteRepository {
@@ -1400,13 +1595,112 @@ class XmlParserService {
     }
   }
 }
+class CatalogoRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  tabla(tipo) {
+    return `${tipo}_${ProfileManager.getRfcActivo()}`;
+  }
+  tablaFacturas() {
+    return ProfileManager.getTablaFacturas();
+  }
+  obtenerTodos(tipo) {
+    const tablaF = this.tablaFacturas();
+    const rfcActivo = ProfileManager.getRfcActivo();
+    const campoRfc = tipo === "clientes" || tipo === "empleados" ? "rfc_receptor" : "rfc_emisor";
+    const filtroTipo = tipo === "clientes" ? `tipo_descarga = 'emitida' AND tipo_comprobante = 'I'` : tipo === "proveedores" ? `tipo_descarga = 'recibida' AND tipo_comprobante = 'I'` : tipo === "empleados" ? `tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}'` : `tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}'`;
+    const camposExtra = tipo === "clientes" || tipo === "proveedores" ? `c.limite_credito, c.dias_credito, c.contacto,` : tipo === "empleados" ? `c.puesto, c.fecha_ingreso,` : `c.contacto,`;
+    return this.db.prepare(`
+    SELECT
+      c.id, c.rfc, c.nombre, c.telefono, c.email,
+      c.direccion, c.notas, ${camposExtra}
+      c.created_at, c.updated_at,
+      COUNT(f.uuid) as total_facturas,
+      COALESCE(SUM(f.total), 0) as total_facturado,
+      MAX(f.fecha_emision) as ultimo_cfdi
+    FROM ${this.tabla(tipo)} c
+    LEFT JOIN ${tablaF} f ON f.${campoRfc} = c.rfc AND ${filtroTipo}
+    GROUP BY c.id
+    ORDER BY total_facturado DESC
+  `).all();
+  }
+  obtenerPorRfc(tipo, rfc) {
+    const tablaF = this.tablaFacturas();
+    const rfcActivo = ProfileManager.getRfcActivo();
+    const campoRfc = tipo === "clientes" || tipo === "empleados" ? "rfc_receptor" : "rfc_emisor";
+    const filtroTipo = tipo === "clientes" ? `tipo_descarga = 'emitida' AND tipo_comprobante = 'I'` : tipo === "proveedores" ? `tipo_descarga = 'recibida' AND tipo_comprobante = 'I'` : tipo === "empleados" ? `tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}'` : `tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}'`;
+    return this.db.prepare(`
+      SELECT
+        c.*,
+        COUNT(f.uuid) as total_facturas,
+        COALESCE(SUM(f.total), 0) as total_facturado,
+        MAX(f.fecha_emision) as ultimo_cfdi
+      FROM ${this.tabla(tipo)} c
+      LEFT JOIN ${tablaF} f ON f.${campoRfc} = c.rfc AND ${filtroTipo}
+      WHERE c.rfc = ?
+      GROUP BY c.id
+    `).get(rfc);
+  }
+  actualizar(tipo, rfc, datos) {
+    const campos = Object.keys(datos).filter((k) => k !== "rfc" && k !== "id").map((k) => `${k} = @${k}`).join(", ");
+    this.db.prepare(`
+      UPDATE ${this.tabla(tipo)}
+      SET ${campos}, updated_at = datetime('now')
+      WHERE rfc = @rfc
+    `).run({ ...datos, rfc });
+  }
+  sincronizar(tipo) {
+    const tablaF = this.tablaFacturas();
+    const rfcActivo = ProfileManager.getRfcActivo();
+    const queries = {
+      clientes: `
+        INSERT OR IGNORE INTO ${this.tabla("clientes")} (rfc, nombre)
+        SELECT DISTINCT rfc_receptor, nombre_receptor
+        FROM ${tablaF}
+        WHERE tipo_descarga = 'emitida' AND tipo_comprobante = 'I'
+          AND rfc_receptor IS NOT NULL AND rfc_receptor != ''
+      `,
+      proveedores: `
+        INSERT OR IGNORE INTO ${this.tabla("proveedores")} (rfc, nombre)
+        SELECT DISTINCT rfc_emisor, nombre_emisor
+        FROM ${tablaF}
+        WHERE tipo_descarga = 'recibida' AND tipo_comprobante = 'I'
+          AND rfc_emisor IS NOT NULL AND rfc_emisor != ''
+      `,
+      empleados: `
+        INSERT OR IGNORE INTO ${this.tabla("empleados")} (rfc, nombre)
+        SELECT DISTINCT rfc_receptor, nombre_receptor
+        FROM ${tablaF}
+        WHERE tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}'
+          AND rfc_receptor IS NOT NULL AND rfc_receptor != ''
+      `,
+      patrones: `
+        INSERT OR IGNORE INTO ${this.tabla("patrones")} (rfc, nombre)
+        SELECT DISTINCT rfc_emisor, nombre_emisor
+        FROM ${tablaF}
+        WHERE tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}'
+          AND rfc_emisor IS NOT NULL AND rfc_emisor != ''
+      `
+    };
+    this.db.prepare(queries[tipo]).run();
+  }
+  sincronizarTodos() {
+    this.sincronizar("clientes");
+    this.sincronizar("proveedores");
+    this.sincronizar("empleados");
+    this.sincronizar("patrones");
+  }
+}
 class DescargaService {
-  constructor(facturaRepository, pendienteRepository) {
+  constructor(facturaRepository, pendienteRepository, db) {
     this.facturaRepository = facturaRepository;
     this.pendienteRepository = pendienteRepository;
+    this.catalogoRepository = new CatalogoRepository(db);
   }
   scraper = new SatScraper();
   xmlParser = new XmlParserService();
+  catalogoRepository;
   async obtenerCaptcha() {
     await this.scraper.iniciar();
     return await this.scraper.obtenerCaptcha();
@@ -1464,6 +1758,7 @@ class DescargaService {
           });
         }
       }
+      this.catalogoRepository.sincronizarTodos();
       return { total: guardadas, errores };
     } finally {
       await this.scraper.cerrar();
@@ -1535,6 +1830,9 @@ class DescargaService {
   }
   limpiarPendientes() {
     return this.pendienteRepository.limpiar();
+  }
+  obtenerDrillDown(rfc) {
+    return this.facturaRepository.obtenerDrillDown(rfc);
   }
 }
 class PerfilHandler {
@@ -1667,14 +1965,204 @@ class ImportacionHandler {
           errores.push({ archivo: path__namespace.basename(ruta), error: err.message });
         }
       }
+      const catalogoRepo = new CatalogoRepository(this.db);
+      catalogoRepo.sincronizarTodos();
       return { success: true, importadas, omitidas, errores };
+    });
+  }
+}
+class DashboardRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  get tabla() {
+    return ProfileManager.getTablaFacturas();
+  }
+  kpisDelMes(año, mes) {
+    const mesStr = String(mes).padStart(2, "0");
+    const mesAnterior = mes === 1 ? 12 : mes - 1;
+    const añoAnterior = mes === 1 ? año - 1 : año;
+    const mesAnteriorStr = String(mesAnterior).padStart(2, "0");
+    const query = (a, m) => this.db.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as ingresos,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as egresos,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_trasladados ELSE 0 END), 0) as iva_cobrado,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_trasladados ELSE 0 END), 0) as iva_pagado
+      FROM ${this.tabla}
+      WHERE strftime('%Y', fecha_emision) = '${a}' AND strftime('%m', fecha_emision) = '${m}'
+    `).get();
+    const actual = query(año, mesStr);
+    const anterior = query(añoAnterior, mesAnteriorStr);
+    const variacion = (a, b) => b === 0 ? 0 : Math.round((a - b) / b * 100);
+    return {
+      ingresos: actual.ingresos,
+      egresos: actual.egresos,
+      balance: actual.ingresos - actual.egresos,
+      iva_estimado: actual.iva_cobrado - actual.iva_pagado,
+      variacion_ingresos: variacion(actual.ingresos, anterior.ingresos),
+      variacion_egresos: variacion(actual.egresos, anterior.egresos),
+      variacion_balance: variacion(actual.ingresos - actual.egresos, anterior.ingresos - anterior.egresos)
+    };
+  }
+  flujoAnual(año) {
+    return this.db.prepare(`
+      SELECT
+        strftime('%m', fecha_emision) as mes,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as ingresos,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as egresos
+      FROM ${this.tabla}
+      WHERE strftime('%Y', fecha_emision) = '${año}'
+      GROUP BY mes
+      ORDER BY mes ASC
+    `).all();
+  }
+  topProveedores(año, mes) {
+    const mesStr = String(mes).padStart(2, "0");
+    return this.db.prepare(`
+      SELECT
+        rfc_emisor as rfc,
+        nombre_emisor as nombre,
+        COUNT(*) as facturas,
+        SUM(total) as total
+      FROM ${this.tabla}
+      WHERE tipo_descarga = 'recibida'
+        AND tipo_comprobante = 'I'
+        AND estado = 'vigente'
+        AND strftime('%Y', fecha_emision) = '${año}'
+        AND strftime('%m', fecha_emision) = '${mesStr}'
+      GROUP BY rfc_emisor
+      ORDER BY total DESC
+      LIMIT 5
+    `).all();
+  }
+  topClientes(año, mes) {
+    const mesStr = String(mes).padStart(2, "0");
+    return this.db.prepare(`
+      SELECT
+        rfc_receptor as rfc,
+        nombre_receptor as nombre,
+        COUNT(*) as facturas,
+        SUM(total) as total
+      FROM ${this.tabla}
+      WHERE tipo_descarga = 'emitida'
+        AND tipo_comprobante = 'I'
+        AND estado = 'vigente'
+        AND strftime('%Y', fecha_emision) = '${año}'
+        AND strftime('%m', fecha_emision) = '${mesStr}'
+      GROUP BY rfc_receptor
+      ORDER BY total DESC
+      LIMIT 5
+    `).all();
+  }
+  obtenerConteos(rfcActivo) {
+    return this.db.prepare(`
+    SELECT
+      SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' THEN 1 ELSE 0 END) as recibidas,
+      SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' THEN 1 ELSE 0 END) as emitidas,
+      SUM(CASE WHEN tipo_comprobante = 'N' THEN 1 ELSE 0 END) as nomina,
+      SUM(CASE WHEN tipo_comprobante = 'P' THEN 1 ELSE 0 END) as pagos,
+      COUNT(DISTINCT CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' THEN rfc_receptor END) as clientes,
+      COUNT(DISTINCT CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' THEN rfc_emisor END) as proveedores,
+      SUM(CASE WHEN tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}' THEN 1 ELSE 0 END) as empleados,
+      SUM(CASE WHEN tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}' THEN 1 ELSE 0 END) as patrones
+    FROM ${this.tabla}
+  `).get();
+  }
+}
+class DashboardHandler {
+  repository;
+  constructor(db) {
+    this.repository = new DashboardRepository(db);
+  }
+  registrar() {
+    electron.ipcMain.handle("dashboard-kpis", async (_, año, mes) => {
+      try {
+        return { success: true, data: this.repository.kpisDelMes(año, mes) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("dashboard-flujo-anual", async (_, año) => {
+      try {
+        return { success: true, data: this.repository.flujoAnual(año) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("dashboard-top-proveedores", async (_, año, mes) => {
+      try {
+        return { success: true, data: this.repository.topProveedores(año, mes) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("dashboard-top-clientes", async (_, año, mes) => {
+      try {
+        return { success: true, data: this.repository.topClientes(año, mes) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("dashboard-obtener-conteos", async () => {
+      try {
+        const perfil = ProfileManager.getPerfilActivo();
+        const data = this.repository.obtenerConteos(perfil?.rfc || "");
+        return { success: true, data };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
+class CatalogoHandler {
+  repository;
+  constructor(db) {
+    this.repository = new CatalogoRepository(db);
+  }
+  registrar() {
+    electron.ipcMain.handle("catalogo-obtener", async (_, tipo) => {
+      try {
+        const data = this.repository.obtenerTodos(tipo);
+        return { success: true, data };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("catalogo-obtener-por-rfc", async (_, tipo, rfc) => {
+      try {
+        const data = this.repository.obtenerPorRfc(tipo, rfc);
+        return { success: true, data };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("catalogo-actualizar", async (_, tipo, rfc, datos) => {
+      try {
+        this.repository.actualizar(tipo, rfc, datos);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("catalogo-sincronizar", async () => {
+      try {
+        this.repository.sincronizarTodos();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
     });
   }
 }
 function initDatabase() {
   const db = Database.getInstance();
   const migrationRunner = new MigrationRunner(db);
-  migrationRunner.run();
+  try {
+    migrationRunner.run();
+  } catch (err) {
+    console.error("Error en migraciones:", err);
+  }
 }
 function createWindow() {
   const mainWindow = new electron.BrowserWindow({
@@ -1683,7 +2171,7 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     icon,
-    title: "Gravix",
+    title: "IFRAT",
     // ← agregar esto
     ...process.platform === "linux" ? { icon } : {},
     webPreferences: {
@@ -1692,7 +2180,7 @@ function createWindow() {
     }
   });
   mainWindow.webContents.on("did-finish-load", () => {
-    mainWindow.setTitle("Gravix");
+    mainWindow.setTitle("IFRAT - Inteligencia Fiscal para la Revisión y Administración Tributaria");
   });
   mainWindow.on("ready-to-show", () => {
     mainWindow.show();
@@ -1723,6 +2211,8 @@ electron.app.whenReady().then(() => {
   new PerfilHandler(profileManager).registrar();
   new FacturaHandler(descargaService, configuracionService).registrar();
   new ConfiguracionHandler(db).registrar();
+  new DashboardHandler(db).registrar();
+  new CatalogoHandler(db).registrar();
   createWindow();
   electron.app.on("activate", function() {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();

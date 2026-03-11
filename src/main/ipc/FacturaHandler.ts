@@ -156,5 +156,40 @@ export class FacturaHandler {
         return { success: false, error: mensaje }
       }
     })
+
+    ipcMain.handle('facturas-drill-down', async (_, rfc: string) => {
+      try {
+        const data = this.descargaService.obtenerDrillDown(rfc)
+        return { success: true, data }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
+
+    ipcMain.handle('obtener-pdf-factura', async (_, datos: {
+      rutaXml: string
+      uuid: string
+      parseada: any
+    }) => {
+      try {
+        const fs = require('fs')
+        const rutaPdf = datos.rutaXml.replace(/\.xml$/i, '.pdf')
+
+        // Si no existe lo genera con plantilla clásica por default
+        if (!fs.existsSync(rutaPdf)) {
+          const xmlContenido = fs.readFileSync(datos.rutaXml, 'utf-8')
+          const pdfService = new PdfService()
+          const plantilla = this.configuracionService.obtener()?.plantillaDefault ?? 'clasica'
+          await pdfService.generarPdf(xmlContenido, datos.parseada, datos.uuid, plantilla as any, rutaPdf)
+        }
+
+        // Devolver como base64
+        const buffer = fs.readFileSync(rutaPdf)
+        const base64 = buffer.toString('base64')
+        return { success: true, base64, rutaPdf }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
   }
 }

@@ -16,11 +16,11 @@ export class PdfService {
         plantilla: Plantilla,
         rutaDestino: string
     ): Promise<void> {
-        const html = this.construirHtml(parseada, uuid, plantilla)
+        const html = await this.construirHtml(parseada, uuid, plantilla)
         await this.htmlAPdf(html, rutaDestino)
     }
 
-    private construirHtml(parseada: FacturaParseada, uuid: string, plantilla: Plantilla): string {
+    private async construirHtml(parseada: FacturaParseada, uuid: string, plantilla: Plantilla): Promise<string> {
         const templatePath = join(app.getAppPath(), 'src', 'main', 'templates', `${plantilla}.html`)
         let html = fs.readFileSync(templatePath, 'utf-8')
 
@@ -166,7 +166,7 @@ export class PdfService {
 
         // QR
         const qrUrl = `https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id=${uuid}&re=${parseada.rfcEmisor}&rr=${parseada.rfcReceptor}&tt=${parseada.total}&fe=${(t?.selloCFD || '').slice(-8)}`
-        const qrDataUrl = this.generarQrSvg(qrUrl)
+        const qrDataUrl = await this.generarQrDataUrl(qrUrl)
         html = this.reemplazar(html, 'QR_DATA_URL', qrDataUrl)
 
         return html
@@ -182,7 +182,7 @@ export class PdfService {
             margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' },
             printBackground: true
         })
-         await context.close()
+        await context.close()
     }
 
     private reemplazar(html: string, clave: string, valor: string): string {
@@ -210,9 +210,20 @@ export class PdfService {
         return html
     }
 
-    // QR simple en SVG (sin dependencias externas)
+    /* QR simple en SVG (sin dependencias externas)
     private generarQrSvg(url: string): string {
         // Usamos una URL de API pública para generar el QR como data URL
         return `https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(url)}`
+    }*/
+    private async generarQrDataUrl(url: string): Promise<string> {
+        const QRCode = require('qrcode')
+        return await QRCode.toDataURL(url, {
+            width: 256,
+            margin: 2,
+            errorCorrectionLevel: 'H',
+            rendererOpts: {
+                quality: 1 // Asegura la máxima calidad en la generación
+            }
+        })
     }
 }

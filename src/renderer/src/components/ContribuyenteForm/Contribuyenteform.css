@@ -1,0 +1,122 @@
+/* ── Carpetas ── */
+.cf-carpetas-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.cf-carpeta-seccion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cf-carpeta-ruta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cf-sublabel {
+  font-size: 12px;
+}
+
+/* ── Estructura slots ── */
+.cf-estructura-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cf-estructura-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  transition: opacity 0.2s;
+}
+
+.cf-estructura-slot--inactivo {
+  opacity: 0.45;
+}
+
+.cf-estructura-drag {
+  cursor: grab;
+  color: #bbb;
+  font-size: 13px;
+}
+
+.cf-estructura-label {
+  flex: 1;
+  font-size: 13px;
+}
+
+.cf-estructura-acciones {
+  display: flex;
+  gap: 2px;
+}
+
+/* ── Plantilla ── */
+.cf-plantilla-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cf-plantilla-opcion {
+  padding: 10px 14px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.cf-plantilla-opcion:hover {
+  border-color: #1a73e8;
+}
+
+.cf-plantilla-opcion--activa {
+  border: 2px solid #1a73e8;
+  background: #f0f7ff;
+}
+
+.cf-plantilla-desc {
+  color: #888;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+/* ── Nombre archivo ── */
+.cf-hint {
+  color: #888;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.cf-nombre-opciones {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 14px;
+}
+
+.cf-nombre-opcion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.cf-nombre-preview {
+  padding: 10px 14px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+/* ── PDF tab ── */
+.cf-pdf {
+  padding-top: 4px;
+}

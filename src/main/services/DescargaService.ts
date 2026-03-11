@@ -1,17 +1,24 @@
+import * as fs from 'fs'
 import { SatScraper, ParametrosBusqueda, ProgresoDescarga } from '../scraper/SatScraper'
 import { FacturaRepository } from '../database/repositories/FacturaRepository'
 import { DescargaPendienteRepository } from '../database/repositories/DescargaPendienteRepository'
 import { XmlParserService } from './XmlParserService'
 import { Configuracion } from './ConfiguracionService'
+import { RutaArchivoService } from './RutaArchivoService'
+import { CatalogoRepository } from '../database/repositories/CatalogoRepository'
+import BetterSqlite3 from 'better-sqlite3'
 
 export class DescargaService {
   private scraper = new SatScraper()
   private xmlParser = new XmlParserService()
+  private rutaService = new RutaArchivoService()
+  private readonly catalogoRepository: CatalogoRepository
 
   constructor(
     private readonly facturaRepository: FacturaRepository,
-    private readonly pendienteRepository: DescargaPendienteRepository
-  ) { }
+    private readonly pendienteRepository: DescargaPendienteRepository,
+    db: BetterSqlite3.Database
+  ) { this.catalogoRepository = new CatalogoRepository(db) }
 
   async obtenerCaptcha(): Promise<string> {
     await this.scraper.iniciar()
@@ -30,9 +37,22 @@ export class DescargaService {
       let guardadas = 0
       for (const f of facturas) {
         if (!f.urlDescarga) continue
+
+        const tipoDes = params.tipo === 'recibidas' ? 'recibida' : 'emitida'
+        const camposXml = this.xmlParser.extraerCampos(f.urlDescarga)
+
+        // Calcular ruta destino y copiar XML
+        const rutaDestino = this.rutaService.construirRutaXml({
+          uuid: f.uuid,
+          fecha_emision: f.fecha_emision,
+          rfc_emisor: f.rfc_emisor,
+          rfc_receptor: f.rfc_receptor,
+          tipo_descarga: tipoDes
+        })
+        fs.copyFileSync(f.urlDescarga, rutaDestino)
+
         const yaExiste = this.facturaRepository.obtenerPorUuid(f.uuid)
         if (!yaExiste) {
-          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga)
           this.facturaRepository.insertar({
             uuid: f.uuid,
             fecha_emision: f.fecha_emision,
@@ -44,23 +64,20 @@ export class DescargaService {
             total: f.total,
             tipo_comprobante: f.tipo_comprobante as 'I' | 'E' | 'T' | 'N' | 'P',
             estado: f.estado as 'vigente' | 'cancelado',
-            xml: f.urlDescarga,
-            tipo_descarga: params.tipo === 'recibidas' ? 'recibida' : 'emitida',
+            xml: rutaDestino,
+            tipo_descarga: tipoDes,
             fecha_descarga: new Date().toISOString(),
             ...camposXml
           })
-
         } else {
-          // Ya existe, solo actualizar campos del XML
-          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga)
           this.facturaRepository.actualizar(f.uuid, {
-            xml: f.urlDescarga,
+            xml: rutaDestino,
             ...camposXml
           })
         }
+
         this.pendienteRepository.eliminar(f.uuid)
         guardadas++
-
       }
 
       for (const e of errores) {
@@ -82,6 +99,7 @@ export class DescargaService {
         }
       }
 
+      this.catalogoRepository.sincronizarTodos()
       return { total: guardadas, errores }
     } finally {
       await this.scraper.cerrar()
@@ -105,9 +123,22 @@ export class DescargaService {
       let guardadas = 0
       for (const f of facturas) {
         if (!f.urlDescarga) continue
+
+        const tipoDes = f.tipo_descarga as 'recibida' | 'emitida'
+        const camposXml = this.xmlParser.extraerCampos(f.urlDescarga)
+
+        // Calcular ruta destino y copiar XML
+        const rutaDestino = this.rutaService.construirRutaXml({
+          uuid: f.uuid,
+          fecha_emision: f.fecha_emision,
+          rfc_emisor: f.rfc_emisor,
+          rfc_receptor: f.rfc_receptor,
+          tipo_descarga: tipoDes
+        })
+        fs.copyFileSync(f.urlDescarga, rutaDestino)
+
         const yaExiste = this.facturaRepository.obtenerPorUuid(f.uuid)
         if (!yaExiste) {
-          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga)
           this.facturaRepository.insertar({
             uuid: f.uuid,
             fecha_emision: f.fecha_emision,
@@ -119,8 +150,8 @@ export class DescargaService {
             total: f.total,
             tipo_comprobante: f.tipo_comprobante as 'I' | 'E' | 'T' | 'N' | 'P',
             estado: f.estado as 'vigente' | 'cancelado',
-            xml: f.urlDescarga,
-            tipo_descarga: f.tipo_descarga as 'recibida' | 'emitida',
+            xml: rutaDestino,
+            tipo_descarga: tipoDes,
             fecha_descarga: new Date().toISOString(),
             ...camposXml
           })
@@ -165,5 +196,9 @@ export class DescargaService {
 
   limpiarPendientes() {
     return this.pendienteRepository.limpiar()
+  }
+
+  obtenerDrillDown(rfc: string) {
+    return this.facturaRepository.obtenerDrillDown(rfc)
   }
 }

@@ -35,5 +35,16 @@ declare global {
     seleccionarXmls(): Promise<{ success: boolean; rutas: string[] }>
     seleccionarCarpetaXml(): Promise<{ success: boolean; rutas: string[] }>
     importarXmls(rutas: string[]): Promise<{ success: boolean; importadas: number; omitidas: number; errores: any[] }>
+    dashboardKpis(año: number, mes: number): Promise<any>
+    dashboardFlujoAnual(año: number): Promise<any>
+    dashboardTopProveedores(año: number, mes: number): Promise<any>
+    dashboardTopClientes(año: number, mes: number): Promise<any>
+    obtenerConteos(): Promise<any>
+    catalogoObtener(tipo: string): Promise<any>
+    catalogoObtenerPorRfc(tipo: string, rfc: string): Promise<any>
+    catalogoActualizar(tipo: string, rfc: string, datos: any): Promise<any>
+    catalogoSincronizar(): Promise<any>
+    facturasDrillDown(rfc: string): Promise<any>
+    obtenerPdfFactura(datos: any): Promise<any>
   }
 }

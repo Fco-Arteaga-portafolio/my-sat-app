@@ -3,19 +3,118 @@
   align-items: center;
   justify-content: center;
   padding: 20px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  background: rgba(0,0,0,0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
   min-height: 72px;
 }
+
 .app-content {
   margin: 20px;
   padding: 0;
   background: transparent;
   border-radius: 0;
-  min-height: calc(100vh - 40px);
   box-shadow: none;
+  overflow-y: auto;
+  /* ← el scroll solo aqui */
+  flex: 1;
+  /* ← ocupa el espacio restante */
+  min-height: 0;
+  /* ← necesario para que flex+overflow funcionen */
 }
 
 .ant-layout {
   min-height: 100vh !important;
+}
+
+.app-layout-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #f0f2f5;
+  overflow: hidden;
+}
+
+.app-header {
+  background: #fff;
+  padding: 0 24px;
+  height: 48px;
+  line-height: 48px;
+  border-bottom: 1px solid #e8ecf0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.app-header-label {
+  font-size: 13px;
+  color: #8c9db5;
+}
+
+.app-header-perfil {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-header-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #001529;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-header-nombre {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a2332;
+  line-height: 1.3;
+}
+
+.app-header-rfc {
+  font-size: 11px;
+  color: #8c9db5;
+  line-height: 1.3;
+}
+
+.app-cambiar-contribuyente {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8c9db5;
+  cursor: pointer;
+  padding: 8px 4px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.app-cambiar-contribuyente-footer {
+  padding: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: auto;
+}
+
+.ant-layout {
+  min-height: unset !important;
+}
+
+.ant-layout.app-layout-inner {
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+.ant-layout-header.app-header {
+  flex-shrink: 0 !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 10 !important;
+}
+
+.ant-layout-content.app-content {
+  overflow-y: auto !important;
+  flex: 1 !important;
+  min-height: 0 !important;
 }
