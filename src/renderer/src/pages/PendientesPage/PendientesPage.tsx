@@ -1,6 +1,8 @@
-import { Table, Button, Alert, Space, Tag, Card, Popconfirm, Progress, Input } from 'antd'
+import { useRef } from 'react'
+import { Table, Button, Alert, Space, Tag, Card, Popconfirm, Progress } from 'antd'
 import { ReloadOutlined, DeleteOutlined, WarningOutlined } from '@ant-design/icons'
 import { usePendientesPage } from './PendientesPage.hook'
+import CaptchaInput, { CaptchaInputRef } from '../../components/CaptchaInput/CaptchaInput'
 
 const tipoColor: Record<string, string> = {
   I: 'green', E: 'red', T: 'blue', N: 'purple', P: 'orange'
@@ -10,10 +12,13 @@ const tipoLabel: Record<string, string> = {
 }
 
 const PendientesPage = () => {
+  const captchaRef = useRef<CaptchaInputRef>(null)
+
   const {
     pendientes, loading, reintentando, resultado, error,
-    configuracion, progreso, captchaBase64, captchaTexto, cargandoCaptcha,
-    cargarPendientes, reintentar, limpiar, obtenerCaptcha, setCaptchaTexto
+    configuracion, progreso, captchaListo,
+    setCaptcha, setCaptchaListo,
+    cargarPendientes, reintentar, limpiar
   } = usePendientesPage()
 
   const columnas = [
@@ -80,40 +85,24 @@ const PendientesPage = () => {
         </Card>
       ) : (
         <>
-          {/* Sección de reintento */}
           <Card size="small" style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
               {configuracion?.metodoAuth === 'contrasena' && (
-                <>
-                  {!captchaBase64 ? (
-                    <Button icon={<ReloadOutlined />} loading={cargandoCaptcha} onClick={obtenerCaptcha}>
-                      Cargar captcha
-                    </Button>
-                  ) : (
-                    <Space>
-                      <img
-                        src={captchaBase64}
-                        alt="captcha"
-                        style={{ border: '1px solid #d9d9d9', borderRadius: 6, height: 60 }}
-                      />
-                      <Input
-                        style={{ width: 120, textTransform: 'uppercase' }}
-                        value={captchaTexto}
-                        onChange={(e) => setCaptchaTexto(e.target.value.toUpperCase())}
-                        placeholder="Captcha"
-                        maxLength={6}
-                      />
-                      <Button icon={<ReloadOutlined />} onClick={obtenerCaptcha} loading={cargandoCaptcha} />
-                    </Space>
-                  )}
-                </>
+                <CaptchaInput
+                  ref={captchaRef}
+                  disabled={reintentando}
+                  onCaptchaChange={(texto, listo) => {
+                    setCaptcha(texto)
+                    setCaptchaListo(listo)
+                  }}
+                />
               )}
               <Button
                 type="primary"
                 icon={<ReloadOutlined />}
                 loading={reintentando}
-                onClick={reintentar}
-                disabled={configuracion?.metodoAuth === 'contrasena' && !captchaBase64}
+                onClick={() => reintentar(() => captchaRef.current?.limpiar())}
+                disabled={configuracion?.metodoAuth === 'contrasena' && !captchaListo}
               >
                 Reintentar {pendientes.length} descarga{pendientes.length !== 1 ? 's' : ''}
               </Button>

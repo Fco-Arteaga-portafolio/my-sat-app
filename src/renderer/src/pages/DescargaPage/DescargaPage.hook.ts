@@ -15,9 +15,8 @@ export interface DescargaForm {
 
 export const useDescargaPage = () => {
   const [loading, setLoading] = useState(false)
-  const [cargandoCaptcha, setCargandoCaptcha] = useState(false)
-  const [captchaBase64, setCaptchaBase64] = useState<string | null>(null)
-  const [captchaTexto, setCaptchaTexto] = useState('')
+  const [captcha, setCaptcha] = useState('')
+  const [captchaListo, setCaptchaListo] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [resultado, setResultado] = useState<string | null>(null)
   const [configuracion, setConfiguracion] = useState<Configuracion | null>(null)
@@ -36,9 +35,7 @@ export const useDescargaPage = () => {
 
   useEffect(() => {
     cargarConfiguracion()
-    window.api.onProgresoDescarga((p: ProgresoDescarga) => {
-      setProgreso(p)
-    })
+    window.api.onProgresoDescarga((p: ProgresoDescarga) => setProgreso(p))
   }, [])
 
   const cargarConfiguracion = async () => {
@@ -50,73 +47,36 @@ export const useDescargaPage = () => {
     return null
   }
 
-  const obtenerCaptcha = async () => {
-    setCargandoCaptcha(true)
-    setError(null)
-    const config = await cargarConfiguracion()
-
-    if (!config) {
-      setError('Primero configura tus credenciales en la pantalla de Configuración')
-      setCargandoCaptcha(false)
-      return
-    }
-
-    const res = await window.api.obtenerCaptcha()
-    if (res.success && res.imagenBase64) {
-      setCaptchaBase64(res.imagenBase64)
-    } else {
-      setError('No se pudo cargar el captcha. Intenta de nuevo.')
-    }
-    setCargandoCaptcha(false)
-  }
-
   const validar = (): boolean => {
     if (form.buscarPor === 'fecha') {
-      if (!form.fechaInicio) {
-        setError('La fecha de inicio es obligatoria')
-        return false
-      }
-      if (!form.fechaFin) {
-        setError('La fecha fin es obligatoria')
-        return false
-      }
-
-      // Validar máximo 3 meses
+      if (!form.fechaInicio) { setError('La fecha de inicio es obligatoria'); return false }
+      if (!form.fechaFin) { setError('La fecha fin es obligatoria'); return false }
       const [dI, mI, aI] = form.fechaInicio.split('/').map(Number)
       const [dF, mF, aF] = form.fechaFin.split('/').map(Number)
       const inicio = new Date(aI, mI - 1, dI)
       const fin = new Date(aF, mF - 1, dF)
       const diffMeses = (fin.getFullYear() - inicio.getFullYear()) * 12 + (fin.getMonth() - inicio.getMonth())
-      if (diffMeses > 3) {
-        setError('El rango máximo de búsqueda es 3 meses. Realiza varias descargas para períodos mayores.')
-        return false
-      }
+      if (diffMeses > 3) { setError('El rango máximo de búsqueda es 3 meses.'); return false }
     } else {
-      if (!form.folioFiscal.trim()) {
-        setError('El folio fiscal es obligatorio')
-        return false
-      }
+      if (!form.folioFiscal.trim()) { setError('El folio fiscal es obligatorio'); return false }
     }
-
-    if (configuracion?.metodoAuth === 'contrasena' && !captchaTexto.trim()) {
-      setError('Debes escribir el captcha')
+    if (configuracion?.metodoAuth === 'contrasena' && !captcha.trim()) {
+      setError('Carga y escribe el captcha antes de continuar')
       return false
     }
-
     setError(null)
     return true
   }
 
-  const descargar = async () => {
+  const descargar = async (limpiarCaptcha: () => void) => {
     if (!validar() || !configuracion) return
-
     setLoading(true)
     setResultado(null)
     setProgreso(null)
     setErroresDescarga([])
 
     const res = await window.api.descargarFacturas({
-      captcha: captchaTexto,
+      captcha,
       params: {
         tipo: form.tipo,
         buscarPor: form.buscarPor,
@@ -132,13 +92,8 @@ export const useDescargaPage = () => {
     if (res.success) {
       const errores = res.errores || []
       setErroresDescarga(errores)
-      if (errores.length > 0) {
-        setResultado(`Se descargaron ${res.total} facturas. ${errores.length} fallaron.`)
-      } else {
-        setResultado(`Se descargaron ${res.total} facturas correctamente.`)
-      }
-      setCaptchaBase64(null)
-      setCaptchaTexto('')
+      setResultado(`Se descargaron ${res.total} facturas.${errores.length > 0 ? ` ${errores.length} fallaron.` : ''}`)
+      limpiarCaptcha()
     } else {
       setError(`Error al descargar: ${res.error}`)
     }
@@ -152,19 +107,9 @@ export const useDescargaPage = () => {
   }
 
   return {
-    form,
-    loading,
-    cargandoCaptcha,
-    captchaBase64,
-    captchaTexto,
-    error,
-    resultado,
-    configuracion,
-    progreso,
-    erroresDescarga,
-    obtenerCaptcha,
-    descargar,
-    cambiarForm,
-    setCaptchaTexto
+    form, loading, captchaListo, error, resultado,
+    configuracion, progreso, erroresDescarga,
+    setCaptcha, setCaptchaListo,
+    descargar, cambiarForm
   }
 }

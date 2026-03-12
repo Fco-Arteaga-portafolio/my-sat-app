@@ -15,7 +15,7 @@ import CumplimientoHubPage from './pages/CumplimientoHubPage/CumplimientoHubPage
 import InteligenciaHubPage from './pages/InteligenciaHubPage/InteligenciaHubPage'
 import CatalogoPage from './pages/CatalogoPage/CatalogoPage'
 import CatalogoPerfilPage from './pages/CatalogoPage/CatalogoPerfilPage'
-
+import ConciliacionPage from './pages/ConciliacionPage/Conciliacionpage'
 
 const RutaProtegida = ({ children }: { children: React.ReactNode }) => {
   const { perfil } = useContribuyente()
@@ -56,6 +56,7 @@ const AppRoutes = () => {
         <Route path="/empleados/:rfc" element={<CatalogoPerfilPage tipo="empleados" />} />
         <Route path="/patrones" element={<CatalogoPage tipo="patrones" titulo="Patrones" subtitulo="Empresas de las que has recibido nómina" />} />
         <Route path="/patrones/:rfc" element={<CatalogoPerfilPage tipo="patrones" />} />
+        <Route path="/conciliacion" element={<ConciliacionPage />} />
       </Route>
     </Routes>
   )

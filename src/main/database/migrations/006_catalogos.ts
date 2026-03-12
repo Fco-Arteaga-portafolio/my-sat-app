@@ -1,5 +1,4 @@
 import BetterSqlite3 from 'better-sqlite3'
-import { ProfileManager } from '../ProfileManager'
 
 export const migration006 = (db: BetterSqlite3.Database): void => {
   // Crear tablas de catálogos para cada perfil existente

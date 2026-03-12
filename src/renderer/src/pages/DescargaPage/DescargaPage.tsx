@@ -1,6 +1,8 @@
+import { useRef } from 'react'
 import { Form, Input, Button, Card, Radio, Alert, Divider, DatePicker, Select, Progress } from 'antd'
-import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
+import { DownloadOutlined } from '@ant-design/icons'
 import { useDescargaPage } from './DescargaPage.hook'
+import CaptchaInput, { CaptchaInputRef } from '../../components/CaptchaInput/CaptchaInput'
 import ErroresDescargaTable from '../../components/ErroresDescargaTable/ErroresDescargaTable'
 import './DescargaPage.css'
 import dayjs from 'dayjs'
@@ -8,10 +10,13 @@ import dayjs from 'dayjs'
 const { Option } = Select
 
 const DescargaPage = () => {
+  const captchaRef = useRef<CaptchaInputRef>(null)
+
   const {
-    form, loading, cargandoCaptcha, captchaBase64, captchaTexto,
-    error, resultado, configuracion, progreso, erroresDescarga,
-    obtenerCaptcha, descargar, cambiarForm, setCaptchaTexto
+    form, loading, captchaListo, error, resultado,
+    configuracion, progreso, erroresDescarga,
+    setCaptcha, setCaptchaListo,
+    descargar, cambiarForm
   } = useDescargaPage()
 
   const mensajeProgreso = () => {
@@ -34,8 +39,6 @@ const DescargaPage = () => {
       <Divider style={{ margin: '0 0 16px 0' }} />
 
       <div className="descarga-layout">
-
-        {/* COLUMNA IZQUIERDA */}
         <div className="descarga-columna">
           <Card title="Tipo de facturas" size="small" className="descarga-card">
             <Radio.Group value={form.tipo} onChange={(e) => cambiarForm('tipo', e.target.value)}>
@@ -63,8 +66,7 @@ const DescargaPage = () => {
                     }}
                     disabledDate={(current) => {
                       if (!current) return false
-                      if (current > dayjs().endOf('day')) return true
-                      return false
+                      return current > dayjs().endOf('day')
                     }}
                     onCalendarChange={(dates) => {
                       if (dates && dates[0] && dates[1]) {
@@ -77,7 +79,7 @@ const DescargaPage = () => {
                     }}
                   />
                   <p style={{ fontSize: 11, color: '#8c9db5', marginTop: 6, marginBottom: 0 }}>
-                    Puedes consultar hasta 3 meses por solicitud para una descarga más rápida y estable.
+                    Puedes consultar hasta 3 meses por solicitud.
                   </p>
                 </Form.Item>
               ) : (
@@ -124,33 +126,17 @@ const DescargaPage = () => {
           </Card>
         </div>
 
-        {/* COLUMNA DERECHA */}
         <div className="descarga-columna">
           {configuracion?.metodoAuth === 'contrasena' && (
             <Card title="Verificación de seguridad" size="small" className="descarga-card">
-              {!captchaBase64 ? (
-                <Button icon={<ReloadOutlined />} loading={cargandoCaptcha} onClick={obtenerCaptcha} block>
-                  Cargar captcha
-                </Button>
-              ) : (
-                <Form layout="vertical" size="small">
-                  <Form.Item label="Escribe los caracteres de la imagen" style={{ marginBottom: 0 }}>
-                    <div style={{ marginBottom: 8 }}>
-                      <img src={captchaBase64} alt="captcha" className="descarga-captcha-img" />
-                    </div>
-                    <Input.Group compact>
-                      <Input
-                        style={{ width: 'calc(100% - 40px)', textTransform: 'uppercase' }}
-                        value={captchaTexto}
-                        onChange={(e) => setCaptchaTexto(e.target.value.toUpperCase())}
-                        placeholder="Escribe el captcha"
-                        maxLength={6}
-                      />
-                      <Button icon={<ReloadOutlined />} onClick={obtenerCaptcha} loading={cargandoCaptcha} />
-                    </Input.Group>
-                  </Form.Item>
-                </Form>
-              )}
+              <CaptchaInput
+                ref={captchaRef}
+                disabled={loading}
+                onCaptchaChange={(texto, listo) => {
+                  setCaptcha(texto)
+                  setCaptchaListo(listo)
+                }}
+              />
             </Card>
           )}
 
@@ -176,20 +162,18 @@ const DescargaPage = () => {
 
           <ErroresDescargaTable errores={erroresDescarga} />
 
-          {/* Botón siempre al final */}
           <Button
             type="primary"
             icon={<DownloadOutlined />}
             size="large"
             loading={loading}
-            onClick={descargar}
-            disabled={configuracion?.metodoAuth === 'contrasena' && !captchaBase64}
+            onClick={() => descargar(() => captchaRef.current?.limpiar())}
+            disabled={configuracion?.metodoAuth === 'contrasena' && !captchaListo}
             className="descarga-boton"
           >
             {loading ? 'Descargando...' : 'Descargar facturas'}
           </Button>
         </div>
-
       </div>
     </div>
   )

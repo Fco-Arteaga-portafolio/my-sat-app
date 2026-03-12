@@ -1,0 +1,158 @@
+.conciliacion-container {
+  padding: 24px;
+  max-width: 900px;
+}
+
+.conciliacion-header {
+  margin-bottom: 24px;
+}
+
+.conciliacion-titulo {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+}
+
+.conciliacion-subtitulo {
+  color: #888;
+  margin: 0;
+}
+
+.conciliacion-alert {
+  margin-bottom: 16px;
+}
+
+.conciliacion-form {
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.conciliacion-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.conciliacion-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conciliacion-field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #555;
+}
+
+.conciliacion-select {
+  width: 180px;
+}
+
+.conciliacion-captcha-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.conciliacion-captcha-img-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.conciliacion-captcha-img {
+  height: 50px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+}
+
+.conciliacion-captcha-placeholder {
+  height: 50px;
+  width: 160px;
+  border: 1px dashed #d9d9d9;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #bbb;
+  font-size: 13px;
+}
+
+.conciliacion-captcha-btn {
+  align-self: flex-start;
+}
+
+.conciliacion-captcha-input {
+  width: 200px;
+}
+
+.conciliacion-btn-iniciar {
+  align-self: flex-start;
+}
+
+.conciliacion-progreso {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  background: #f6f9ff;
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+
+.conciliacion-etapa {
+  font-size: 14px;
+  color: #333;
+}
+
+.conciliacion-etapa-detalle {
+  font-size: 13px;
+  color: #888;
+}
+
+.conciliacion-resumen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.conciliacion-resumen-titulo {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.conciliacion-errores {
+  background: #fff;
+  border: 1px solid #ffccc7;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conciliacion-errores h4 {
+  margin: 0 0 8px 0;
+  color: #cf1322;
+}
+
+.conciliacion-error-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.conciliacion-ok {
+  margin-top: 8px;
+}

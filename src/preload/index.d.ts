@@ -46,5 +46,7 @@ declare global {
     catalogoSincronizar(): Promise<any>
     facturasDrillDown(rfc: string): Promise<any>
     obtenerPdfFactura(datos: any): Promise<any>
+    iniciarConciliacion(params: any): Promise<{ success: boolean; resumen?: any; error?: string }>
+    onProgresoConciliacion(callback: (progreso: any) => void): void
   }
 }

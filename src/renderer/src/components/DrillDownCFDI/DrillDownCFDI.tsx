@@ -14,7 +14,7 @@ const fmt = (n: number) =>
 
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
-const DrillDownCFDI = ({ rfc, tipo }: Props) => {
+const DrillDownCFDI = ({ rfc }: Props) => {
   const [facturas, setFacturas] = useState<Factura[]>([])
   const [cargado, setCargado] = useState(false)
   const [ejercicioActivo, setEjercicioActivo] = useState<string | null>(null)
@@ -35,18 +35,18 @@ const DrillDownCFDI = ({ rfc, tipo }: Props) => {
 
   const calcTotal = (items: Factura[]) =>
     items.reduce((acc, f) => {
-      const rfcActivo = tipo === 'clientes' ? f.rfc_receptor : f.rfc_emisor
+      // const _rfcActivo = tipo === 'clientes' ? f.rfc_receptor : f.rfc_emisor
       return f.tipo_descarga === 'emitida' ? acc + f.total : acc - f.total
     }, 0)
 
   // Nivel 1 — por RFC (solo uno en este contexto, pero agrupamos igual)
-  const nivel1 = [{
-    rfc,
-    nombre: facturas[0]?.[tipo === 'clientes' ? 'nombre_receptor' : 'nombre_emisor'] || rfc,
-    facturas: facturas.length,
-    total: calcTotal(facturas)
-  }]
-
+  /* const _nivel1 = [{
+     rfc,
+     nombre: facturas[0]?.[tipo === 'clientes' ? 'nombre_receptor' : 'nombre_emisor'] || rfc,
+     facturas: facturas.length,
+     total: calcTotal(facturas)
+   }]
+ */
   // Nivel 2 — por ejercicio
   const ejercicios = [...new Set(facturas.map(f => f.fecha_emision?.substring(0, 4)))].sort().reverse()
   const nivel2 = ejercicios.map(año => {
@@ -58,23 +58,23 @@ const DrillDownCFDI = ({ rfc, tipo }: Props) => {
   const itemsEjercicio = ejercicioActivo
     ? facturas.filter(f => f.fecha_emision?.startsWith(ejercicioActivo))
     : []
-  const periodos = [...new Set(itemsEjercicio.map(f => f.fecha_emision?.substring(5, 7)))].sort().reverse()
-  const nivel3 = periodos.map(mes => {
+  // const periodos = [...new Set(itemsEjercicio.map(f => f.fecha_emision?.substring(5, 7)))].sort().reverse()
+  /*const _nivel3 = periodos.map(mes => {
     const items = itemsEjercicio.filter(f => f.fecha_emision?.substring(5, 7) === mes)
     return { periodo: mes, nombre: MESES[parseInt(mes) - 1], facturas: items.length, total: calcTotal(items), items }
-  })
+  })*/
 
   // Nivel 4 — facturas del periodo activo
-  const nivel4 = periodoActivo
+  const _nivel4 = periodoActivo
     ? itemsEjercicio.filter(f => f.fecha_emision?.substring(5, 7) === periodoActivo)
     : []
 
-  const colsNivel1 = [
-    { title: 'RFC', dataIndex: 'rfc', key: 'rfc', render: (v: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
-    { title: 'Nombre', dataIndex: 'nombre', key: 'nombre' },
-    { title: 'Facturas', dataIndex: 'facturas', key: 'facturas', width: 90 },
-    { title: 'Total', dataIndex: 'total', key: 'total', width: 160, render: (v: number) => <span style={{ fontWeight: 600, color: v >= 0 ? '#52c41a' : '#f5222d' }}>{fmt(v)}</span> }
-  ]
+  /*  const colsNivel1 = [
+      { title: 'RFC', dataIndex: 'rfc', key: 'rfc', render: (v: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</span> },
+      { title: 'Nombre', dataIndex: 'nombre', key: 'nombre' },
+      { title: 'Facturas', dataIndex: 'facturas', key: 'facturas', width: 90 },
+      { title: 'Total', dataIndex: 'total', key: 'total', width: 160, render: (v: number) => <span style={{ fontWeight: 600, color: v >= 0 ? '#52c41a' : '#f5222d' }}>{fmt(v)}</span> }
+    ]*/
 
   const colsNivel2 = [
     {
@@ -172,7 +172,7 @@ const DrillDownCFDI = ({ rfc, tipo }: Props) => {
                     expandedRowRender: () => (
                       <div style={{ marginLeft: 24 }}>
                         <Table
-                          dataSource={nivel4}
+                          dataSource={_nivel4}
                           columns={colsNivel4}
                           rowKey="uuid"
                           size="small"

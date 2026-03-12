@@ -112,4 +112,17 @@ export class SatAuthService {
       await page.close()
     }
   }
+
+  async loginConContrasenaDirecto(rfc: string, password: string, captcha: string): Promise<Page> {
+    const page = await this.context.newPage()
+    await page.goto('https://portalcfdi.facturaelectronica.sat.gob.mx/')
+    await page.waitForSelector('#divCaptcha', { timeout: 15000 })
+
+    await page.fill('#rfc', rfc)
+    await page.fill('#password', password)
+    await page.fill('#userCaptcha', captcha.toUpperCase())
+
+    await this.esperarLoginExitoso(page, () => page.click('#submit'))
+    return page
+  }
 }

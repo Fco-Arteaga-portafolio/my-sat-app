@@ -3,10 +3,8 @@ import { defineConfig } from 'electron-vite'
 import { normalizePath } from 'vite'
 import react from '@vitejs/plugin-react'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
-import path from 'path'
-import { createRequire } from 'module'
+import path from 'path' 
 
-const require = createRequire(import.meta.url)
 const pdfjsDistPath = path.resolve('node_modules/react-pdf/node_modules/pdfjs-dist')
 
 export default defineConfig({

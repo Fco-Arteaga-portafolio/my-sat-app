@@ -23,7 +23,9 @@ const CfdiHubPage = () => {
       cards={[
         { icon: '🌐', label: 'Descargar del SAT', description: 'Descarga por rango de fechas', onClick: () => navigate('/descarga') },
         { icon: '📂', label: 'Importar local', description: 'Desde carpeta o archivos', onClick: () => navigate('/importacion') },
-        { icon: '⏳', label: 'Pendientes', badge: pendientes, description: 'Facturas con error', onClick: () => navigate('/pendientes') }
+        { icon: '⏳', label: 'Pendientes', badge: pendientes, description: 'Facturas con error', onClick: () => navigate('/pendientes') },
+        
+        { icon: '🔄', label: 'Conciliación', description: 'Sincroniza con el SAT', onClick: () => navigate('/conciliacion') }
       ]}
     />
   )

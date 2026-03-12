@@ -72,7 +72,7 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
     const res = await window.api.seleccionarPerfil(rfc)
     if (res.success) {
       onPerfilSeleccionado?.(res.perfil)
-      navigate('/facturas')
+      navigate('/inicio')
     }
   }
 

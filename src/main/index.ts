@@ -15,6 +15,9 @@ import { PerfilHandler } from './ipc/PerfilHandler'
 import { ImportacionHandler } from './ipc/ImportacionHandler'
 import { DashboardHandler } from './ipc/DashboardHandler'
 import { CatalogoHandler } from './ipc/CatalogoHandler'
+import { ConciliacionService } from './services/ConciliacionService'
+import { ConciliacionHandler } from './ipc/ConciliacionHandler'
+import { SatScraper } from './scraper/SatScraper'
 
 function initDatabase(): void {
   const db = Database.getInstance()
@@ -70,17 +73,20 @@ app.whenReady().then(() => {
 
   initDatabase()
   const db = Database.getInstance()
+  const satScraper = new SatScraper()
   new ImportacionHandler(db).registrar()
   const facturaRepository = new FacturaRepository(db)
   const descargaPendienteRepository = new DescargaPendienteRepository(db)
   const configuracionService = new ConfiguracionService(db)
-  const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository)
+  const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository, db, satScraper)
+  const conciliacionService = new ConciliacionService(facturaRepository, descargaPendienteRepository, satScraper)  
   const profileManager = new ProfileManager(db)
   new PerfilHandler(profileManager).registrar()
   new FacturaHandler(descargaService, configuracionService).registrar()
   new ConfiguracionHandler(db).registrar()
   new DashboardHandler(db).registrar()
   new CatalogoHandler(db).registrar()
+  new ConciliacionHandler(conciliacionService, configuracionService).registrar()
   createWindow()
 
   app.on('activate', function () {

@@ -11,16 +11,13 @@ export const usePendientesPage = () => {
   const [error, setError] = useState<string | null>(null)
   const [configuracion, setConfiguracion] = useState<any>(null)
   const [progreso, setProgreso] = useState<ProgresoDescarga | null>(null)
-  const [captchaBase64, setCaptchaBase64] = useState<string | null>(null)
-  const [captchaTexto, setCaptchaTexto] = useState('')
-  const [cargandoCaptcha, setCargandoCaptcha] = useState(false)
+  const [captcha, setCaptcha] = useState('')
+  const [captchaListo, setCaptchaListo] = useState(false)
   const { perfil } = useContribuyente()
 
   useEffect(() => {
     cargarConfiguracion()
-    window.api.onProgresoDescarga((p: ProgresoDescarga) => {
-      setProgreso(p)
-    })
+    window.api.onProgresoDescarga((p: ProgresoDescarga) => setProgreso(p))
     if (perfil) cargarPendientes()
   }, [perfil?.rfc])
 
@@ -36,43 +33,26 @@ export const usePendientesPage = () => {
     setLoading(false)
   }
 
-  const obtenerCaptcha = async () => {
-    setCargandoCaptcha(true)
-    setError(null)
-    const res = await window.api.obtenerCaptcha()
-    if (res.success && res.imagenBase64) {
-      setCaptchaBase64(res.imagenBase64)
-    } else {
-      setError('No se pudo cargar el captcha. Intenta de nuevo.')
-    }
-    setCargandoCaptcha(false)
-  }
-
-  const reintentar = async () => {
-    if (configuracion?.metodoAuth === 'contrasena' && !captchaTexto.trim()) {
-      setError('Debes escribir el captcha')
+  const reintentar = async (limpiarCaptcha: () => void) => {
+    if (configuracion?.metodoAuth === 'contrasena' && !captcha.trim()) {
+      setError('Carga y escribe el captcha antes de continuar')
       return
     }
-
     setReintentando(true)
     setResultado(null)
     setError(null)
     setProgreso(null)
 
-    const res = await window.api.reintentarPendientes({
-      captcha: captchaTexto
-    })
+    const res = await window.api.reintentarPendientes({ captcha })
 
     if (res.success) {
       const errores = res.errores || []
       setResultado(`Se descargaron ${res.total} facturas. ${errores.length > 0 ? `${errores.length} siguen pendientes.` : 'Todas exitosas.'}`)
-      setCaptchaBase64(null)
-      setCaptchaTexto('')
+      limpiarCaptcha()
       await cargarPendientes()
     } else {
-      setCaptchaBase64(null)
-      setCaptchaTexto('')
       setError(res.error || 'Error al reintentar')
+      limpiarCaptcha()
     }
 
     setReintentando(false)
@@ -87,7 +67,8 @@ export const usePendientesPage = () => {
 
   return {
     pendientes, loading, reintentando, resultado, error,
-    configuracion, progreso, captchaBase64, captchaTexto, cargandoCaptcha,
-    cargarPendientes, reintentar, limpiar, obtenerCaptcha, setCaptchaTexto
+    configuracion, progreso, captchaListo,
+    setCaptcha, setCaptchaListo,
+    cargarPendientes, reintentar, limpiar
   }
 }

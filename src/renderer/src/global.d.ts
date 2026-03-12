@@ -1,33 +1,51 @@
+import { ParametrosBusqueda } from '../main/scraper/SatScraper'
+import { Factura } from '../main/database/repositories/FacturaRepository'
+import { Configuracion } from '../main/services/ConfiguracionService'
+
 export {}
 
 declare global {
   interface Window {
     api: {
-      contarPendientes(): Promise<any>
-      leerXml(xml: string): Promise<any>
-      seleccionarCarpeta(): Promise<any>
-      generarPdf(data: any): Promise<any>
-      obtenerConfiguracion(): Promise<any>
-      guardarConfiguracion(config: any): Promise<any>
-      seleccionarArchivo(filters: any[]): Promise<any>
-      onProgresoDescarga(cb: (p: any) => void): void
-      obtenerCaptcha(): Promise<any>
-      descargarFacturas(data: any): Promise<any>
-      obtenerFacturas(): Promise<any>
-      eliminarFactura(uuid: string): Promise<any>
-      abrirArchivo(path: string): Promise<any>
-      obtenerPendientes(): Promise<any>
-      reintentarPendientes(data: any): Promise<any>
-      limpiarPendientes(): Promise<void>
-      obtenerPerfiles(): Promise<any>
-      crearPerfil(perfil: any): Promise<any>
-      eliminarPerfil(rfc: string): Promise<any>
-      seleccionarPerfil(rfc: string): Promise<any>
-      obtenerPerfilActivo(): Promise<any>
+      descargarFacturas(datos: { captcha?: string; params: ParametrosBusqueda }): Promise<{ success: boolean; total?: number; errores?: { uuid: string; error: string }[]; error?: string }>
+      obtenerFacturas(): Promise<{ success: boolean; facturas?: Factura[]; error?: string }>
+      eliminarFactura(uuid: string): Promise<{ success: boolean; error?: string }>
+      guardarConfiguracion(config: Configuracion): Promise<{ success: boolean; error?: string }>
+      obtenerConfiguracion(): Promise<{ success: boolean; config?: Configuracion; error?: string }>
+      limpiarConfiguracion(): Promise<{ success: boolean; error?: string }>
+      seleccionarArchivo(filtros: Electron.FileFilter[]): Promise<{ success: boolean; ruta?: string }>
+      seleccionarCarpeta(): Promise<{ success: boolean; ruta?: string }>
+      obtenerCaptcha(): Promise<{ success: boolean; imagenBase64?: string; error?: string }>
+      abrirArchivo(ruta: string): Promise<void>
+      leerXml(ruta: string): Promise<{ success: boolean; contenido?: string; error?: string }>
+      generarPdf(datos: { xmlContenido: string; parseada: any; uuid: string; plantilla: string; rutaDestino: string }): Promise<{ success: boolean; error?: string }>
+      onProgresoDescarga(callback: (progreso: any) => void): void
+      obtenerPendientes(): Promise<{ success: boolean; pendientes?: any[]; error?: string }>
+      contarPendientes(): Promise<{ success: boolean; total?: number; error?: string }>
+      limpiarPendientes(): Promise<{ success: boolean; error?: string }>
+      reintentarPendientes(datos: { captcha?: string }): Promise<{ success: boolean; total?: number; errores?: any[]; error?: string }>
+      obtenerPerfiles(): Promise<{ success: boolean; perfiles?: any[]; error?: string }>
+      crearPerfil(perfil: any): Promise<{ success: boolean; error?: string }>
+      eliminarPerfil(rfc: string): Promise<{ success: boolean; error?: string }>
+      seleccionarPerfil(rfc: string): Promise<{ success: boolean; perfil?: any; error?: string }>
+      obtenerPerfilActivo(): Promise<{ success: boolean; perfil?: any; error?: string }>
       cerrarPerfil(): Promise<any>
       seleccionarXmls(): Promise<{ success: boolean; rutas: string[] }>
       seleccionarCarpetaXml(): Promise<{ success: boolean; rutas: string[] }>
       importarXmls(rutas: string[]): Promise<{ success: boolean; importadas: number; omitidas: number; errores: any[] }>
+      dashboardKpis(año: number, mes: number): Promise<any>
+      dashboardFlujoAnual(año: number): Promise<any>
+      dashboardTopProveedores(año: number, mes: number): Promise<any>
+      dashboardTopClientes(año: number, mes: number): Promise<any>
+      obtenerConteos(): Promise<any>
+      catalogoObtener(tipo: string): Promise<any>
+      catalogoObtenerPorRfc(tipo: string, rfc: string): Promise<any>
+      catalogoActualizar(tipo: string, rfc: string, datos: any): Promise<any>
+      catalogoSincronizar(): Promise<any>
+      facturasDrillDown(rfc: string): Promise<any>
+      obtenerPdfFactura(datos: any): Promise<any>
+      iniciarConciliacion(params: any): Promise<{ success: boolean; resumen?: any; error?: string }>
+      onProgresoConciliacion(callback: (progreso: any) => void): void
     }
   }
 }

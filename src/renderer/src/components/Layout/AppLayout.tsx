@@ -14,7 +14,7 @@ const { Sider, Content, Header } = Layout
 
 const AppLayout = () => {
   const location = useLocation()
-  const [totalPendientes, setTotalPendientes] = useState(0)
+  const [_totalPendientes, setTotalPendientes] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
   const { perfil, setPerfil } = useContribuyente()
   const navigate = useNavigate()
@@ -49,6 +49,7 @@ const AppLayout = () => {
     if (location.pathname.startsWith('/proveedores')) return '/inteligencia'
     if (location.pathname.startsWith('/empleados')) return '/inteligencia'
     if (location.pathname.startsWith('/patrones')) return '/inteligencia'
+    if (location.pathname.startsWith('/conciliacion')) return '/cfdi'
     return location.pathname
   }
 

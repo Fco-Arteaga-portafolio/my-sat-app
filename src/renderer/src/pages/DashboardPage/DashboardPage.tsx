@@ -102,7 +102,7 @@ const DashboardPage = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                 <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => formatMXN(v)} />
+                <Tooltip formatter={(v) => formatMXN(v as number)} />
                 <Legend />
                 <Bar dataKey="ingresos" name="Ingresos" fill="#52c41a" radius={[3, 3, 0, 0]} />
                 <Bar dataKey="egresos" name="Egresos" fill="#f5222d" radius={[3, 3, 0, 0]} />
@@ -128,7 +128,7 @@ const DashboardPage = () => {
                         <Cell key={i} fill={COLORES[i % COLORES.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v: number) => formatMXN(v)} />
+                    <Tooltip formatter={(v) => formatMXN(v as number)} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div style={{ marginTop: 8 }}>

@@ -5,8 +5,8 @@ const utils = require("@electron-toolkit/utils");
 const BetterSqlite3 = require("better-sqlite3");
 const fs = require("fs");
 const playwright = require("playwright");
-const axios = require("axios");
 const xmldom = require("@xmldom/xmldom");
+const axios = require("axios");
 function _interopNamespaceDefault(e) {
   const n = Object.create(null, { [Symbol.toStringTag]: { value: "Module" } });
   if (e) {
@@ -893,14 +893,14 @@ class ProfileManager {
   `).run();
   }
 }
-const ESTRUCTURA_DEFAULT = [
+const ESTRUCTURA_DEFAULT$1 = [
   { id: "contribuyente", label: "Contribuyente", activo: true },
   { id: "ejercicio", label: "Ejercicio", activo: true },
   { id: "periodo", label: "Periodo", activo: false },
   { id: "emisor", label: "Emisor", activo: false },
   { id: "receptor", label: "Receptor", activo: false }
 ];
-const CONFIG_NOMBRE_DEFAULT = {
+const CONFIG_NOMBRE_DEFAULT$1 = {
   rfcEmisor: true,
   rfcReceptor: false
 };
@@ -939,9 +939,9 @@ class ConfiguracionService {
       plantilla_default: config.plantillaDefault || "clasica",
       carpeta_emitidos: config.carpetaEmitidos || null,
       carpeta_recibidos: config.carpetaRecibidos || null,
-      estructura_emitidos: JSON.stringify(config.estructuraEmitidos ?? ESTRUCTURA_DEFAULT),
-      estructura_recibidos: JSON.stringify(config.estructuraRecibidos ?? ESTRUCTURA_DEFAULT),
-      config_nombre_archivo: JSON.stringify(config.configNombreArchivo ?? CONFIG_NOMBRE_DEFAULT)
+      estructura_emitidos: JSON.stringify(config.estructuraEmitidos ?? ESTRUCTURA_DEFAULT$1),
+      estructura_recibidos: JSON.stringify(config.estructuraRecibidos ?? ESTRUCTURA_DEFAULT$1),
+      config_nombre_archivo: JSON.stringify(config.configNombreArchivo ?? CONFIG_NOMBRE_DEFAULT$1)
     });
     const perfil = ProfileManager.getPerfilActivo();
     if (perfil) {
@@ -956,9 +956,9 @@ class ConfiguracionService {
         plantilla_default: config.plantillaDefault || "clasica",
         carpeta_emitidos: config.carpetaEmitidos,
         carpeta_recibidos: config.carpetaRecibidos,
-        estructura_emitidos: JSON.stringify(config.estructuraEmitidos ?? ESTRUCTURA_DEFAULT),
-        estructura_recibidos: JSON.stringify(config.estructuraRecibidos ?? ESTRUCTURA_DEFAULT),
-        config_nombre_archivo: JSON.stringify(config.configNombreArchivo ?? CONFIG_NOMBRE_DEFAULT)
+        estructura_emitidos: JSON.stringify(config.estructuraEmitidos ?? ESTRUCTURA_DEFAULT$1),
+        estructura_recibidos: JSON.stringify(config.estructuraRecibidos ?? ESTRUCTURA_DEFAULT$1),
+        config_nombre_archivo: JSON.stringify(config.configNombreArchivo ?? CONFIG_NOMBRE_DEFAULT$1)
       });
     }
   }
@@ -983,18 +983,18 @@ class ConfiguracionService {
   }
   parsearEstructura(json) {
     try {
-      if (!json || json === "[]") return [...ESTRUCTURA_DEFAULT];
+      if (!json || json === "[]") return [...ESTRUCTURA_DEFAULT$1];
       return JSON.parse(json);
     } catch {
-      return [...ESTRUCTURA_DEFAULT];
+      return [...ESTRUCTURA_DEFAULT$1];
     }
   }
   parsearConfigNombre(json) {
     try {
-      if (!json || json === "{}") return { ...CONFIG_NOMBRE_DEFAULT };
+      if (!json || json === "{}") return { ...CONFIG_NOMBRE_DEFAULT$1 };
       return JSON.parse(json);
     } catch {
-      return { ...CONFIG_NOMBRE_DEFAULT };
+      return { ...CONFIG_NOMBRE_DEFAULT$1 };
     }
   }
   copiarArchivoEfirma(rutaOrigen, tipo) {
@@ -1169,385 +1169,6 @@ class DescargaPendienteRepository {
     return row.total;
   }
 }
-class SatAuthService {
-  constructor(context) {
-    this.context = context;
-  }
-  paginaLogin = null;
-  async obtenerCaptcha() {
-    if (this.paginaLogin) {
-      await this.paginaLogin.close();
-      this.paginaLogin = null;
-    }
-    this.paginaLogin = await this.context.newPage();
-    await this.paginaLogin.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
-    await this.paginaLogin.waitForSelector("#divCaptcha", { timeout: 15e3 });
-    const imagenBase64 = await this.paginaLogin.$eval(
-      "#divCaptcha img",
-      (img) => img.src
-    );
-    return { imagenBase64 };
-  }
-  async loginConContrasena(rfc, password, captcha) {
-    if (!this.paginaLogin) {
-      throw new Error("Primero debes cargar el captcha");
-    }
-    const page = this.paginaLogin;
-    this.paginaLogin = null;
-    await page.fill("#rfc", rfc);
-    await page.fill("#password", password);
-    await page.fill("#userCaptcha", captcha.toUpperCase());
-    await this.esperarLoginExitoso(page, () => page.click("#submit"));
-    return page;
-  }
-  async loginConEfirma(rutaCer, rutaKey, contrasenaFiel) {
-    const page = this.paginaLogin ?? await this.context.newPage();
-    this.paginaLogin = null;
-    if (!page.url().includes("portalcfdi")) {
-      await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
-    }
-    await page.waitForSelector("#buttonFiel", { timeout: 15e3 });
-    await page.click("#buttonFiel");
-    await page.waitForSelector("#fileCertificate", { timeout: 1e4 });
-    await page.setInputFiles("#fileCertificate", rutaCer);
-    await page.setInputFiles("#filePrivateKey", rutaKey);
-    await page.fill("#privateKeyPassword", contrasenaFiel);
-    await this.esperarLoginExitoso(page, () => page.click("#submit"));
-    return page;
-  }
-  async esperarLoginExitoso(page, accion) {
-    await Promise.all([
-      page.waitForNavigation({ timeout: 3e4 }).catch(() => null),
-      accion()
-    ]);
-    await page.waitForTimeout(2e3);
-    const url = page.url();
-    console.log("URL después de login:", url);
-    const esPaginaError = await page.$("text=Ha ocurrido un error al procesar").catch(() => null);
-    if (esPaginaError) {
-      throw new Error("SAT_SATURADO");
-    }
-    const errorCaptcha = await page.$("#divCapError, .alert-danger, .mensaje-error").catch(() => null);
-    if (errorCaptcha) {
-      const textoError = await errorCaptcha.textContent().catch(() => "");
-      throw new Error(`CAPTCHA_INVALIDO: ${textoError?.trim()}`);
-    }
-    const llegamosAlPortal = url.includes("portalcfdi.facturaelectronica.sat.gob.mx") && !url.includes("login") && !url.includes("Login");
-    if (!llegamosAlPortal) {
-      const mensajeError = await page.$eval(
-        '.alert, .error, [class*="error"], [class*="Error"]',
-        (el) => el.textContent?.trim()
-      ).catch(() => null);
-      throw new Error(mensajeError || "Login fallido: no se pudo acceder al portal");
-    }
-    console.log("Login exitoso");
-  }
-  async logout(page) {
-    try {
-      await page.click("#salir");
-    } finally {
-      await page.close();
-    }
-  }
-}
-class SatScraper {
-  context = null;
-  authService = null;
-  async iniciar() {
-    if (this.context) {
-      console.log("Browser ya existe, reutilizando");
-      return;
-    }
-    console.log("Creando nuevo browser");
-    this.context = await BrowserManager.newContext();
-    this.authService = new SatAuthService(this.context);
-  }
-  async obtenerCaptcha() {
-    if (!this.authService) await this.iniciar();
-    const resultado = await this.authService.obtenerCaptcha();
-    return resultado.imagenBase64;
-  }
-  async descargarFacturas(config, params, captcha, onProgreso) {
-    if (!this.authService) throw new Error("Debes cargar el captcha primero");
-    let page;
-    if (config.metodoAuth === "contrasena") {
-      page = await this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
-    } else {
-      page = await this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
-    }
-    const carpeta = config.carpetaDescarga || electron.app.getPath("downloads");
-    let todasLasFilas = [];
-    if (params.buscarPor === "folio") {
-      const filas = await this.buscarEnPagina(page, params);
-      todasLasFilas = filas;
-    } else if (params.tipo === "recibidas") {
-      const meses = this.dividirEnMeses(params.fechaInicio, params.fechaFin);
-      const [dI, mI, aI] = params.fechaInicio.split("/").map(Number);
-      const [dF, mF, aF] = params.fechaFin.split("/").map(Number);
-      const fechaMin = new Date(aI, mI - 1, dI, 0, 0, 0);
-      const fechaMax = new Date(aF, mF - 1, dF, 23, 59, 59);
-      for (let i = 0; i < meses.length; i++) {
-        const mes = meses[i];
-        onProgreso?.({ etapa: "buscando", mesActual: i + 1, totalMeses: meses.length });
-        const paramsMes = { ...params, fechaInicio: mes.inicio, fechaFin: mes.fin };
-        const filasMes = await this.buscarEnPagina(page, paramsMes);
-        const filasFiltradas = filasMes.filter((f) => {
-          const fechaFactura = new Date(f.fecha_emision.replace(" ", "T"));
-          return fechaFactura >= fechaMin && fechaFactura <= fechaMax;
-        });
-        todasLasFilas.push(...filasFiltradas);
-        console.log(`Mes ${i + 1}/${meses.length}: ${filasFiltradas.length} facturas`);
-      }
-    } else {
-      const filas = await this.buscarEnPagina(page, params);
-      todasLasFilas = filas;
-    }
-    console.log(`Total facturas a procesar: ${todasLasFilas.length}`);
-    const { facturas, errores } = await this.descargarEnParalelo(page, todasLasFilas, carpeta, (progreso) => {
-      onProgreso?.({ etapa: "descargando", ...progreso });
-    });
-    if (errores.length > 0) {
-      console.warn(`Se terminaron con ${errores.length} errores de descarga.`);
-    }
-    onProgreso?.({ etapa: "completado", totalFacturas: facturas.length });
-    return { facturas, errores };
-  }
-  dividirEnMeses(fechaInicio, fechaFin) {
-    const [_diaI, mesI, anioI] = fechaInicio.split("/").map(Number);
-    const [_diaF, mesF, anioF] = fechaFin.split("/").map(Number);
-    const meses = [];
-    let anio = anioI;
-    let mes = mesI;
-    while (anio < anioF || anio === anioF && mes <= mesF) {
-      const ultimoDia = new Date(anio, mes, 0).getDate();
-      const inicio = anio === anioI && mes === mesI ? fechaInicio : `01/${String(mes).padStart(2, "0")}/${anio}`;
-      const fin = anio === anioF && mes === mesF ? fechaFin : `${ultimoDia}/${String(mes).padStart(2, "0")}/${anio}`;
-      meses.push({ inicio, fin });
-      mes++;
-      if (mes > 12) {
-        mes = 1;
-        anio++;
-      }
-    }
-    return meses;
-  }
-  async buscarEnPagina(page, params) {
-    const urlConsulta = params.tipo === "recibidas" ? "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaReceptor.aspx" : "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaEmisor.aspx";
-    await page.goto(urlConsulta);
-    await page.waitForSelector("#ctl00_MainContent_BtnBusqueda", { timeout: 15e3 });
-    if (params.buscarPor === "folio") {
-      await page.click("#ctl00_MainContent_RdoFolioFiscal");
-      await page.waitForTimeout(1e3);
-      await page.fill("#ctl00_MainContent_TxtUUID", params.folioFiscal);
-    } else {
-      await page.click("#ctl00_MainContent_RdoFechas");
-      await page.waitForTimeout(1500);
-      const [diaI, mesI, anioI] = params.fechaInicio.split("/");
-      if (params.tipo === "recibidas") {
-        await page.selectOption("#DdlAnio", anioI);
-        await page.waitForTimeout(500);
-        await page.selectOption("#ctl00_MainContent_CldFecha_DdlMes", String(parseInt(mesI)));
-        await page.waitForTimeout(300);
-        await page.selectOption("#ctl00_MainContent_CldFecha_DdlDia", String(parseInt(diaI)));
-      } else {
-        const [diaF, mesF, anioF] = params.fechaFin.split("/");
-        await page.fill("#ctl00_MainContent_CldFecha_FechaInicial", `${diaI}/${mesI}/${anioI}`);
-        await page.waitForTimeout(300);
-        await page.fill("#ctl00_MainContent_CldFecha_FechaFinal", `${diaF}/${mesF}/${anioF}`);
-      }
-    }
-    if (params.rfcTercero) {
-      await page.fill("#ctl00_MainContent_TxtRfcReceptor", params.rfcTercero);
-    }
-    if (params.estadoComprobante) {
-      const valorEstado = params.estadoComprobante === "cancelado" ? "0" : "1";
-      await page.selectOption("#ctl00_MainContent_DdlEstadoComprobante", valorEstado);
-    }
-    await page.click("#ctl00_MainContent_BtnBusqueda");
-    await page.waitForTimeout(3e3);
-    const sinResultados = await page.$("#ctl00_MainContent_PnlNoResultados");
-    if (sinResultados && await sinResultados.isVisible()) return [];
-    return await page.$$eval(
-      "#ctl00_MainContent_tblResult tbody tr:not(:first-child)",
-      (filas) => {
-        return filas.map((fila) => {
-          const celdas = fila.querySelectorAll("td");
-          if (celdas.length < 17) return null;
-          const checkbox = fila.querySelector("input.ListaFolios");
-          const btnDescarga = fila.querySelector("#BtnDescarga");
-          const getText = (idx) => celdas[idx]?.textContent?.trim() || "";
-          const onclick = btnDescarga?.getAttribute("onclick") || "";
-          const match = onclick.match(/RecuperaCfdi\.aspx\?Datos=[^']+/);
-          const urlDescarga = match ? match[0] : "";
-          const totalStr = getText(16).replace("$", "").replace(/,/g, "").trim();
-          const tipoTexto = getText(17).toLowerCase();
-          let tipo = "I";
-          if (tipoTexto.includes("egreso")) tipo = "E";
-          else if (tipoTexto.includes("traslado")) tipo = "T";
-          else if (tipoTexto.includes("nómina") || tipoTexto.includes("nomina")) tipo = "N";
-          else if (tipoTexto.includes("pago")) tipo = "P";
-          return {
-            uuid: checkbox?.value || getText(8),
-            rfc_emisor: getText(9),
-            nombre_emisor: getText(10),
-            rfc_receptor: getText(11),
-            nombre_receptor: getText(12),
-            fecha_emision: getText(13),
-            total: parseFloat(totalStr) || 0,
-            tipo_comprobante: tipo,
-            estado: getText(19).toLowerCase().includes("vigente") ? "vigente" : "cancelado",
-            urlDescarga
-          };
-        }).filter(Boolean);
-      }
-    );
-  }
-  async descargarEnParalelo(page, filas, carpeta, onProgreso) {
-    const facturas = [];
-    const errores = [];
-    let descargadas = 0;
-    const context = page.context();
-    const cookies = await context.cookies();
-    const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-    const userAgent = await page.evaluate(() => navigator.userAgent);
-    const currentUrl = page.url();
-    const LOTE_SIZE = 10;
-    for (let i = 0; i < filas.length; i += LOTE_SIZE) {
-      const lote = filas.slice(i, i + LOTE_SIZE);
-      const resultadosLote = await Promise.all(
-        lote.map(async (fila) => {
-          if (!fila.urlDescarga) return null;
-          try {
-            const urlCompleta = `https://portalcfdi.facturaelectronica.sat.gob.mx/${fila.urlDescarga}`;
-            const rutaFinal = path.join(carpeta, `${fila.uuid}.xml`);
-            const response = await axios({
-              method: "get",
-              url: urlCompleta,
-              headers: {
-                "Cookie": cookieString,
-                "User-Agent": userAgent,
-                "Referer": currentUrl,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-              },
-              timeout: 15e3,
-              responseType: "text"
-            });
-            if (response.data.includes("<?xml")) {
-              fs__namespace.writeFileSync(rutaFinal, response.data);
-              return { ...fila, urlDescarga: rutaFinal };
-            } else {
-              errores.push({ uuid: fila.uuid, error: "El SAT no devolvió un XML válido", fila });
-              return null;
-            }
-          } catch (err) {
-            console.error(`Fallo en descarga de ${fila.uuid}:`, err.message);
-            errores.push({ uuid: fila.uuid, error: err.message, fila });
-            return null;
-          }
-        })
-      );
-      const exitosos = resultadosLote.filter((f) => f !== null);
-      facturas.push(...exitosos);
-      descargadas += lote.length;
-      onProgreso?.({
-        descargadas,
-        totalFacturas: filas.length,
-        uuid: lote[lote.length - 1]?.uuid || ""
-      });
-    }
-    return { facturas, errores };
-  }
-  async cerrar() {
-    if (this.context) {
-      await this.context.close();
-      this.context = null;
-      this.authService = null;
-    }
-  }
-  async reintentarDescargas(config, captcha, pendientes, onProgreso) {
-    let page;
-    if (config.metodoAuth === "contrasena") {
-      page = await this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
-    } else {
-      page = await this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
-    }
-    const carpeta = config.carpetaDescarga || electron.app.getPath("downloads");
-    const facturas = [];
-    const errores = [];
-    let procesadas = 0;
-    for (const pendiente of pendientes) {
-      try {
-        onProgreso?.({
-          etapa: "descargando",
-          descargadas: procesadas,
-          totalFacturas: pendientes.length,
-          uuid: pendiente.uuid
-        });
-        const urlConsulta = pendiente.tipo_descarga === "recibida" ? "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaReceptor.aspx" : "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaEmisor.aspx";
-        await page.goto(urlConsulta);
-        await page.waitForSelector("#ctl00_MainContent_BtnBusqueda", { timeout: 15e3 });
-        await page.click("#ctl00_MainContent_RdoFolioFiscal");
-        await page.waitForTimeout(1e3);
-        await page.fill("#ctl00_MainContent_TxtUUID", pendiente.uuid);
-        await page.click("#ctl00_MainContent_BtnBusqueda");
-        await page.waitForTimeout(3e3);
-        const sinResultados = await page.$("#ctl00_MainContent_PnlNoResultados");
-        if (sinResultados && await sinResultados.isVisible()) {
-          errores.push({ uuid: pendiente.uuid, error: "No encontrado en el portal", fila: pendiente });
-          procesadas++;
-          continue;
-        }
-        const filas = await page.$$eval(
-          "#ctl00_MainContent_tblResult tbody tr:not(:first-child)",
-          (filas2) => filas2.map((fila) => {
-            const btnDescarga = fila.querySelector("#BtnDescarga");
-            const onclick = btnDescarga?.getAttribute("onclick") || "";
-            const match = onclick.match(/RecuperaCfdi\.aspx\?Datos=[^']+/);
-            return match ? match[0] : "";
-          }).filter(Boolean)
-        );
-        if (!filas.length) {
-          errores.push({ uuid: pendiente.uuid, error: "No se encontró botón de descarga", fila: pendiente });
-          procesadas++;
-          continue;
-        }
-        const urlCompleta = `https://portalcfdi.facturaelectronica.sat.gob.mx/${filas[0]}`;
-        const rutaFinal = path.join(carpeta, `${pendiente.uuid}.xml`);
-        const [download] = await Promise.all([
-          page.waitForEvent("download", { timeout: 2e4 }),
-          page.evaluate((url) => {
-            window.location.href = url;
-          }, urlCompleta)
-        ]);
-        const rutaTemp = await download.path();
-        if (rutaTemp) {
-          fs__namespace.renameSync(rutaTemp, rutaFinal);
-          facturas.push({
-            uuid: pendiente.uuid,
-            rfc_emisor: pendiente.rfc_emisor,
-            nombre_emisor: pendiente.nombre_emisor,
-            rfc_receptor: pendiente.rfc_receptor,
-            nombre_receptor: pendiente.nombre_receptor,
-            fecha_emision: pendiente.fecha_emision,
-            total: pendiente.total,
-            tipo_comprobante: pendiente.tipo_comprobante,
-            estado: pendiente.estado,
-            urlDescarga: rutaFinal,
-            tipo_descarga: pendiente.tipo_descarga
-          });
-        } else {
-          errores.push({ uuid: pendiente.uuid, error: "No se pudo guardar el archivo", fila: pendiente });
-        }
-      } catch (err) {
-        console.error(`Error reintentando ${pendiente.uuid}:`, err.message);
-        errores.push({ uuid: pendiente.uuid, error: err.message, fila: pendiente });
-      }
-      procesadas++;
-    }
-    onProgreso?.({ etapa: "completado", totalFacturas: facturas.length });
-    return { facturas, errores };
-  }
-}
 class XmlParserService {
   extraerCampos(rutaXml) {
     try {
@@ -1593,6 +1214,143 @@ class XmlParserService {
       console.error("Error extrayendo campos XML:", err);
       return {};
     }
+  }
+}
+const ESTRUCTURA_DEFAULT = [
+  { id: "contribuyente", label: "Contribuyente", activo: true },
+  { id: "ejercicio", label: "Ejercicio", activo: true },
+  { id: "periodo", label: "Periodo", activo: false },
+  { id: "emisor", label: "Emisor", activo: false },
+  { id: "receptor", label: "Receptor", activo: false }
+];
+const CONFIG_NOMBRE_DEFAULT = {
+  rfcEmisor: true,
+  rfcReceptor: false
+};
+class RutaArchivoService {
+  /**
+   * Construye la ruta absoluta destino para un XML dado.
+   * Crea las carpetas intermedias si no existen.
+   * Lanza error descriptivo si faltan carpetas base en el perfil.
+   */
+  construirRutaXml(params) {
+    const perfil = ProfileManager.getPerfilActivo();
+    if (!perfil) throw new Error("No hay perfil activo");
+    const esEmitida = params.tipo_descarga === "emitida";
+    const carpetaBase = esEmitida ? perfil.carpeta_emitidos : perfil.carpeta_recibidos;
+    if (!carpetaBase) {
+      const tipo = esEmitida ? "emitidos" : "recibidos";
+      throw new Error(
+        `La carpeta de ${tipo} no está configurada. Ve a Configuración > PDF para establecer la ruta.`
+      );
+    }
+    const estructura = this.parsearEstructura(
+      esEmitida ? perfil.estructura_emitidos : perfil.estructura_recibidos
+    );
+    const configNombre = this.parsearConfigNombre(perfil.config_nombre_archivo);
+    const fechaStr = params.fecha_emision?.replace("T", " ").split("+")[0].split("-06")[0] ?? "";
+    const fecha = fechaStr ? new Date(fechaStr) : /* @__PURE__ */ new Date();
+    const subcarpetas = estructura.filter((s) => s.activo).map((s) => this.resolverSlot(s.id, params, perfil.rfc, fecha));
+    const carpetaDestino = path__namespace.join(carpetaBase, ...subcarpetas);
+    fs__namespace.mkdirSync(carpetaDestino, { recursive: true });
+    const segmentos = [];
+    if (configNombre.rfcEmisor) segmentos.push(params.rfc_emisor);
+    if (configNombre.rfcReceptor) segmentos.push(params.rfc_receptor);
+    segmentos.push(params.uuid);
+    const nombreArchivo = segmentos.join("_") + ".xml";
+    return path__namespace.join(carpetaDestino, nombreArchivo);
+  }
+  resolverSlot(id, params, rfcActivo, fecha) {
+    switch (id) {
+      case "contribuyente":
+        return rfcActivo;
+      case "ejercicio":
+        return isNaN(fecha.getTime()) ? "SIN_FECHA" : String(fecha.getFullYear());
+      case "periodo":
+        return isNaN(fecha.getTime()) ? "00" : String(fecha.getMonth() + 1).padStart(2, "0");
+      case "emisor":
+        return params.rfc_emisor;
+      case "receptor":
+        return params.rfc_receptor;
+    }
+  }
+  parsearEstructura(json) {
+    try {
+      if (!json || json === "[]") return [...ESTRUCTURA_DEFAULT];
+      return JSON.parse(json);
+    } catch {
+      return [...ESTRUCTURA_DEFAULT];
+    }
+  }
+  parsearConfigNombre(json) {
+    try {
+      if (!json || json === "{}") return { ...CONFIG_NOMBRE_DEFAULT };
+      return JSON.parse(json);
+    } catch {
+      return { ...CONFIG_NOMBRE_DEFAULT };
+    }
+  }
+}
+class FacturaGuardadoService {
+  constructor(facturaRepository, pendienteRepository) {
+    this.facturaRepository = facturaRepository;
+    this.pendienteRepository = pendienteRepository;
+  }
+  xmlParser = new XmlParserService();
+  rutaService = new RutaArchivoService();
+  guardar(factura, tipoDes) {
+    if (!factura.urlDescarga) return;
+    const camposXml = this.xmlParser.extraerCampos(factura.urlDescarga);
+    const rutaDestino = this.rutaService.construirRutaXml({
+      uuid: factura.uuid,
+      fecha_emision: factura.fecha_emision,
+      rfc_emisor: factura.rfc_emisor,
+      rfc_receptor: factura.rfc_receptor,
+      tipo_descarga: tipoDes
+    });
+    fs__namespace.copyFileSync(factura.urlDescarga, rutaDestino);
+    const yaExiste = this.facturaRepository.obtenerPorUuid(factura.uuid);
+    if (!yaExiste) {
+      this.facturaRepository.insertar({
+        uuid: factura.uuid,
+        fecha_emision: factura.fecha_emision,
+        rfc_emisor: factura.rfc_emisor,
+        nombre_emisor: factura.nombre_emisor,
+        rfc_receptor: factura.rfc_receptor,
+        nombre_receptor: factura.nombre_receptor,
+        subtotal: factura.total,
+        total: factura.total,
+        tipo_comprobante: factura.tipo_comprobante,
+        estado: factura.estado,
+        xml: rutaDestino,
+        tipo_descarga: tipoDes,
+        fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
+        ...camposXml
+      });
+    } else {
+      this.facturaRepository.actualizar(factura.uuid, {
+        xml: rutaDestino,
+        ...camposXml
+      });
+    }
+    this.pendienteRepository.eliminar(factura.uuid);
+  }
+  guardarPendiente(factura, tipoDes, error) {
+    this.pendienteRepository.insertar({
+      uuid: factura.uuid,
+      rfc_emisor: factura.rfc_emisor,
+      nombre_emisor: factura.nombre_emisor,
+      rfc_receptor: factura.rfc_receptor,
+      nombre_receptor: factura.nombre_receptor,
+      fecha_emision: factura.fecha_emision,
+      total: factura.total,
+      tipo_comprobante: factura.tipo_comprobante,
+      estado: factura.estado,
+      url_descarga: factura.urlDescarga ?? "",
+      // fix: string | undefined → string
+      tipo_descarga: tipoDes,
+      error
+    });
   }
 }
 class CatalogoRepository {
@@ -1693,13 +1451,14 @@ class CatalogoRepository {
   }
 }
 class DescargaService {
-  constructor(facturaRepository, pendienteRepository, db) {
+  constructor(facturaRepository, pendienteRepository, db, scraper) {
     this.facturaRepository = facturaRepository;
     this.pendienteRepository = pendienteRepository;
+    this.scraper = scraper;
+    this.guardadoService = new FacturaGuardadoService(facturaRepository, pendienteRepository);
     this.catalogoRepository = new CatalogoRepository(db);
   }
-  scraper = new SatScraper();
-  xmlParser = new XmlParserService();
+  guardadoService;
   catalogoRepository;
   async obtenerCaptcha() {
     await this.scraper.iniciar();
@@ -1707,55 +1466,17 @@ class DescargaService {
   }
   async descargar(config, params, captcha, onProgreso) {
     try {
+      const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
       const { facturas, errores } = await this.scraper.descargarFacturas(config, params, captcha, onProgreso);
       let guardadas = 0;
       for (const f of facturas) {
         if (!f.urlDescarga) continue;
-        const yaExiste = this.facturaRepository.obtenerPorUuid(f.uuid);
-        if (!yaExiste) {
-          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga);
-          this.facturaRepository.insertar({
-            uuid: f.uuid,
-            fecha_emision: f.fecha_emision,
-            rfc_emisor: f.rfc_emisor,
-            nombre_emisor: f.nombre_emisor,
-            rfc_receptor: f.rfc_receptor,
-            nombre_receptor: f.nombre_receptor,
-            subtotal: f.total,
-            total: f.total,
-            tipo_comprobante: f.tipo_comprobante,
-            estado: f.estado,
-            xml: f.urlDescarga,
-            tipo_descarga: params.tipo === "recibidas" ? "recibida" : "emitida",
-            fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
-            ...camposXml
-          });
-        } else {
-          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga);
-          this.facturaRepository.actualizar(f.uuid, {
-            xml: f.urlDescarga,
-            ...camposXml
-          });
-        }
-        this.pendienteRepository.eliminar(f.uuid);
+        this.guardadoService.guardar(f, tipoDes);
         guardadas++;
       }
       for (const e of errores) {
         if (e.fila) {
-          this.pendienteRepository.insertar({
-            uuid: e.uuid,
-            rfc_emisor: e.fila.rfc_emisor,
-            nombre_emisor: e.fila.nombre_emisor,
-            rfc_receptor: e.fila.rfc_receptor,
-            nombre_receptor: e.fila.nombre_receptor,
-            fecha_emision: e.fila.fecha_emision,
-            total: e.fila.total,
-            tipo_comprobante: e.fila.tipo_comprobante,
-            estado: e.fila.estado,
-            url_descarga: e.fila.urlDescarga,
-            tipo_descarga: params.tipo === "recibidas" ? "recibida" : "emitida",
-            error: e.error
-          });
+          this.guardadoService.guardarPendiente({ uuid: e.uuid, ...e.fila }, tipoDes, e.error);
         }
       }
       this.catalogoRepository.sincronizarTodos();
@@ -1778,28 +1499,9 @@ class DescargaService {
       let guardadas = 0;
       for (const f of facturas) {
         if (!f.urlDescarga) continue;
-        const yaExiste = this.facturaRepository.obtenerPorUuid(f.uuid);
-        if (!yaExiste) {
-          const camposXml = this.xmlParser.extraerCampos(f.urlDescarga);
-          this.facturaRepository.insertar({
-            uuid: f.uuid,
-            fecha_emision: f.fecha_emision,
-            rfc_emisor: f.rfc_emisor,
-            nombre_emisor: f.nombre_emisor,
-            rfc_receptor: f.rfc_receptor,
-            nombre_receptor: f.nombre_receptor,
-            subtotal: f.total,
-            total: f.total,
-            tipo_comprobante: f.tipo_comprobante,
-            estado: f.estado,
-            xml: f.urlDescarga,
-            tipo_descarga: f.tipo_descarga,
-            fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
-            ...camposXml
-          });
-          this.pendienteRepository.eliminar(f.uuid);
-          guardadas++;
-        }
+        const tipoDes = f.tipo_descarga;
+        this.guardadoService.guardar(f, tipoDes);
+        guardadas++;
       }
       for (const e of errores) {
         const pendiente = pendientes.find((p) => p.uuid === e.uuid);
@@ -1812,7 +1514,6 @@ class DescargaService {
       await this.scraper.cerrar();
     }
   }
-  // Consultas simples
   obtenerFacturas() {
     return this.facturaRepository.obtenerTodas();
   }
@@ -1898,6 +1599,7 @@ class ImportacionHandler {
     this.db = db;
   }
   xmlParser = new XmlParserService();
+  rutaService = new RutaArchivoService();
   registrar() {
     electron.ipcMain.handle("seleccionar-xmls", async () => {
       const result = await electron.dialog.showOpenDialog({
@@ -1943,7 +1645,15 @@ class ImportacionHandler {
             omitidas++;
             continue;
           }
-          const tipoDes = camposXml.rfc_receptor === perfil?.rfc ? "recibida" : "emitida";
+          const tipoDes = camposXml.rfc_receptor === rfcActivo ? "recibida" : "emitida";
+          const rutaDestino = this.rutaService.construirRutaXml({
+            uuid: camposXml.uuid,
+            fecha_emision: camposXml.fecha_emision || "",
+            rfc_emisor: camposXml.rfc_emisor || "",
+            rfc_receptor: camposXml.rfc_receptor || "",
+            tipo_descarga: tipoDes
+          });
+          fs__namespace.copyFileSync(ruta, rutaDestino);
           repository.insertar({
             uuid: camposXml.uuid,
             fecha_emision: camposXml.fecha_emision || "",
@@ -1955,7 +1665,7 @@ class ImportacionHandler {
             total: camposXml.total || 0,
             tipo_comprobante: camposXml.tipo_comprobante || "I",
             estado: "vigente",
-            xml: ruta,
+            xml: rutaDestino,
             tipo_descarga: tipoDes,
             fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
             ...camposXml
@@ -2155,6 +1865,523 @@ class CatalogoHandler {
     });
   }
 }
+class ConciliacionService {
+  constructor(facturaRepository, pendienteRepository, scraper) {
+    this.facturaRepository = facturaRepository;
+    this.scraper = scraper;
+    this.guardadoService = new FacturaGuardadoService(facturaRepository, pendienteRepository);
+  }
+  guardadoService;
+  async conciliar(config, params, onProgreso) {
+    const errores = [];
+    try {
+      onProgreso?.({ etapa: "autenticando" });
+      await this.scraper.iniciar();
+      let page;
+      const authService = this.scraper.authService;
+      if (config.metodoAuth === "contrasena") {
+        page = await authService.loginConContrasenaDirecto(config.rfc, config.contrasena, params.captcha);
+      } else {
+        page = await authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
+      }
+      const mes = params.periodo.padStart(2, "0");
+      const ultimoDia = new Date(parseInt(params.ejercicio), parseInt(mes), 0).getDate();
+      const fechaInicio = `01/${mes}/${params.ejercicio}`;
+      const fechaFin = `${ultimoDia}/${mes}/${params.ejercicio}`;
+      const paramsBusqueda = {
+        tipo: params.tipo,
+        buscarPor: "fecha",
+        fechaInicio,
+        fechaFin
+      };
+      onProgreso?.({ etapa: "consultando" });
+      const filasSat = await this.scraper.buscarEnPagina(page, paramsBusqueda);
+      const totalSat = filasSat.length;
+      onProgreso?.({ etapa: "comparando" });
+      const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
+      const faltantes = filasSat.filter((f) => !this.facturaRepository.obtenerPorUuid(f.uuid));
+      const existentes = filasSat.filter((f) => {
+        const local = this.facturaRepository.obtenerPorUuid(f.uuid);
+        return local && local.estado === "vigente" && f.estado === "cancelado";
+      });
+      const totalLocal = totalSat - faltantes.length;
+      let descargadas = 0;
+      if (faltantes.length > 0) {
+        onProgreso?.({ etapa: "descargando", descargadas: 0, totalFaltantes: faltantes.length });
+        const { facturas, errores: erroresDescarga } = await this.scraper.descargarEnParalelo(
+          page,
+          faltantes,
+          (p) => onProgreso?.({ etapa: "descargando", descargadas: p.descargadas, totalFaltantes: faltantes.length })
+        );
+        for (const f of facturas) {
+          if (!f.urlDescarga) continue;
+          try {
+            this.guardadoService.guardar(f, tipoDes);
+            descargadas++;
+          } catch (err) {
+            errores.push({ uuid: f.uuid, error: err.message });
+          }
+        }
+        for (const e of erroresDescarga) {
+          const fila = faltantes.find((f) => f.uuid === e.uuid);
+          if (fila) {
+            this.guardadoService.guardarPendiente(fila, tipoDes, e.error);
+          }
+          errores.push({ uuid: e.uuid, error: e.error });
+        }
+      }
+      let actualizadas = 0;
+      if (existentes.length > 0) {
+        onProgreso?.({ etapa: "actualizando", actualizadas: 0 });
+        for (const f of existentes) {
+          try {
+            this.facturaRepository.actualizar(f.uuid, { estado: "cancelado" });
+            actualizadas++;
+          } catch (err) {
+            errores.push({ uuid: f.uuid, error: err.message });
+          }
+        }
+      }
+      onProgreso?.({ etapa: "completado" });
+      return { totalSat, totalLocal, descargadas, actualizadas, errores };
+    } finally {
+      await this.scraper.cerrar();
+    }
+  }
+}
+class ConciliacionHandler {
+  constructor(conciliacionService, configuracionService) {
+    this.conciliacionService = conciliacionService;
+    this.configuracionService = configuracionService;
+  }
+  registrar() {
+    electron.ipcMain.handle("iniciar-conciliacion", async (event, params) => {
+      try {
+        const config = this.configuracionService.obtener();
+        if (!config) return { success: false, error: "No hay configuración guardada" };
+        const resumen = await this.conciliacionService.conciliar(
+          config,
+          params,
+          (progreso) => event.sender.send("progreso-conciliacion", progreso)
+        );
+        return { success: true, resumen };
+      } catch (error) {
+        const mensaje = String(error);
+        if (mensaje.includes("SAT_SATURADO")) {
+          return { success: false, error: "El SAT se encuentra saturado. Intenta en 20 minutos." };
+        }
+        if (mensaje.includes("CAPTCHA_INVALIDO")) {
+          return { success: false, error: "El captcha es incorrecto. Intenta de nuevo." };
+        }
+        return { success: false, error: mensaje };
+      }
+    });
+  }
+}
+class SatAuthService {
+  constructor(context) {
+    this.context = context;
+  }
+  paginaLogin = null;
+  async obtenerCaptcha() {
+    if (this.paginaLogin) {
+      await this.paginaLogin.close();
+      this.paginaLogin = null;
+    }
+    this.paginaLogin = await this.context.newPage();
+    await this.paginaLogin.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
+    await this.paginaLogin.waitForSelector("#divCaptcha", { timeout: 15e3 });
+    const imagenBase64 = await this.paginaLogin.$eval(
+      "#divCaptcha img",
+      (img) => img.src
+    );
+    return { imagenBase64 };
+  }
+  async loginConContrasena(rfc, password, captcha) {
+    if (!this.paginaLogin) {
+      throw new Error("Primero debes cargar el captcha");
+    }
+    const page = this.paginaLogin;
+    this.paginaLogin = null;
+    await page.fill("#rfc", rfc);
+    await page.fill("#password", password);
+    await page.fill("#userCaptcha", captcha.toUpperCase());
+    await this.esperarLoginExitoso(page, () => page.click("#submit"));
+    return page;
+  }
+  async loginConEfirma(rutaCer, rutaKey, contrasenaFiel) {
+    const page = this.paginaLogin ?? await this.context.newPage();
+    this.paginaLogin = null;
+    if (!page.url().includes("portalcfdi")) {
+      await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
+    }
+    await page.waitForSelector("#buttonFiel", { timeout: 15e3 });
+    await page.click("#buttonFiel");
+    await page.waitForSelector("#fileCertificate", { timeout: 1e4 });
+    await page.setInputFiles("#fileCertificate", rutaCer);
+    await page.setInputFiles("#filePrivateKey", rutaKey);
+    await page.fill("#privateKeyPassword", contrasenaFiel);
+    await this.esperarLoginExitoso(page, () => page.click("#submit"));
+    return page;
+  }
+  async esperarLoginExitoso(page, accion) {
+    await Promise.all([
+      page.waitForNavigation({ timeout: 3e4 }).catch(() => null),
+      accion()
+    ]);
+    await page.waitForTimeout(2e3);
+    const url = page.url();
+    console.log("URL después de login:", url);
+    const esPaginaError = await page.$("text=Ha ocurrido un error al procesar").catch(() => null);
+    if (esPaginaError) {
+      throw new Error("SAT_SATURADO");
+    }
+    const errorCaptcha = await page.$("#divCapError, .alert-danger, .mensaje-error").catch(() => null);
+    if (errorCaptcha) {
+      const textoError = await errorCaptcha.textContent().catch(() => "");
+      throw new Error(`CAPTCHA_INVALIDO: ${textoError?.trim()}`);
+    }
+    const llegamosAlPortal = url.includes("portalcfdi.facturaelectronica.sat.gob.mx") && !url.includes("login") && !url.includes("Login");
+    if (!llegamosAlPortal) {
+      const mensajeError = await page.$eval(
+        '.alert, .error, [class*="error"], [class*="Error"]',
+        (el) => el.textContent?.trim()
+      ).catch(() => null);
+      throw new Error(mensajeError || "Login fallido: no se pudo acceder al portal");
+    }
+    console.log("Login exitoso");
+  }
+  async logout(page) {
+    try {
+      await page.click("#salir");
+    } finally {
+      await page.close();
+    }
+  }
+  async loginConContrasenaDirecto(rfc, password, captcha) {
+    const page = await this.context.newPage();
+    await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
+    await page.waitForSelector("#divCaptcha", { timeout: 15e3 });
+    await page.fill("#rfc", rfc);
+    await page.fill("#password", password);
+    await page.fill("#userCaptcha", captcha.toUpperCase());
+    await this.esperarLoginExitoso(page, () => page.click("#submit"));
+    return page;
+  }
+}
+class SatScraper {
+  context = null;
+  authService = null;
+  async iniciar() {
+    if (this.context) {
+      console.log("Browser ya existe, reutilizando");
+      return;
+    }
+    console.log("Creando nuevo browser");
+    this.context = await BrowserManager.newContext();
+    this.authService = new SatAuthService(this.context);
+  }
+  async obtenerCaptcha() {
+    if (!this.authService) await this.iniciar();
+    const resultado = await this.authService.obtenerCaptcha();
+    return resultado.imagenBase64;
+  }
+  async descargarFacturas(config, params, captcha, onProgreso) {
+    if (!this.authService) throw new Error("Debes cargar el captcha primero");
+    let page;
+    if (config.metodoAuth === "contrasena") {
+      page = await this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
+    } else {
+      page = await this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
+    }
+    const carpeta = config.carpetaDescarga || electron.app.getPath("downloads");
+    let todasLasFilas = [];
+    if (params.buscarPor === "folio") {
+      const filas = await this.buscarEnPagina(page, params);
+      todasLasFilas = filas;
+    } else if (params.tipo === "recibidas") {
+      const meses = this.dividirEnMeses(params.fechaInicio, params.fechaFin);
+      const [dI, mI, aI] = params.fechaInicio.split("/").map(Number);
+      const [dF, mF, aF] = params.fechaFin.split("/").map(Number);
+      const fechaMin = new Date(aI, mI - 1, dI, 0, 0, 0);
+      const fechaMax = new Date(aF, mF - 1, dF, 23, 59, 59);
+      for (let i = 0; i < meses.length; i++) {
+        const mes = meses[i];
+        onProgreso?.({ etapa: "buscando", mesActual: i + 1, totalMeses: meses.length });
+        const paramsMes = { ...params, fechaInicio: mes.inicio, fechaFin: mes.fin };
+        const filasMes = await this.buscarEnPagina(page, paramsMes);
+        const filasFiltradas = filasMes.filter((f) => {
+          const fechaFactura = new Date(f.fecha_emision.replace(" ", "T"));
+          return fechaFactura >= fechaMin && fechaFactura <= fechaMax;
+        });
+        todasLasFilas.push(...filasFiltradas);
+        console.log(`Mes ${i + 1}/${meses.length}: ${filasFiltradas.length} facturas`);
+      }
+    } else {
+      const filas = await this.buscarEnPagina(page, params);
+      todasLasFilas = filas;
+    }
+    console.log(`Total facturas a procesar: ${todasLasFilas.length}`);
+    const { facturas, errores } = await this.descargarEnParalelo(page, todasLasFilas, carpeta, (progreso) => {
+      onProgreso?.({ etapa: "descargando", ...progreso });
+    });
+    if (errores.length > 0) {
+      console.warn(`Se terminaron con ${errores.length} errores de descarga.`);
+    }
+    onProgreso?.({ etapa: "completado", totalFacturas: facturas.length });
+    return { facturas, errores };
+  }
+  dividirEnMeses(fechaInicio, fechaFin) {
+    const [_diaI, mesI, anioI] = fechaInicio.split("/").map(Number);
+    const [_diaF, mesF, anioF] = fechaFin.split("/").map(Number);
+    const meses = [];
+    let anio = anioI;
+    let mes = mesI;
+    while (anio < anioF || anio === anioF && mes <= mesF) {
+      const ultimoDia = new Date(anio, mes, 0).getDate();
+      const inicio = anio === anioI && mes === mesI ? fechaInicio : `01/${String(mes).padStart(2, "0")}/${anio}`;
+      const fin = anio === anioF && mes === mesF ? fechaFin : `${ultimoDia}/${String(mes).padStart(2, "0")}/${anio}`;
+      meses.push({ inicio, fin });
+      mes++;
+      if (mes > 12) {
+        mes = 1;
+        anio++;
+      }
+    }
+    return meses;
+  }
+  async buscarEnPagina(page, params) {
+    const urlConsulta = params.tipo === "recibidas" ? "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaReceptor.aspx" : "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaEmisor.aspx";
+    await page.goto(urlConsulta);
+    await page.waitForSelector("#ctl00_MainContent_BtnBusqueda", { timeout: 15e3 });
+    if (params.buscarPor === "folio") {
+      await page.click("#ctl00_MainContent_RdoFolioFiscal");
+      await page.waitForTimeout(1e3);
+      await page.fill("#ctl00_MainContent_TxtUUID", params.folioFiscal);
+    } else {
+      await page.click("#ctl00_MainContent_RdoFechas");
+      await page.waitForTimeout(1500);
+      const [diaI, mesI, anioI] = params.fechaInicio.split("/");
+      if (params.tipo === "recibidas") {
+        await page.selectOption("#DdlAnio", anioI);
+        await page.waitForTimeout(500);
+        await page.selectOption("#ctl00_MainContent_CldFecha_DdlMes", String(parseInt(mesI)));
+        await page.waitForTimeout(300);
+        await page.selectOption("#ctl00_MainContent_CldFecha_DdlDia", String(parseInt(diaI)));
+      } else {
+        const [diaI2, mesI2, anioI2] = params.fechaInicio.split("/");
+        const [diaF, mesF, anioF] = params.fechaFin.split("/");
+        const fechaInicialStr = `${diaI2}/${mesI2}/${anioI2}`;
+        const fechaFinalStr = `${diaF}/${mesF}/${anioF}`;
+        await page.evaluate((id) => {
+          const el = document.getElementById(id);
+          if (el) el.removeAttribute("disabled");
+        }, "ctl00_MainContent_CldFechaInicial2_Calendario_text");
+        await page.fill("#ctl00_MainContent_CldFechaInicial2_Calendario_text", fechaInicialStr);
+        await page.waitForTimeout(300);
+        await page.evaluate((id) => {
+          const el = document.getElementById(id);
+          if (el) el.removeAttribute("disabled");
+        }, "ctl00_MainContent_CldFechaFinal2_Calendario_text");
+        await page.fill("#ctl00_MainContent_CldFechaFinal2_Calendario_text", fechaFinalStr);
+        await page.waitForTimeout(300);
+        await page.selectOption("#ctl00_MainContent_CldFechaFinal2_DdlHora", "23");
+        await page.selectOption("#ctl00_MainContent_CldFechaFinal2_DdlMinuto", "59");
+        await page.selectOption("#ctl00_MainContent_CldFechaFinal2_DdlSegundo", "59");
+      }
+    }
+    if (params.rfcTercero) {
+      await page.fill("#ctl00_MainContent_TxtRfcReceptor", params.rfcTercero);
+    }
+    if (params.estadoComprobante) {
+      const valorEstado = params.estadoComprobante === "cancelado" ? "0" : "1";
+      await page.selectOption("#ctl00_MainContent_DdlEstadoComprobante", valorEstado);
+    }
+    await page.click("#ctl00_MainContent_BtnBusqueda");
+    await page.waitForTimeout(3e3);
+    const sinResultados = await page.$("#ctl00_MainContent_PnlNoResultados");
+    if (sinResultados && await sinResultados.isVisible()) return [];
+    return await page.$$eval(
+      "#ctl00_MainContent_tblResult tbody tr:not(:first-child)",
+      (filas) => {
+        return filas.map((fila) => {
+          const celdas = fila.querySelectorAll("td");
+          if (celdas.length < 17) return null;
+          const checkbox = fila.querySelector("input.ListaFolios");
+          const btnDescarga = fila.querySelector("#BtnDescarga");
+          const getText = (idx) => celdas[idx]?.textContent?.trim() || "";
+          const onclick = btnDescarga?.getAttribute("onclick") || "";
+          const match = onclick.match(/RecuperaCfdi\.aspx\?Datos=[^']+/);
+          const urlDescarga = match ? match[0] : "";
+          const totalStr = getText(16).replace("$", "").replace(/,/g, "").trim();
+          const tipoTexto = getText(17).toLowerCase();
+          let tipo = "I";
+          if (tipoTexto.includes("egreso")) tipo = "E";
+          else if (tipoTexto.includes("traslado")) tipo = "T";
+          else if (tipoTexto.includes("nómina") || tipoTexto.includes("nomina")) tipo = "N";
+          else if (tipoTexto.includes("pago")) tipo = "P";
+          return {
+            uuid: checkbox?.value || getText(8),
+            rfc_emisor: getText(9),
+            nombre_emisor: getText(10),
+            rfc_receptor: getText(11),
+            nombre_receptor: getText(12),
+            fecha_emision: getText(13),
+            total: parseFloat(totalStr) || 0,
+            tipo_comprobante: tipo,
+            estado: getText(19).toLowerCase().includes("vigente") ? "vigente" : "cancelado",
+            urlDescarga
+          };
+        }).filter(Boolean);
+      }
+    );
+  }
+  async descargarEnParalelo(page, filas, carpeta, onProgreso) {
+    const facturas = [];
+    const errores = [];
+    let descargadas = 0;
+    const context = page.context();
+    const cookies = await context.cookies();
+    const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+    const userAgent = await page.evaluate(() => navigator.userAgent);
+    const currentUrl = page.url();
+    const LOTE_SIZE = 10;
+    for (let i = 0; i < filas.length; i += LOTE_SIZE) {
+      const lote = filas.slice(i, i + LOTE_SIZE);
+      const resultadosLote = await Promise.all(
+        lote.map(async (fila) => {
+          if (!fila.urlDescarga) return null;
+          try {
+            const urlCompleta = `https://portalcfdi.facturaelectronica.sat.gob.mx/${fila.urlDescarga}`;
+            const rutaFinal = path.join(carpeta, `${fila.uuid}.xml`);
+            const response = await axios({
+              method: "get",
+              url: urlCompleta,
+              headers: {
+                "Cookie": cookieString,
+                "User-Agent": userAgent,
+                "Referer": currentUrl,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+              },
+              timeout: 15e3,
+              responseType: "text"
+            });
+            if (response.data.includes("<?xml")) {
+              fs__namespace.writeFileSync(rutaFinal, response.data);
+              return { ...fila, urlDescarga: rutaFinal };
+            } else {
+              errores.push({ uuid: fila.uuid, error: "El SAT no devolvió un XML válido", fila });
+              return null;
+            }
+          } catch (err) {
+            console.error(`Fallo en descarga de ${fila.uuid}:`, err.message);
+            errores.push({ uuid: fila.uuid, error: err.message, fila });
+            return null;
+          }
+        })
+      );
+      const exitosos = resultadosLote.filter((f) => f !== null);
+      facturas.push(...exitosos);
+      descargadas += lote.length;
+      onProgreso?.({
+        descargadas,
+        totalFacturas: filas.length,
+        uuid: lote[lote.length - 1]?.uuid || ""
+      });
+    }
+    return { facturas, errores };
+  }
+  async cerrar() {
+    if (this.context) {
+      await this.context.close();
+      this.context = null;
+      this.authService = null;
+    }
+  }
+  async reintentarDescargas(config, captcha, pendientes, onProgreso) {
+    let page;
+    if (config.metodoAuth === "contrasena") {
+      page = await this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
+    } else {
+      page = await this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
+    }
+    const carpeta = config.carpetaDescarga || electron.app.getPath("downloads");
+    const facturas = [];
+    const errores = [];
+    let procesadas = 0;
+    for (const pendiente of pendientes) {
+      try {
+        onProgreso?.({
+          etapa: "descargando",
+          descargadas: procesadas,
+          totalFacturas: pendientes.length,
+          uuid: pendiente.uuid
+        });
+        const urlConsulta = pendiente.tipo_descarga === "recibida" ? "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaReceptor.aspx" : "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaEmisor.aspx";
+        await page.goto(urlConsulta);
+        await page.waitForSelector("#ctl00_MainContent_BtnBusqueda", { timeout: 15e3 });
+        await page.click("#ctl00_MainContent_RdoFolioFiscal");
+        await page.waitForTimeout(1e3);
+        await page.fill("#ctl00_MainContent_TxtUUID", pendiente.uuid);
+        await page.click("#ctl00_MainContent_BtnBusqueda");
+        await page.waitForTimeout(3e3);
+        const sinResultados = await page.$("#ctl00_MainContent_PnlNoResultados");
+        if (sinResultados && await sinResultados.isVisible()) {
+          errores.push({ uuid: pendiente.uuid, error: "No encontrado en el portal", fila: pendiente });
+          procesadas++;
+          continue;
+        }
+        const filas = await page.$$eval(
+          "#ctl00_MainContent_tblResult tbody tr:not(:first-child)",
+          (filas2) => filas2.map((fila) => {
+            const btnDescarga = fila.querySelector("#BtnDescarga");
+            const onclick = btnDescarga?.getAttribute("onclick") || "";
+            const match = onclick.match(/RecuperaCfdi\.aspx\?Datos=[^']+/);
+            return match ? match[0] : "";
+          }).filter(Boolean)
+        );
+        if (!filas.length) {
+          errores.push({ uuid: pendiente.uuid, error: "No se encontró botón de descarga", fila: pendiente });
+          procesadas++;
+          continue;
+        }
+        const urlCompleta = `https://portalcfdi.facturaelectronica.sat.gob.mx/${filas[0]}`;
+        const rutaFinal = path.join(carpeta, `${pendiente.uuid}.xml`);
+        const [download] = await Promise.all([
+          page.waitForEvent("download", { timeout: 2e4 }),
+          page.evaluate((url) => {
+            window.location.href = url;
+          }, urlCompleta)
+        ]);
+        const rutaTemp = await download.path();
+        if (rutaTemp) {
+          fs__namespace.renameSync(rutaTemp, rutaFinal);
+          facturas.push({
+            uuid: pendiente.uuid,
+            rfc_emisor: pendiente.rfc_emisor,
+            nombre_emisor: pendiente.nombre_emisor,
+            rfc_receptor: pendiente.rfc_receptor,
+            nombre_receptor: pendiente.nombre_receptor,
+            fecha_emision: pendiente.fecha_emision,
+            total: pendiente.total,
+            tipo_comprobante: pendiente.tipo_comprobante,
+            estado: pendiente.estado,
+            urlDescarga: rutaFinal,
+            tipo_descarga: pendiente.tipo_descarga
+          });
+        } else {
+          errores.push({ uuid: pendiente.uuid, error: "No se pudo guardar el archivo", fila: pendiente });
+        }
+      } catch (err) {
+        console.error(`Error reintentando ${pendiente.uuid}:`, err.message);
+        errores.push({ uuid: pendiente.uuid, error: err.message, fila: pendiente });
+      }
+      procesadas++;
+    }
+    onProgreso?.({ etapa: "completado", totalFacturas: facturas.length });
+    return { facturas, errores };
+  }
+}
 function initDatabase() {
   const db = Database.getInstance();
   const migrationRunner = new MigrationRunner(db);
@@ -2202,17 +2429,20 @@ electron.app.whenReady().then(() => {
   });
   initDatabase();
   const db = Database.getInstance();
+  const satScraper = new SatScraper();
   new ImportacionHandler(db).registrar();
   const facturaRepository = new FacturaRepository(db);
   const descargaPendienteRepository = new DescargaPendienteRepository(db);
   const configuracionService = new ConfiguracionService(db);
-  const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository);
+  const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository, db, satScraper);
+  const conciliacionService = new ConciliacionService(facturaRepository, descargaPendienteRepository, satScraper);
   const profileManager = new ProfileManager(db);
   new PerfilHandler(profileManager).registrar();
   new FacturaHandler(descargaService, configuracionService).registrar();
   new ConfiguracionHandler(db).registrar();
   new DashboardHandler(db).registrar();
   new CatalogoHandler(db).registrar();
+  new ConciliacionHandler(conciliacionService, configuracionService).registrar();
   createWindow();
   electron.app.on("activate", function() {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();

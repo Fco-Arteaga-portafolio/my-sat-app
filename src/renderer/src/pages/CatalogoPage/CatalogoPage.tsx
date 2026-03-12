@@ -1,5 +1,5 @@
 import { Table, Input, Button, Tag } from 'antd'
-import { SearchOutlined, SyncOutlined, UserOutlined } from '@ant-design/icons'
+import { SearchOutlined, SyncOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useCatalogoPage, TipoCatalogo } from './CatalogoPage.hook'
 

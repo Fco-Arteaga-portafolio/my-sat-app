@@ -38,6 +38,10 @@ const api = {
   catalogoActualizar: (tipo, rfc, datos) => electron.ipcRenderer.invoke("catalogo-actualizar", tipo, rfc, datos),
   catalogoSincronizar: () => electron.ipcRenderer.invoke("catalogo-sincronizar"),
   facturasDrillDown: (rfc) => electron.ipcRenderer.invoke("facturas-drill-down", rfc),
+  iniciarConciliacion: (params) => electron.ipcRenderer.invoke("iniciar-conciliacion", params),
+  onProgresoConciliacion: (callback) => {
+    electron.ipcRenderer.on("progreso-conciliacion", (_, progreso) => callback(progreso));
+  },
   onProgresoDescarga: (callback) => {
     electron.ipcRenderer.on("progreso-descarga", (_, progreso) => callback(progreso));
   }

@@ -1,24 +1,24 @@
-import * as fs from 'fs'
 import { SatScraper, ParametrosBusqueda, ProgresoDescarga } from '../scraper/SatScraper'
 import { FacturaRepository } from '../database/repositories/FacturaRepository'
 import { DescargaPendienteRepository } from '../database/repositories/DescargaPendienteRepository'
-import { XmlParserService } from './XmlParserService'
 import { Configuracion } from './ConfiguracionService'
-import { RutaArchivoService } from './RutaArchivoService'
+import { FacturaGuardadoService } from './FacturaGuardadoService'
 import { CatalogoRepository } from '../database/repositories/CatalogoRepository'
 import BetterSqlite3 from 'better-sqlite3'
 
 export class DescargaService {
-  private scraper = new SatScraper()
-  private xmlParser = new XmlParserService()
-  private rutaService = new RutaArchivoService()
+  private readonly guardadoService: FacturaGuardadoService
   private readonly catalogoRepository: CatalogoRepository
 
   constructor(
     private readonly facturaRepository: FacturaRepository,
     private readonly pendienteRepository: DescargaPendienteRepository,
-    db: BetterSqlite3.Database
-  ) { this.catalogoRepository = new CatalogoRepository(db) }
+    db: BetterSqlite3.Database,
+    private readonly scraper: SatScraper
+  ) {
+    this.guardadoService = new FacturaGuardadoService(facturaRepository, pendienteRepository)
+    this.catalogoRepository = new CatalogoRepository(db)
+  }
 
   async obtenerCaptcha(): Promise<string> {
     await this.scraper.iniciar()
@@ -32,70 +32,20 @@ export class DescargaService {
     onProgreso?: (progreso: ProgresoDescarga) => void
   ): Promise<{ total: number; errores: { uuid: string; error: string }[] }> {
     try {
+      const tipoDes = params.tipo === 'recibidas' ? 'recibida' : 'emitida'
       const { facturas, errores } = await this.scraper.descargarFacturas(config, params, captcha, onProgreso)
 
       let guardadas = 0
       for (const f of facturas) {
         if (!f.urlDescarga) continue
-
-        const tipoDes = params.tipo === 'recibidas' ? 'recibida' : 'emitida'
-        const camposXml = this.xmlParser.extraerCampos(f.urlDescarga)
-
-        // Calcular ruta destino y copiar XML
-        const rutaDestino = this.rutaService.construirRutaXml({
-          uuid: f.uuid,
-          fecha_emision: f.fecha_emision,
-          rfc_emisor: f.rfc_emisor,
-          rfc_receptor: f.rfc_receptor,
-          tipo_descarga: tipoDes
-        })
-        fs.copyFileSync(f.urlDescarga, rutaDestino)
-
-        const yaExiste = this.facturaRepository.obtenerPorUuid(f.uuid)
-        if (!yaExiste) {
-          this.facturaRepository.insertar({
-            uuid: f.uuid,
-            fecha_emision: f.fecha_emision,
-            rfc_emisor: f.rfc_emisor,
-            nombre_emisor: f.nombre_emisor,
-            rfc_receptor: f.rfc_receptor,
-            nombre_receptor: f.nombre_receptor,
-            subtotal: f.total,
-            total: f.total,
-            tipo_comprobante: f.tipo_comprobante as 'I' | 'E' | 'T' | 'N' | 'P',
-            estado: f.estado as 'vigente' | 'cancelado',
-            xml: rutaDestino,
-            tipo_descarga: tipoDes,
-            fecha_descarga: new Date().toISOString(),
-            ...camposXml
-          })
-        } else {
-          this.facturaRepository.actualizar(f.uuid, {
-            xml: rutaDestino,
-            ...camposXml
-          })
-        }
-
-        this.pendienteRepository.eliminar(f.uuid)
+        this.guardadoService.guardar(f, tipoDes)
         guardadas++
       }
 
       for (const e of errores) {
         if (e.fila) {
-          this.pendienteRepository.insertar({
-            uuid: e.uuid,
-            rfc_emisor: e.fila.rfc_emisor,
-            nombre_emisor: e.fila.nombre_emisor,
-            rfc_receptor: e.fila.rfc_receptor,
-            nombre_receptor: e.fila.nombre_receptor,
-            fecha_emision: e.fila.fecha_emision,
-            total: e.fila.total,
-            tipo_comprobante: e.fila.tipo_comprobante,
-            estado: e.fila.estado,
-            url_descarga: e.fila.urlDescarga,
-            tipo_descarga: params.tipo === 'recibidas' ? 'recibida' : 'emitida',
-            error: e.error
-          })
+          // e.fila puede no tener uuid — lo tomamos del error mismo
+          this.guardadoService.guardarPendiente({ uuid: e.uuid, ...e.fila }, tipoDes, e.error)
         }
       }
 
@@ -123,41 +73,9 @@ export class DescargaService {
       let guardadas = 0
       for (const f of facturas) {
         if (!f.urlDescarga) continue
-
         const tipoDes = f.tipo_descarga as 'recibida' | 'emitida'
-        const camposXml = this.xmlParser.extraerCampos(f.urlDescarga)
-
-        // Calcular ruta destino y copiar XML
-        const rutaDestino = this.rutaService.construirRutaXml({
-          uuid: f.uuid,
-          fecha_emision: f.fecha_emision,
-          rfc_emisor: f.rfc_emisor,
-          rfc_receptor: f.rfc_receptor,
-          tipo_descarga: tipoDes
-        })
-        fs.copyFileSync(f.urlDescarga, rutaDestino)
-
-        const yaExiste = this.facturaRepository.obtenerPorUuid(f.uuid)
-        if (!yaExiste) {
-          this.facturaRepository.insertar({
-            uuid: f.uuid,
-            fecha_emision: f.fecha_emision,
-            rfc_emisor: f.rfc_emisor,
-            nombre_emisor: f.nombre_emisor,
-            rfc_receptor: f.rfc_receptor,
-            nombre_receptor: f.nombre_receptor,
-            subtotal: f.total,
-            total: f.total,
-            tipo_comprobante: f.tipo_comprobante as 'I' | 'E' | 'T' | 'N' | 'P',
-            estado: f.estado as 'vigente' | 'cancelado',
-            xml: rutaDestino,
-            tipo_descarga: tipoDes,
-            fecha_descarga: new Date().toISOString(),
-            ...camposXml
-          })
-          this.pendienteRepository.eliminar(f.uuid)
-          guardadas++
-        }
+        this.guardadoService.guardar(f, tipoDes)
+        guardadas++
       }
 
       for (const e of errores) {
@@ -173,32 +91,11 @@ export class DescargaService {
     }
   }
 
-  // Consultas simples
-  obtenerFacturas() {
-    return this.facturaRepository.obtenerTodas()
-  }
-
-  obtenerFacturaPorUuid(uuid: string) {
-    return this.facturaRepository.obtenerPorUuid(uuid)
-  }
-
-  eliminarFactura(uuid: string) {
-    return this.facturaRepository.eliminar(uuid)
-  }
-
-  obtenerPendientes() {
-    return this.pendienteRepository.obtenerTodas()
-  }
-
-  contarPendientes() {
-    return this.pendienteRepository.contar()
-  }
-
-  limpiarPendientes() {
-    return this.pendienteRepository.limpiar()
-  }
-
-  obtenerDrillDown(rfc: string) {
-    return this.facturaRepository.obtenerDrillDown(rfc)
-  }
+  obtenerFacturas() { return this.facturaRepository.obtenerTodas() }
+  obtenerFacturaPorUuid(uuid: string) { return this.facturaRepository.obtenerPorUuid(uuid) }
+  eliminarFactura(uuid: string) { return this.facturaRepository.eliminar(uuid) }
+  obtenerPendientes() { return this.pendienteRepository.obtenerTodas() }
+  contarPendientes() { return this.pendienteRepository.contar() }
+  limpiarPendientes() { return this.pendienteRepository.limpiar() }
+  obtenerDrillDown(rfc: string) { return this.facturaRepository.obtenerDrillDown(rfc) }
 }

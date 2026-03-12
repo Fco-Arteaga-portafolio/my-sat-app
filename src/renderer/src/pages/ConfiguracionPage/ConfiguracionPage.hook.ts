@@ -78,7 +78,7 @@ export const useConfiguracionPage = () => {
     setConfig(prev => ({ ...prev, metodoAuth: metodo }))
   }
 
-  const cambiarCampo = (campo: keyof Configuracion, valor: any) => {
+  const cambiarCampo = (campo: string, valor: any) => {
     setConfig(prev => ({ ...prev, [campo]: valor }))
   }
 

@@ -183,7 +183,7 @@ export class SatScraper {
     return meses
   }
 
-  private async buscarEnPagina(page: Page, params: ParametrosBusqueda): Promise<any[]> {
+  public async buscarEnPagina(page: Page, params: ParametrosBusqueda): Promise<any[]> {
     const urlConsulta = params.tipo === 'recibidas'
       ? 'https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaReceptor.aspx'
       : 'https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaEmisor.aspx'
@@ -208,11 +208,32 @@ export class SatScraper {
         await page.waitForTimeout(300)
         await page.selectOption('#ctl00_MainContent_CldFecha_DdlDia', String(parseInt(diaI)))
       } else {
-        // Emitidas — rango de fechas
+        // Emitidas — rango de fechas con nuevo selector del SAT (CldFechaInicial2 / CldFechaFinal2)
+        const [diaI, mesI, anioI] = params.fechaInicio!.split('/')
         const [diaF, mesF, anioF] = params.fechaFin!.split('/')
-        await page.fill('#ctl00_MainContent_CldFecha_FechaInicial', `${diaI}/${mesI}/${anioI}`)
+
+        const fechaInicialStr = `${diaI}/${mesI}/${anioI}`
+        const fechaFinalStr = `${diaF}/${mesF}/${anioF}`
+
+        // El input está disabled — hay que habilitarlo antes de escribir
+        await page.evaluate((id) => {
+          const el = document.getElementById(id) as HTMLInputElement | null
+          if (el) el.removeAttribute('disabled')
+        }, 'ctl00_MainContent_CldFechaInicial2_Calendario_text')
+        await page.fill('#ctl00_MainContent_CldFechaInicial2_Calendario_text', fechaInicialStr)
         await page.waitForTimeout(300)
-        await page.fill('#ctl00_MainContent_CldFecha_FechaFinal', `${diaF}/${mesF}/${anioF}`)
+
+        await page.evaluate((id) => {
+          const el = document.getElementById(id) as HTMLInputElement | null
+          if (el) el.removeAttribute('disabled')
+        }, 'ctl00_MainContent_CldFechaFinal2_Calendario_text')
+        await page.fill('#ctl00_MainContent_CldFechaFinal2_Calendario_text', fechaFinalStr)
+        await page.waitForTimeout(300)
+
+        // Hora final en 23:59:59 para cubrir todo el día final
+        await page.selectOption('#ctl00_MainContent_CldFechaFinal2_DdlHora', '23')
+        await page.selectOption('#ctl00_MainContent_CldFechaFinal2_DdlMinuto', '59')
+        await page.selectOption('#ctl00_MainContent_CldFechaFinal2_DdlSegundo', '59')
       }
     }
 

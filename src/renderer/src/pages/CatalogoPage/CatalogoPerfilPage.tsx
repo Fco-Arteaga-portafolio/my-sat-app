@@ -1,4 +1,4 @@
-import { Input, Button, Card, Alert, Tabs } from 'antd'
+import { Input, Button, Alert, Tabs } from 'antd'
 import { ArrowLeftOutlined, SaveOutlined, ContactsOutlined, FileTextOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useCatalogoPerfilPage } from './CatalogoPerfilPage.hook'
@@ -117,7 +117,7 @@ const CatalogoPerfilPage = ({ tipo }: Props) => {
         </div>
       </div>
 
-     <Tabs className="perfil-tabs" items={tabs} />
+      <Tabs className="perfil-tabs" items={tabs} />
     </div>
   )
 }
