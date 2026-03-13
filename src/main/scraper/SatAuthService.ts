@@ -65,11 +65,11 @@ export class SatAuthService {
 
   private async esperarLoginExitoso(page: Page, accion: () => Promise<void>): Promise<void> {
     await Promise.all([
-      page.waitForNavigation({ timeout: 30000 }).catch(() => null),
+      page.waitForNavigation({ timeout: 60000 }).catch(() => null),
       accion()
     ])
 
-    await page.waitForTimeout(2000)
+    await page.waitForTimeout(4000)
 
     const url = page.url()
     console.log('URL después de login:', url)

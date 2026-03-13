@@ -82,6 +82,12 @@ export class ProfileManager {
     return `descargas_pendientes_${r.replace(/[^a-zA-Z0-9]/g, '_')}`
   }
 
+  static getTablaConciliaciones(rfc?: string): string {
+    const r = rfc || this.perfilActivo?.rfc
+    if (!r) throw new Error('No hay perfil activo')
+    return `conciliaciones_${r.replace(/[^a-zA-Z0-9]/g, '_')}`
+  }
+
   static getRfcActivo(): string {
     return ProfileManager.perfilActivo?.rfc || ''
   }
@@ -162,6 +168,21 @@ export class ProfileManager {
       contacto TEXT, notas TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run()
+
+    this.db.prepare(`
+    CREATE TABLE IF NOT EXISTS conciliaciones_${r} (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tipo               TEXT    NOT NULL CHECK(tipo IN ('emitidas','recibidas')),
+      ejercicio          TEXT    NOT NULL,
+      periodo            TEXT    NOT NULL,
+      fecha_conciliacion TEXT    NOT NULL DEFAULT (datetime('now')),
+      total_sat          INTEGER NOT NULL DEFAULT 0,
+      total_local        INTEGER NOT NULL DEFAULT 0,
+      descargadas        INTEGER NOT NULL DEFAULT 0,
+      actualizadas       INTEGER NOT NULL DEFAULT 0,
+      errores            INTEGER NOT NULL DEFAULT 0
     )
   `).run()
   }

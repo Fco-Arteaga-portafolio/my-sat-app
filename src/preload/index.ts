@@ -42,12 +42,13 @@ const api = {
   catalogoSincronizar: () => ipcRenderer.invoke('catalogo-sincronizar'),
   facturasDrillDown: (rfc: string) => ipcRenderer.invoke('facturas-drill-down', rfc),
   iniciarConciliacion: (params: any) => ipcRenderer.invoke('iniciar-conciliacion', params),
+  obtenerUltimaConciliacion: (params: any) => ipcRenderer.invoke('obtener-ultima-conciliacion', params),
+  obtenerHistorialConciliaciones: () => ipcRenderer.invoke('obtener-historial-conciliaciones'),
   onProgresoConciliacion: (callback: (progreso: any) => void) => {
     ipcRenderer.on('progreso-conciliacion', (_, progreso) => callback(progreso))
   },
   onProgresoDescarga: (callback: (progreso: any) => void) => {
     ipcRenderer.on('progreso-descarga', (_, progreso) => callback(progreso))
-
   },
 }
 

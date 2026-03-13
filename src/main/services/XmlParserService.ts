@@ -14,7 +14,12 @@ export class XmlParserService {
       const cfdi = doc.getElementsByTagNameNS(ns, 'Comprobante')[0] || doc.documentElement
       const tfd = doc.getElementsByTagNameNS(nsTfd, 'TimbreFiscalDigital')[0] || null
       const cfdiRelacionado = doc.getElementsByTagNameNS(ns, 'CfdiRelacionado')[0] || null
-      const impuestosEl = doc.getElementsByTagNameNS(ns, 'Impuestos')[0] || null
+
+      //obtenemos el último nodo de impuestos, ya que en algunos casos hay más de uno (por ejemplo, en facturas con complementos de pago)
+      const todosLosImpuestos = doc.getElementsByTagNameNS(ns, 'Impuestos')
+      const impuestosEl = todosLosImpuestos.length > 0 ? todosLosImpuestos[todosLosImpuestos.length - 1] : null;
+
+      //   const impuestosEl = doc.getElementsByTagNameNS(ns, 'Impuestos')[0] || null
       const emisor = doc.getElementsByTagNameNS(ns, 'Emisor')[0] || null
       const receptor = doc.getElementsByTagNameNS(ns, 'Receptor')[0] || null
 

@@ -31,29 +31,24 @@ export class DescargaService {
     captcha?: string,
     onProgreso?: (progreso: ProgresoDescarga) => void
   ): Promise<{ total: number; errores: { uuid: string; error: string }[] }> {
-    try {
-      const tipoDes = params.tipo === 'recibidas' ? 'recibida' : 'emitida'
-      const { facturas, errores } = await this.scraper.descargarFacturas(config, params, captcha, onProgreso)
+    const tipoDes = params.tipo === 'recibidas' ? 'recibida' : 'emitida'
+    const { facturas, errores } = await this.scraper.descargarFacturas(config, params, captcha, onProgreso)
 
-      let guardadas = 0
-      for (const f of facturas) {
-        if (!f.urlDescarga) continue
-        this.guardadoService.guardar(f, tipoDes)
-        guardadas++
-      }
-
-      for (const e of errores) {
-        if (e.fila) {
-          // e.fila puede no tener uuid — lo tomamos del error mismo
-          this.guardadoService.guardarPendiente({ uuid: e.uuid, ...e.fila }, tipoDes, e.error)
-        }
-      }
-
-      this.catalogoRepository.sincronizarTodos()
-      return { total: guardadas, errores }
-    } finally {
-      await this.scraper.cerrar()
+    let guardadas = 0
+    for (const f of facturas) {
+      if (!f.urlDescarga) continue
+      this.guardadoService.guardar(f, tipoDes)
+      guardadas++
     }
+
+    for (const e of errores) {
+      if (e.fila) {
+        this.guardadoService.guardarPendiente({ uuid: e.uuid, ...e.fila }, tipoDes, e.error)
+      }
+    }
+
+    this.catalogoRepository.sincronizarTodos()
+    return { total: guardadas, errores }
   }
 
   async reintentarPendientes(
@@ -61,34 +56,30 @@ export class DescargaService {
     captcha?: string,
     onProgreso?: (progreso: ProgresoDescarga) => void
   ): Promise<{ total: number; errores: { uuid: string; error: string }[] }> {
-    try {
-      const pendientes = this.pendienteRepository.obtenerTodas()
-      if (pendientes.length === 0) return { total: 0, errores: [] }
+    const pendientes = this.pendienteRepository.obtenerTodas()
+    if (pendientes.length === 0) return { total: 0, errores: [] }
 
-      await this.scraper.iniciar()
-      const { facturas, errores } = await this.scraper.reintentarDescargas(
-        config, captcha, pendientes, onProgreso
-      )
+    await this.scraper.iniciar()
+    const { facturas, errores } = await this.scraper.reintentarDescargas(
+      config, captcha, pendientes, onProgreso
+    )
 
-      let guardadas = 0
-      for (const f of facturas) {
-        if (!f.urlDescarga) continue
-        const tipoDes = f.tipo_descarga as 'recibida' | 'emitida'
-        this.guardadoService.guardar(f, tipoDes)
-        guardadas++
-      }
-
-      for (const e of errores) {
-        const pendiente = pendientes.find(p => p.uuid === e.uuid)
-        if (pendiente) {
-          this.pendienteRepository.insertar({ ...pendiente, error: e.error })
-        }
-      }
-
-      return { total: guardadas, errores }
-    } finally {
-      await this.scraper.cerrar()
+    let guardadas = 0
+    for (const f of facturas) {
+      if (!f.urlDescarga) continue
+      const tipoDes = f.tipo_descarga as 'recibida' | 'emitida'
+      this.guardadoService.guardar(f, tipoDes)
+      guardadas++
     }
+
+    for (const e of errores) {
+      const pendiente = pendientes.find(p => p.uuid === e.uuid)
+      if (pendiente) {
+        this.pendienteRepository.insertar({ ...pendiente, error: e.error })
+      }
+    }
+
+    return { total: guardadas, errores }
   }
 
   obtenerFacturas() { return this.facturaRepository.obtenerTodas() }

@@ -6,7 +6,7 @@ import { migration004 } from './migrations/004_campos_cfdi'
 import { migration005 } from './migrations/005_perfiles'
 import { migration006 } from './migrations/006_catalogos'
 import { migration007 } from './migrations/007_config_pdf'
-
+import { migration008 } from './migrations/008_conciliaciones'
 
 export class MigrationRunner {
   constructor(private readonly db: BetterSqlite3.Database) { }
@@ -34,7 +34,8 @@ export class MigrationRunner {
       { nombre: '004_campos_cfdi', fn: migration004 },
       { nombre: '005_perfiles', fn: migration005 },
       { nombre: '006_catalogos', fn: migration006 },
-      { nombre: '007_config_pdf', fn: migration007 }
+      { nombre: '007_config_pdf', fn: migration007 },
+      { nombre: '008_conciliaciones', fn: migration008 }
     ]
 
     for (const migration of migrations) {

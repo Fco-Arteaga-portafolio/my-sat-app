@@ -1,7 +1,6 @@
-import { SatScraper, ParametrosBusqueda } from '../scraper/SatScraper'
 import { FacturaRepository } from '../database/repositories/FacturaRepository'
-import { DescargaPendienteRepository } from '../database/repositories/DescargaPendienteRepository'
-import { FacturaGuardadoService } from './FacturaGuardadoService'
+import { ConciliacionRepository } from '../database/repositories/ConciliacionRepository'
+import { DescargaService } from './DescargaService'
 import { Configuracion } from './ConfiguracionService'
 
 export interface ParametrosConciliacion {
@@ -12,7 +11,7 @@ export interface ParametrosConciliacion {
 }
 
 export interface ProgresoConciliacion {
-  etapa: 'autenticando' | 'consultando' | 'comparando' | 'descargando' | 'actualizando' | 'completado'
+  etapa: 'consultando' | 'comparando' | 'descargando' | 'actualizando' | 'completado'
   descargadas?: number
   totalFaltantes?: number
   actualizadas?: number
@@ -27,114 +26,105 @@ export interface ResumenConciliacion {
 }
 
 export class ConciliacionService {
-  private readonly guardadoService: FacturaGuardadoService
-
   constructor(
     private readonly facturaRepository: FacturaRepository,
-    pendienteRepository: DescargaPendienteRepository,
-    private readonly scraper: SatScraper
-  ) {
-    this.guardadoService = new FacturaGuardadoService(facturaRepository, pendienteRepository)
-  }
+    private readonly conciliacionRepository: ConciliacionRepository,
+    private readonly descargaService: DescargaService
+  ) { }
 
   async conciliar(
     config: Configuracion,
     params: ParametrosConciliacion,
     onProgreso?: (progreso: ProgresoConciliacion) => void
   ): Promise<ResumenConciliacion> {
+    const mes = params.periodo.padStart(2, '0')
+    const ultimoDia = new Date(parseInt(params.ejercicio), parseInt(mes), 0).getDate()
+    const fechaInicio = `01/${mes}/${params.ejercicio}`
+    const fechaFin = `${ultimoDia}/${mes}/${params.ejercicio}`
+
+    // 1. Consultar SAT
+    onProgreso?.({ etapa: 'consultando' })
+    const scraper = (this.descargaService as any).scraper
+    const authService = scraper.authService
+    if (!authService) throw new Error('No hay sesión activa. Carga el captcha primero.')
+
+    const page = await authService.loginConContrasena(config.rfc, config.contrasena!, params.captcha!)
+    const filasSat = await scraper.buscarEnPagina(page, {
+      tipo: params.tipo,
+      buscarPor: 'fecha',
+      fechaInicio,
+      fechaFin
+    })
+    const totalSat = filasSat.length
+
+    // 2. Comparar con local
+    onProgreso?.({ etapa: 'comparando' })
+    const faltantes = filasSat.filter((f: any) => !this.facturaRepository.obtenerPorUuid(f.uuid))
+    const aActualizar = filasSat.filter((f: any) => {
+      const local = this.facturaRepository.obtenerPorUuid(f.uuid)
+      return local && local.estado === 'vigente' && f.estado === 'cancelado'
+    })
+    const totalLocal = totalSat - faltantes.length
+
+    // 3. Descargar faltantes
+    let descargadas = 0
     const errores: { uuid: string; error: string }[] = []
 
-    try {
-      // 1. Autenticar
-      onProgreso?.({ etapa: 'autenticando' })
-      await this.scraper.iniciar()
+    if (faltantes.length > 0) {
+      onProgreso?.({ etapa: 'descargando', descargadas: 0, totalFaltantes: faltantes.length })
 
-      let page: any
-      const authService = (this.scraper as any).authService
-
-      if (config.metodoAuth === 'contrasena') {
-        page = await authService.loginConContrasenaDirecto(config.rfc, config.contrasena!, params.captcha!)
-      } else {
-        page = await authService.loginConEfirma(config.rutaCer!, config.rutaKey!, config.contrasenaFiel!)
-      }
-
-      // 2. Construir rango del periodo (mes completo)
-      const mes = params.periodo.padStart(2, '0')
-      const ultimoDia = new Date(parseInt(params.ejercicio), parseInt(mes), 0).getDate()
-      const fechaInicio = `01/${mes}/${params.ejercicio}`
-      const fechaFin = `${ultimoDia}/${mes}/${params.ejercicio}`
-
-      const paramsBusqueda: ParametrosBusqueda = {
-        tipo: params.tipo,
-        buscarPor: 'fecha',
-        fechaInicio,
-        fechaFin
-      }
-
-      // 3. Consultar SAT
-      onProgreso?.({ etapa: 'consultando' })
-      const filasSat = await this.scraper.buscarEnPagina(page, paramsBusqueda)
-      const totalSat = filasSat.length
-
-      // 4. Comparar con local
-      onProgreso?.({ etapa: 'comparando' })
-      const tipoDes = params.tipo === 'recibidas' ? 'recibida' : 'emitida'
-
-      const faltantes = filasSat.filter(f => !this.facturaRepository.obtenerPorUuid(f.uuid))
-      const existentes = filasSat.filter(f => {
-        const local = this.facturaRepository.obtenerPorUuid(f.uuid)
-        return local && local.estado === 'vigente' && f.estado === 'cancelado'
-      })
-      const totalLocal = totalSat - faltantes.length
-
-      // 5. Descargar faltantes
-      let descargadas = 0
-      if (faltantes.length > 0) {
-        onProgreso?.({ etapa: 'descargando', descargadas: 0, totalFaltantes: faltantes.length })
-
-        const { facturas, errores: erroresDescarga } = await (this.scraper as any).descargarEnParalelo(
-          page,
-          faltantes,
-          (p: any) => onProgreso?.({ etapa: 'descargando', descargadas: p.descargadas, totalFaltantes: faltantes.length })
-        )
-
-        for (const f of facturas) {
-          if (!f.urlDescarga) continue
-          try {
-            this.guardadoService.guardar(f, tipoDes)
-            descargadas++
-          } catch (err: any) {
-            errores.push({ uuid: f.uuid, error: err.message })
+      const resultado = await this.descargaService.descargar(
+        config,
+        { tipo: params.tipo, buscarPor: 'fecha', fechaInicio, fechaFin },
+        params.captcha,
+        (p) => {
+          if (p.etapa === 'descargando') {
+            onProgreso?.({ etapa: 'descargando', descargadas: p.descargadas, totalFaltantes: faltantes.length })
           }
         }
-
-        for (const e of erroresDescarga) {
-          const fila = faltantes.find(f => f.uuid === e.uuid)
-          if (fila) {
-            this.guardadoService.guardarPendiente(fila, tipoDes, e.error)
-          }
-          errores.push({ uuid: e.uuid, error: e.error })
-        }
-      }
-
-      // 6. Actualizar vigente→cancelado
-      let actualizadas = 0
-      if (existentes.length > 0) {
-        onProgreso?.({ etapa: 'actualizando', actualizadas: 0 })
-        for (const f of existentes) {
-          try {
-            this.facturaRepository.actualizar(f.uuid, { estado: 'cancelado' })
-            actualizadas++
-          } catch (err: any) {
-            errores.push({ uuid: f.uuid, error: err.message })
-          }
-        }
-      }
-
-      onProgreso?.({ etapa: 'completado' })
-      return { totalSat, totalLocal, descargadas, actualizadas, errores }
-    } finally {
-      await this.scraper.cerrar()
+      )
+      descargadas = resultado.total
+      errores.push(...resultado.errores)
     }
+
+    // 4. Actualizar vigente→cancelado
+    let actualizadas = 0
+    if (aActualizar.length > 0) {
+      onProgreso?.({ etapa: 'actualizando' })
+      for (const f of aActualizar) {
+        try {
+          this.facturaRepository.actualizar(f.uuid, { estado: 'cancelado' })
+          actualizadas++
+        } catch (err: any) {
+          errores.push({ uuid: f.uuid, error: err.message })
+        }
+      }
+    }
+
+    // 5. Guardar registro
+    this.conciliacionRepository.insertar({
+      tipo: params.tipo,
+      ejercicio: params.ejercicio,
+      periodo: params.periodo,
+      total_sat: totalSat,
+      total_local: totalLocal,
+      descargadas,
+      actualizadas,
+      errores: errores.length
+    })
+
+    onProgreso?.({ etapa: 'completado' })
+
+    try { await scraper.cerrar() } catch (_) { }
+
+    return { totalSat, totalLocal, descargadas, actualizadas, errores }
+  }
+
+  obtenerUltima(tipo: string, ejercicio: string, periodo: string) {
+    return this.conciliacionRepository.obtenerUltima(tipo, ejercicio, periodo)
+  }
+
+  obtenerHistorial() {
+    return this.conciliacionRepository.obtenerHistorial()
   }
 }

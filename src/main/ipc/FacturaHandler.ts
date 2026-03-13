@@ -1,13 +1,14 @@
 import { ipcMain } from 'electron'
 import { DescargaService } from '../services/DescargaService'
 import { ConfiguracionService } from '../services/ConfiguracionService'
-import { ParametrosBusqueda } from '../scraper/SatScraper'
+import { ParametrosBusqueda, SatScraper } from '../scraper/SatScraper'
 import { PdfService, Plantilla } from '../services/PdfService'
 
 export class FacturaHandler {
   constructor(
     private readonly descargaService: DescargaService,
-    private readonly configuracionService: ConfiguracionService
+    private readonly configuracionService: ConfiguracionService,
+    private readonly scraper: SatScraper
   ) { }
 
   registrar(): void {
@@ -44,6 +45,33 @@ export class FacturaHandler {
           return { success: false, error: 'El captcha es incorrecto. Recarga el captcha e intenta de nuevo.' }
         }
         return { success: false, error: mensaje }
+      } finally {
+        await this.scraper.cerrar()
+      }
+    })
+
+    ipcMain.handle('reintentar-pendientes', async (event, datos: { captcha?: string }) => {
+      try {
+        const config = this.configuracionService.obtener()
+        if (!config) return { success: false, error: 'No hay configuración guardada' }
+
+        const resultado = await this.descargaService.reintentarPendientes(
+          config,
+          datos.captcha,
+          (progreso) => event.sender.send('progreso-descarga', progreso)
+        )
+        return { success: true, total: resultado.total, errores: resultado.errores }
+      } catch (error) {
+        const mensaje = String(error)
+        if (mensaje.includes('SAT_SATURADO')) {
+          return { success: false, error: 'El SAT se encuentra saturado. Intenta en 20 minutos.' }
+        }
+        if (mensaje.includes('CAPTCHA_INVALIDO')) {
+          return { success: false, error: 'El captcha es incorrecto. Intenta de nuevo.' }
+        }
+        return { success: false, error: mensaje }
+      } finally {
+        await this.scraper.cerrar()
       }
     })
 
@@ -134,29 +162,6 @@ export class FacturaHandler {
       }
     })
 
-    ipcMain.handle('reintentar-pendientes', async (event, datos: { captcha?: string }) => {
-      try {
-        const config = this.configuracionService.obtener()
-        if (!config) return { success: false, error: 'No hay configuración guardada' }
-
-        const resultado = await this.descargaService.reintentarPendientes(
-          config,
-          datos.captcha,
-          (progreso) => event.sender.send('progreso-descarga', progreso)
-        )
-        return { success: true, total: resultado.total, errores: resultado.errores }
-      } catch (error) {
-        const mensaje = String(error)
-        if (mensaje.includes('SAT_SATURADO')) {
-          return { success: false, error: 'El SAT se encuentra saturado. Intenta en 20 minutos.' }
-        }
-        if (mensaje.includes('CAPTCHA_INVALIDO')) {
-          return { success: false, error: 'El captcha es incorrecto. Intenta de nuevo.' }
-        }
-        return { success: false, error: mensaje }
-      }
-    })
-
     ipcMain.handle('facturas-drill-down', async (_, rfc: string) => {
       try {
         const data = this.descargaService.obtenerDrillDown(rfc)
@@ -175,7 +180,6 @@ export class FacturaHandler {
         const fs = require('fs')
         const rutaPdf = datos.rutaXml.replace(/\.xml$/i, '.pdf')
 
-        // Si no existe lo genera con plantilla clásica por default
         if (!fs.existsSync(rutaPdf)) {
           const xmlContenido = fs.readFileSync(datos.rutaXml, 'utf-8')
           const pdfService = new PdfService()
@@ -183,7 +187,6 @@ export class FacturaHandler {
           await pdfService.generarPdf(xmlContenido, datos.parseada, datos.uuid, plantilla as any, rutaPdf)
         }
 
-        // Devolver como base64
         const buffer = fs.readFileSync(rutaPdf)
         const base64 = buffer.toString('base64')
         return { success: true, base64, rutaPdf }

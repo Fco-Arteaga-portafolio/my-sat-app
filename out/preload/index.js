@@ -39,6 +39,8 @@ const api = {
   catalogoSincronizar: () => electron.ipcRenderer.invoke("catalogo-sincronizar"),
   facturasDrillDown: (rfc) => electron.ipcRenderer.invoke("facturas-drill-down", rfc),
   iniciarConciliacion: (params) => electron.ipcRenderer.invoke("iniciar-conciliacion", params),
+  obtenerUltimaConciliacion: (params) => electron.ipcRenderer.invoke("obtener-ultima-conciliacion", params),
+  obtenerHistorialConciliaciones: () => electron.ipcRenderer.invoke("obtener-historial-conciliaciones"),
   onProgresoConciliacion: (callback) => {
     electron.ipcRenderer.on("progreso-conciliacion", (_, progreso) => callback(progreso));
   },

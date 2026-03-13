@@ -216,6 +216,26 @@ function migration007(db) {
     ALTER TABLE perfiles ADD COLUMN config_nombre_archivo TEXT NOT NULL DEFAULT '{}';
   `);
 }
+function migration008(db) {
+  const perfiles = db.prepare("SELECT rfc FROM perfiles").all();
+  for (const { rfc } of perfiles) {
+    const r = rfc.replace(/[^A-Z0-9]/gi, "");
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS conciliaciones_${r} (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo               TEXT    NOT NULL CHECK(tipo IN ('emitidas','recibidas')),
+        ejercicio          TEXT    NOT NULL,
+        periodo            TEXT    NOT NULL,
+        fecha_conciliacion TEXT    NOT NULL DEFAULT (datetime('now')),
+        total_sat          INTEGER NOT NULL DEFAULT 0,
+        total_local        INTEGER NOT NULL DEFAULT 0,
+        descargadas        INTEGER NOT NULL DEFAULT 0,
+        actualizadas       INTEGER NOT NULL DEFAULT 0,
+        errores            INTEGER NOT NULL DEFAULT 0
+      )
+    `).run();
+  }
+}
 class MigrationRunner {
   constructor(db) {
     this.db = db;
@@ -241,7 +261,8 @@ class MigrationRunner {
       { nombre: "004_campos_cfdi", fn: migration004 },
       { nombre: "005_perfiles", fn: migration005 },
       { nombre: "006_catalogos", fn: migration006 },
-      { nombre: "007_config_pdf", fn: migration007 }
+      { nombre: "007_config_pdf", fn: migration007 },
+      { nombre: "008_conciliaciones", fn: migration008 }
     ];
     for (const migration of migrations) {
       const yaEjecutada = this.db.prepare(
@@ -608,9 +629,10 @@ class PdfService {
   }
 }
 class FacturaHandler {
-  constructor(descargaService, configuracionService) {
+  constructor(descargaService, configuracionService, scraper) {
     this.descargaService = descargaService;
     this.configuracionService = configuracionService;
+    this.scraper = scraper;
   }
   registrar() {
     electron.ipcMain.handle("obtener-captcha", async () => {
@@ -641,6 +663,31 @@ class FacturaHandler {
           return { success: false, error: "El captcha es incorrecto. Recarga el captcha e intenta de nuevo." };
         }
         return { success: false, error: mensaje };
+      } finally {
+        await this.scraper.cerrar();
+      }
+    });
+    electron.ipcMain.handle("reintentar-pendientes", async (event, datos) => {
+      try {
+        const config = this.configuracionService.obtener();
+        if (!config) return { success: false, error: "No hay configuración guardada" };
+        const resultado = await this.descargaService.reintentarPendientes(
+          config,
+          datos.captcha,
+          (progreso) => event.sender.send("progreso-descarga", progreso)
+        );
+        return { success: true, total: resultado.total, errores: resultado.errores };
+      } catch (error) {
+        const mensaje = String(error);
+        if (mensaje.includes("SAT_SATURADO")) {
+          return { success: false, error: "El SAT se encuentra saturado. Intenta en 20 minutos." };
+        }
+        if (mensaje.includes("CAPTCHA_INVALIDO")) {
+          return { success: false, error: "El captcha es incorrecto. Intenta de nuevo." };
+        }
+        return { success: false, error: mensaje };
+      } finally {
+        await this.scraper.cerrar();
       }
     });
     electron.ipcMain.handle("obtener-facturas", async () => {
@@ -714,27 +761,6 @@ class FacturaHandler {
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("reintentar-pendientes", async (event, datos) => {
-      try {
-        const config = this.configuracionService.obtener();
-        if (!config) return { success: false, error: "No hay configuración guardada" };
-        const resultado = await this.descargaService.reintentarPendientes(
-          config,
-          datos.captcha,
-          (progreso) => event.sender.send("progreso-descarga", progreso)
-        );
-        return { success: true, total: resultado.total, errores: resultado.errores };
-      } catch (error) {
-        const mensaje = String(error);
-        if (mensaje.includes("SAT_SATURADO")) {
-          return { success: false, error: "El SAT se encuentra saturado. Intenta en 20 minutos." };
-        }
-        if (mensaje.includes("CAPTCHA_INVALIDO")) {
-          return { success: false, error: "El captcha es incorrecto. Intenta de nuevo." };
-        }
-        return { success: false, error: mensaje };
       }
     });
     electron.ipcMain.handle("facturas-drill-down", async (_, rfc) => {
@@ -816,6 +842,11 @@ class ProfileManager {
     if (!r) throw new Error("No hay perfil activo");
     return `descargas_pendientes_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
   }
+  static getTablaConciliaciones(rfc) {
+    const r = rfc || this.perfilActivo?.rfc;
+    if (!r) throw new Error("No hay perfil activo");
+    return `conciliaciones_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  }
   static getRfcActivo() {
     return ProfileManager.perfilActivo?.rfc || "";
   }
@@ -889,6 +920,20 @@ class ProfileManager {
       contacto TEXT, notas TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+    this.db.prepare(`
+    CREATE TABLE IF NOT EXISTS conciliaciones_${r} (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tipo               TEXT    NOT NULL CHECK(tipo IN ('emitidas','recibidas')),
+      ejercicio          TEXT    NOT NULL,
+      periodo            TEXT    NOT NULL,
+      fecha_conciliacion TEXT    NOT NULL DEFAULT (datetime('now')),
+      total_sat          INTEGER NOT NULL DEFAULT 0,
+      total_local        INTEGER NOT NULL DEFAULT 0,
+      descargadas        INTEGER NOT NULL DEFAULT 0,
+      actualizadas       INTEGER NOT NULL DEFAULT 0,
+      errores            INTEGER NOT NULL DEFAULT 0
     )
   `).run();
   }
@@ -1465,54 +1510,46 @@ class DescargaService {
     return await this.scraper.obtenerCaptcha();
   }
   async descargar(config, params, captcha, onProgreso) {
-    try {
-      const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
-      const { facturas, errores } = await this.scraper.descargarFacturas(config, params, captcha, onProgreso);
-      let guardadas = 0;
-      for (const f of facturas) {
-        if (!f.urlDescarga) continue;
-        this.guardadoService.guardar(f, tipoDes);
-        guardadas++;
-      }
-      for (const e of errores) {
-        if (e.fila) {
-          this.guardadoService.guardarPendiente({ uuid: e.uuid, ...e.fila }, tipoDes, e.error);
-        }
-      }
-      this.catalogoRepository.sincronizarTodos();
-      return { total: guardadas, errores };
-    } finally {
-      await this.scraper.cerrar();
+    const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
+    const { facturas, errores } = await this.scraper.descargarFacturas(config, params, captcha, onProgreso);
+    let guardadas = 0;
+    for (const f of facturas) {
+      if (!f.urlDescarga) continue;
+      this.guardadoService.guardar(f, tipoDes);
+      guardadas++;
     }
+    for (const e of errores) {
+      if (e.fila) {
+        this.guardadoService.guardarPendiente({ uuid: e.uuid, ...e.fila }, tipoDes, e.error);
+      }
+    }
+    this.catalogoRepository.sincronizarTodos();
+    return { total: guardadas, errores };
   }
   async reintentarPendientes(config, captcha, onProgreso) {
-    try {
-      const pendientes = this.pendienteRepository.obtenerTodas();
-      if (pendientes.length === 0) return { total: 0, errores: [] };
-      await this.scraper.iniciar();
-      const { facturas, errores } = await this.scraper.reintentarDescargas(
-        config,
-        captcha,
-        pendientes,
-        onProgreso
-      );
-      let guardadas = 0;
-      for (const f of facturas) {
-        if (!f.urlDescarga) continue;
-        const tipoDes = f.tipo_descarga;
-        this.guardadoService.guardar(f, tipoDes);
-        guardadas++;
-      }
-      for (const e of errores) {
-        const pendiente = pendientes.find((p) => p.uuid === e.uuid);
-        if (pendiente) {
-          this.pendienteRepository.insertar({ ...pendiente, error: e.error });
-        }
-      }
-      return { total: guardadas, errores };
-    } finally {
-      await this.scraper.cerrar();
+    const pendientes = this.pendienteRepository.obtenerTodas();
+    if (pendientes.length === 0) return { total: 0, errores: [] };
+    await this.scraper.iniciar();
+    const { facturas, errores } = await this.scraper.reintentarDescargas(
+      config,
+      captcha,
+      pendientes,
+      onProgreso
+    );
+    let guardadas = 0;
+    for (const f of facturas) {
+      if (!f.urlDescarga) continue;
+      const tipoDes = f.tipo_descarga;
+      this.guardadoService.guardar(f, tipoDes);
+      guardadas++;
     }
+    for (const e of errores) {
+      const pendiente = pendientes.find((p) => p.uuid === e.uuid);
+      if (pendiente) {
+        this.pendienteRepository.insertar({ ...pendiente, error: e.error });
+      }
+    }
+    return { total: guardadas, errores };
   }
   obtenerFacturas() {
     return this.facturaRepository.obtenerTodas();
@@ -1866,93 +1903,93 @@ class CatalogoHandler {
   }
 }
 class ConciliacionService {
-  constructor(facturaRepository, pendienteRepository, scraper) {
+  constructor(facturaRepository, conciliacionRepository, descargaService) {
     this.facturaRepository = facturaRepository;
-    this.scraper = scraper;
-    this.guardadoService = new FacturaGuardadoService(facturaRepository, pendienteRepository);
+    this.conciliacionRepository = conciliacionRepository;
+    this.descargaService = descargaService;
   }
-  guardadoService;
   async conciliar(config, params, onProgreso) {
+    const mes = params.periodo.padStart(2, "0");
+    const ultimoDia = new Date(parseInt(params.ejercicio), parseInt(mes), 0).getDate();
+    const fechaInicio = `01/${mes}/${params.ejercicio}`;
+    const fechaFin = `${ultimoDia}/${mes}/${params.ejercicio}`;
+    onProgreso?.({ etapa: "consultando" });
+    const scraper = this.descargaService.scraper;
+    const authService = scraper.authService;
+    if (!authService) throw new Error("No hay sesión activa. Carga el captcha primero.");
+    const page = await authService.loginConContrasena(config.rfc, config.contrasena, params.captcha);
+    const filasSat = await scraper.buscarEnPagina(page, {
+      tipo: params.tipo,
+      buscarPor: "fecha",
+      fechaInicio,
+      fechaFin
+    });
+    const totalSat = filasSat.length;
+    onProgreso?.({ etapa: "comparando" });
+    const faltantes = filasSat.filter((f) => !this.facturaRepository.obtenerPorUuid(f.uuid));
+    const aActualizar = filasSat.filter((f) => {
+      const local = this.facturaRepository.obtenerPorUuid(f.uuid);
+      return local && local.estado === "vigente" && f.estado === "cancelado";
+    });
+    const totalLocal = totalSat - faltantes.length;
+    let descargadas = 0;
     const errores = [];
-    try {
-      onProgreso?.({ etapa: "autenticando" });
-      await this.scraper.iniciar();
-      let page;
-      const authService = this.scraper.authService;
-      if (config.metodoAuth === "contrasena") {
-        page = await authService.loginConContrasenaDirecto(config.rfc, config.contrasena, params.captcha);
-      } else {
-        page = await authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
-      }
-      const mes = params.periodo.padStart(2, "0");
-      const ultimoDia = new Date(parseInt(params.ejercicio), parseInt(mes), 0).getDate();
-      const fechaInicio = `01/${mes}/${params.ejercicio}`;
-      const fechaFin = `${ultimoDia}/${mes}/${params.ejercicio}`;
-      const paramsBusqueda = {
-        tipo: params.tipo,
-        buscarPor: "fecha",
-        fechaInicio,
-        fechaFin
-      };
-      onProgreso?.({ etapa: "consultando" });
-      const filasSat = await this.scraper.buscarEnPagina(page, paramsBusqueda);
-      const totalSat = filasSat.length;
-      onProgreso?.({ etapa: "comparando" });
-      const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
-      const faltantes = filasSat.filter((f) => !this.facturaRepository.obtenerPorUuid(f.uuid));
-      const existentes = filasSat.filter((f) => {
-        const local = this.facturaRepository.obtenerPorUuid(f.uuid);
-        return local && local.estado === "vigente" && f.estado === "cancelado";
-      });
-      const totalLocal = totalSat - faltantes.length;
-      let descargadas = 0;
-      if (faltantes.length > 0) {
-        onProgreso?.({ etapa: "descargando", descargadas: 0, totalFaltantes: faltantes.length });
-        const { facturas, errores: erroresDescarga } = await this.scraper.descargarEnParalelo(
-          page,
-          faltantes,
-          (p) => onProgreso?.({ etapa: "descargando", descargadas: p.descargadas, totalFaltantes: faltantes.length })
-        );
-        for (const f of facturas) {
-          if (!f.urlDescarga) continue;
-          try {
-            this.guardadoService.guardar(f, tipoDes);
-            descargadas++;
-          } catch (err) {
-            errores.push({ uuid: f.uuid, error: err.message });
+    if (faltantes.length > 0) {
+      onProgreso?.({ etapa: "descargando", descargadas: 0, totalFaltantes: faltantes.length });
+      const resultado = await this.descargaService.descargar(
+        config,
+        { tipo: params.tipo, buscarPor: "fecha", fechaInicio, fechaFin },
+        params.captcha,
+        (p) => {
+          if (p.etapa === "descargando") {
+            onProgreso?.({ etapa: "descargando", descargadas: p.descargadas, totalFaltantes: faltantes.length });
           }
         }
-        for (const e of erroresDescarga) {
-          const fila = faltantes.find((f) => f.uuid === e.uuid);
-          if (fila) {
-            this.guardadoService.guardarPendiente(fila, tipoDes, e.error);
-          }
-          errores.push({ uuid: e.uuid, error: e.error });
-        }
-      }
-      let actualizadas = 0;
-      if (existentes.length > 0) {
-        onProgreso?.({ etapa: "actualizando", actualizadas: 0 });
-        for (const f of existentes) {
-          try {
-            this.facturaRepository.actualizar(f.uuid, { estado: "cancelado" });
-            actualizadas++;
-          } catch (err) {
-            errores.push({ uuid: f.uuid, error: err.message });
-          }
-        }
-      }
-      onProgreso?.({ etapa: "completado" });
-      return { totalSat, totalLocal, descargadas, actualizadas, errores };
-    } finally {
-      await this.scraper.cerrar();
+      );
+      descargadas = resultado.total;
+      errores.push(...resultado.errores);
     }
+    let actualizadas = 0;
+    if (aActualizar.length > 0) {
+      onProgreso?.({ etapa: "actualizando" });
+      for (const f of aActualizar) {
+        try {
+          this.facturaRepository.actualizar(f.uuid, { estado: "cancelado" });
+          actualizadas++;
+        } catch (err) {
+          errores.push({ uuid: f.uuid, error: err.message });
+        }
+      }
+    }
+    this.conciliacionRepository.insertar({
+      tipo: params.tipo,
+      ejercicio: params.ejercicio,
+      periodo: params.periodo,
+      total_sat: totalSat,
+      total_local: totalLocal,
+      descargadas,
+      actualizadas,
+      errores: errores.length
+    });
+    onProgreso?.({ etapa: "completado" });
+    try {
+      await scraper.cerrar();
+    } catch (_) {
+    }
+    return { totalSat, totalLocal, descargadas, actualizadas, errores };
+  }
+  obtenerUltima(tipo, ejercicio, periodo) {
+    return this.conciliacionRepository.obtenerUltima(tipo, ejercicio, periodo);
+  }
+  obtenerHistorial() {
+    return this.conciliacionRepository.obtenerHistorial();
   }
 }
 class ConciliacionHandler {
-  constructor(conciliacionService, configuracionService) {
+  constructor(conciliacionService, configuracionService, scraper) {
     this.conciliacionService = conciliacionService;
     this.configuracionService = configuracionService;
+    this.scraper = scraper;
   }
   registrar() {
     electron.ipcMain.handle("iniciar-conciliacion", async (event, params) => {
@@ -1974,8 +2011,57 @@ class ConciliacionHandler {
           return { success: false, error: "El captcha es incorrecto. Intenta de nuevo." };
         }
         return { success: false, error: mensaje };
+      } finally {
+        await this.scraper.cerrar();
       }
     });
+    electron.ipcMain.handle("obtener-ultima-conciliacion", (_event, params) => {
+      try {
+        const ultima = this.conciliacionService.obtenerUltima(params.tipo, params.ejercicio, params.periodo);
+        return { success: true, ultima };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("obtener-historial-conciliaciones", () => {
+      try {
+        const historial = this.conciliacionService.obtenerHistorial();
+        return { success: true, historial };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
+class ConciliacionRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  get tabla() {
+    return ProfileManager.getTablaConciliaciones();
+  }
+  insertar(c) {
+    this.db.prepare(`
+      INSERT INTO ${this.tabla}
+        (tipo, ejercicio, periodo, total_sat, total_local, descargadas, actualizadas, errores)
+      VALUES
+        (@tipo, @ejercicio, @periodo, @total_sat, @total_local, @descargadas, @actualizadas, @errores)
+    `).run(c);
+  }
+  obtenerUltima(tipo, ejercicio, periodo) {
+    return this.db.prepare(`
+      SELECT * FROM ${this.tabla}
+      WHERE tipo = ? AND ejercicio = ? AND periodo = ?
+      ORDER BY fecha_conciliacion DESC
+      LIMIT 1
+    `).get(tipo, ejercicio, periodo);
+  }
+  obtenerHistorial(limite = 20) {
+    return this.db.prepare(`
+      SELECT * FROM ${this.tabla}
+      ORDER BY fecha_conciliacion DESC
+      LIMIT ?
+    `).all(limite);
   }
 }
 class SatAuthService {
@@ -2026,10 +2112,10 @@ class SatAuthService {
   }
   async esperarLoginExitoso(page, accion) {
     await Promise.all([
-      page.waitForNavigation({ timeout: 3e4 }).catch(() => null),
+      page.waitForNavigation({ timeout: 6e4 }).catch(() => null),
       accion()
     ]);
-    await page.waitForTimeout(2e3);
+    await page.waitForTimeout(4e3);
     const url = page.url();
     console.log("URL después de login:", url);
     const esPaginaError = await page.$("text=Ha ocurrido un error al procesar").catch(() => null);
@@ -2433,16 +2519,17 @@ electron.app.whenReady().then(() => {
   new ImportacionHandler(db).registrar();
   const facturaRepository = new FacturaRepository(db);
   const descargaPendienteRepository = new DescargaPendienteRepository(db);
+  const conciliacionRepository = new ConciliacionRepository(db);
   const configuracionService = new ConfiguracionService(db);
   const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository, db, satScraper);
-  const conciliacionService = new ConciliacionService(facturaRepository, descargaPendienteRepository, satScraper);
+  const conciliacionService = new ConciliacionService(facturaRepository, conciliacionRepository, descargaService);
   const profileManager = new ProfileManager(db);
   new PerfilHandler(profileManager).registrar();
-  new FacturaHandler(descargaService, configuracionService).registrar();
   new ConfiguracionHandler(db).registrar();
   new DashboardHandler(db).registrar();
   new CatalogoHandler(db).registrar();
-  new ConciliacionHandler(conciliacionService, configuracionService).registrar();
+  new FacturaHandler(descargaService, configuracionService, satScraper).registrar();
+  new ConciliacionHandler(conciliacionService, configuracionService, satScraper).registrar();
   createWindow();
   electron.app.on("activate", function() {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
