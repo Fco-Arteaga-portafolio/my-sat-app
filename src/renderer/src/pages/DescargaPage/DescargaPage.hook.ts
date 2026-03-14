@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Configuracion } from '../../../../main/services/ConfiguracionService'
-import { ProgresoDescarga } from '../../../../main/scraper/SatScraper'
+import { ProgresoDescarga } from '../../../../main/scraper/SatTypes'
 
 export interface DescargaForm {
   buscarPor: 'fecha' | 'folio'

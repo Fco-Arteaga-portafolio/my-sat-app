@@ -16,6 +16,7 @@ import InteligenciaHubPage from './pages/InteligenciaHubPage/InteligenciaHubPage
 import CatalogoPage from './pages/CatalogoPage/CatalogoPage'
 import CatalogoPerfilPage from './pages/CatalogoPage/CatalogoPerfilPage'
 import ConciliacionPage from './pages/ConciliacionPage/Conciliacionpage'
+import ReportesIvaPage from './pages/ReportesIvaPage/ReportesIvaPage'
 
 const RutaProtegida = ({ children }: { children: React.ReactNode }) => {
   const { perfil } = useContribuyente()
@@ -28,14 +29,18 @@ const AppRoutes = () => {
 
   return (
     <Routes>
-      <Route path="/perfiles" element={
-        <PerfilesPage onPerfilSeleccionado={(perfil) => setPerfil(perfil)} />
-      } />
-      <Route path="/" element={
-        <RutaProtegida>
-          <AppLayout />
-        </RutaProtegida>
-      }>
+      <Route
+        path="/perfiles"
+        element={<PerfilesPage onPerfilSeleccionado={(perfil) => setPerfil(perfil)} />}
+      />
+      <Route
+        path="/"
+        element={
+          <RutaProtegida>
+            <AppLayout />
+          </RutaProtegida>
+        }
+      >
         <Route path="/" element={<Navigate to="/inicio" replace />} />
         <Route path="/inicio" element={<DashboardPage />} />
         <Route path="/facturas-hub" element={<FacturasHubPage />} />
@@ -48,15 +53,52 @@ const AppRoutes = () => {
         <Route path="/pendientes" element={<PendientesPage />} />
         <Route path="/importacion" element={<ImportacionPage />} />
         <Route path="/configuracion" element={<ConfiguracionPage />} />
-        <Route path="/clientes" element={<CatalogoPage tipo="clientes" titulo="Clientes" subtitulo="Empresas y personas que te han facturado" />} />
+        <Route
+          path="/clientes"
+          element={
+            <CatalogoPage
+              tipo="clientes"
+              titulo="Clientes"
+              subtitulo="Empresas y personas que te han facturado"
+            />
+          }
+        />
         <Route path="/clientes/:rfc" element={<CatalogoPerfilPage tipo="clientes" />} />
-        <Route path="/proveedores" element={<CatalogoPage tipo="proveedores" titulo="Proveedores" subtitulo="Empresas y personas que te han emitido facturas" />} />
+        <Route
+          path="/proveedores"
+          element={
+            <CatalogoPage
+              tipo="proveedores"
+              titulo="Proveedores"
+              subtitulo="Empresas y personas que te han emitido facturas"
+            />
+          }
+        />
         <Route path="/proveedores/:rfc" element={<CatalogoPerfilPage tipo="proveedores" />} />
-        <Route path="/empleados" element={<CatalogoPage tipo="empleados" titulo="Empleados" subtitulo="Personas que han recibido nómina de tu empresa" />} />
+        <Route
+          path="/empleados"
+          element={
+            <CatalogoPage
+              tipo="empleados"
+              titulo="Empleados"
+              subtitulo="Personas que han recibido nómina de tu empresa"
+            />
+          }
+        />
         <Route path="/empleados/:rfc" element={<CatalogoPerfilPage tipo="empleados" />} />
-        <Route path="/patrones" element={<CatalogoPage tipo="patrones" titulo="Patrones" subtitulo="Empresas de las que has recibido nómina" />} />
+        <Route
+          path="/patrones"
+          element={
+            <CatalogoPage
+              tipo="patrones"
+              titulo="Patrones"
+              subtitulo="Empresas de las que has recibido nómina"
+            />
+          }
+        />
         <Route path="/patrones/:rfc" element={<CatalogoPerfilPage tipo="patrones" />} />
         <Route path="/conciliacion" element={<ConciliacionPage />} />
+        <Route path="/reportes/iva" element={<ReportesIvaPage />} />
       </Route>
     </Routes>
   )

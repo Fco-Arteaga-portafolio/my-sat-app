@@ -1,12 +1,18 @@
 import { Layout, Menu } from 'antd'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useContribuyente } from '../../context/ContribuyenteContext'
-import logoIcon from '../../../../../resources/icon.png'
+import logoIcon from '../../assets/icon.png'
 import { useState, useEffect } from 'react'
 import {
-  HomeOutlined, FileTextOutlined, AuditOutlined,
-  BarChartOutlined, SafetyOutlined, BulbOutlined,
-  SettingOutlined, SwapOutlined, UserOutlined
+  HomeOutlined,
+  FileTextOutlined,
+  AuditOutlined,
+  BarChartOutlined,
+  SafetyOutlined,
+  BulbOutlined,
+  SettingOutlined,
+  SwapOutlined,
+  UserOutlined
 } from '@ant-design/icons'
 import './AppLayout.css'
 
@@ -37,7 +43,7 @@ const AppLayout = () => {
     { key: '/reportes', icon: <BarChartOutlined />, label: 'Reportes' },
     { key: '/cumplimiento', icon: <SafetyOutlined />, label: 'Cumplimiento' },
     { key: '/inteligencia', icon: <BulbOutlined />, label: 'Inteligencia' },
-    { key: '/configuracion', icon: <SettingOutlined />, label: 'Configuración' },
+    { key: '/configuracion', icon: <SettingOutlined />, label: 'Configuración' }
   ]
 
   const selectedKey = () => {
@@ -64,7 +70,11 @@ const AppLayout = () => {
       >
         <div className="app-logo">
           <img src={logoIcon} alt="IFRAT" style={{ width: 32, height: 32, objectFit: 'contain' }} />
-          {!collapsed && <span style={{ marginLeft: 10, fontSize: 20, fontWeight: 700, color: '#fff' }}>IFRAT</span>}
+          {!collapsed && (
+            <span style={{ marginLeft: 10, fontSize: 20, fontWeight: 700, color: '#fff' }}>
+              IFRAT
+            </span>
+          )}
         </div>
         <Menu
           theme="dark"

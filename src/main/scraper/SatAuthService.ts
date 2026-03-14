@@ -1,8 +1,12 @@
 import { BrowserContext, Page } from 'playwright'
+import { BrowserManager } from './BrowserManager'
 
 export interface DatosCaptcha {
   imagenBase64: string
 }
+
+const MAX_REINTENTOS = 3
+const ESPERA_ENTRE_REINTENTOS_MS = 5000
 
 export class SatAuthService {
   private paginaLogin: Page | null = null
@@ -39,7 +43,7 @@ export class SatAuthService {
     await page.fill('#password', password)
     await page.fill('#userCaptcha', captcha.toUpperCase())
 
-    await this.esperarLoginExitoso(page, () => page.click('#submit'))
+    await this.intentarLogin(page, () => page.click('#submit', { timeout: 90000 }), 'contrasena')
     return page
   }
 
@@ -59,13 +63,48 @@ export class SatAuthService {
     await page.setInputFiles('#filePrivateKey', rutaKey)
     await page.fill('#privateKeyPassword', contrasenaFiel)
 
-    await this.esperarLoginExitoso(page, () => page.click('#submit'))
+    await this.intentarLogin(page, () => page.click('#submit', { timeout: 90000 }), 'efirma')
     return page
   }
 
+  // Orquesta reintentos — no sabe de SAT, solo reintenta si es timeout
+  private async intentarLogin(
+    page: Page,
+    accion: () => Promise<void>,
+    metodoAuth: 'contrasena' | 'efirma',
+    intento = 1
+  ): Promise<void> {
+    try {
+      await this.esperarLoginExitoso(page, accion)
+    } catch (error: any) {
+      const esTimeout = error.message?.includes('Timeout') || error.message?.includes('timeout')
+      const esCaptchaInvalido = error.message?.includes('CAPTCHA_INVALIDO')
+      const esSaturado = error.message?.includes('SAT_SATURADO')
+
+      if (esCaptchaInvalido || esSaturado) throw error
+
+      // Con contraseña el captcha ya no sirve — falla inmediato
+      if (esTimeout && metodoAuth === 'contrasena') {
+        throw new Error('SAT_TIMEOUT')
+      }
+
+      // Con e.firma se puede reintentar
+      if (esTimeout && intento < MAX_REINTENTOS) {
+        console.log(`Login timeout (intento ${intento}/${MAX_REINTENTOS}), reintentando en ${ESPERA_ENTRE_REINTENTOS_MS / 1000}s...`)
+        await page.waitForTimeout(ESPERA_ENTRE_REINTENTOS_MS)
+        await page.goto('https://portalcfdi.facturaelectronica.sat.gob.mx/')
+        await page.waitForSelector('#divCaptcha', { timeout: 15000 })
+        return this.intentarLogin(page, accion, metodoAuth, intento + 1)
+      }
+
+      if (esTimeout) throw new Error('SAT_TIMEOUT')
+      throw error
+    }
+  }
+  // Hace una sola cosa: esperar que el login complete y verificar resultado
   private async esperarLoginExitoso(page: Page, accion: () => Promise<void>): Promise<void> {
     await Promise.all([
-      page.waitForNavigation({ timeout: 60000 }).catch(() => null),
+      page.waitForNavigation({ timeout: 90000 }).catch(() => null),
       accion()
     ])
 
@@ -74,26 +113,20 @@ export class SatAuthService {
     const url = page.url()
     console.log('URL después de login:', url)
 
-    // Detectar saturación del SAT
     const esPaginaError = await page.$('text=Ha ocurrido un error al procesar').catch(() => null)
-    if (esPaginaError) {
-      throw new Error('SAT_SATURADO')
-    }
+    if (esPaginaError) throw new Error('SAT_SATURADO')
 
-    // Detectar captcha incorrecto o credenciales inválidas
     const errorCaptcha = await page.$('#divCapError, .alert-danger, .mensaje-error').catch(() => null)
     if (errorCaptcha) {
       const textoError = await errorCaptcha.textContent().catch(() => '')
       throw new Error(`CAPTCHA_INVALIDO: ${textoError?.trim()}`)
     }
 
-    // Verificar que realmente llegamos al portal
     const llegamosAlPortal = url.includes('portalcfdi.facturaelectronica.sat.gob.mx')
       && !url.includes('login')
       && !url.includes('Login')
 
     if (!llegamosAlPortal) {
-      // Intentar detectar cualquier mensaje de error en la página
       const mensajeError = await page.$eval(
         '.alert, .error, [class*="error"], [class*="Error"]',
         (el) => el.textContent?.trim()
@@ -113,16 +146,11 @@ export class SatAuthService {
     }
   }
 
-  async loginConContrasenaDirecto(rfc: string, password: string, captcha: string): Promise<Page> {
-    const page = await this.context.newPage()
-    await page.goto('https://portalcfdi.facturaelectronica.sat.gob.mx/')
-    await page.waitForSelector('#divCaptcha', { timeout: 15000 })
-
-    await page.fill('#rfc', rfc)
-    await page.fill('#password', password)
-    await page.fill('#userCaptcha', captcha.toUpperCase())
-
-    await this.esperarLoginExitoso(page, () => page.click('#submit'))
-    return page
+  async cerrarSesion(): Promise<void> {
+    if (this.paginaLogin) {
+      await this.paginaLogin.close().catch(() => null)
+      this.paginaLogin = null
+    }
+    await BrowserManager.cerrar()
   }
 }

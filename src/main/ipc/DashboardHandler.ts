@@ -52,5 +52,13 @@ export class DashboardHandler {
         return { success: false, error: String(error) }
       }
     })
+
+    ipcMain.handle('reportes-iva-anual', async (_, año: number) => {
+      try {
+        return { success: true, data: this.repository.ivaAnual(año) }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
   }
 }

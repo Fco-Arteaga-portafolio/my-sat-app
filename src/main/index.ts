@@ -6,19 +6,24 @@ import { Database } from './database/Database'
 import { MigrationRunner } from './database/MigrationRunner'
 import { FacturaHandler } from './ipc/FacturaHandler'
 import { ConfiguracionHandler } from './ipc/ConfiguracionHandler'
-import { FacturaRepository } from './database/repositories/FacturaRepository'
-import { DescargaPendienteRepository } from './database/repositories/DescargaPendienteRepository'
-import { DescargaService } from './services/DescargaService'
-import { ConfiguracionService } from './services/ConfiguracionService'
-import { ProfileManager } from './database/ProfileManager'
-import { PerfilHandler } from './ipc/PerfilHandler'
+import { ConciliacionHandler } from './ipc/ConciliacionHandler'
 import { ImportacionHandler } from './ipc/ImportacionHandler'
+import { PerfilHandler } from './ipc/PerfilHandler'
 import { DashboardHandler } from './ipc/DashboardHandler'
 import { CatalogoHandler } from './ipc/CatalogoHandler'
-import { ConciliacionService } from './services/ConciliacionService'
-import { ConciliacionHandler } from './ipc/ConciliacionHandler'
+import { FacturaRepository } from './database/repositories/FacturaRepository'
+import { DescargaPendienteRepository } from './database/repositories/DescargaPendienteRepository'
 import { ConciliacionRepository } from './database/repositories/ConciliacionRepository'
-import { SatScraper } from './scraper/SatScraper'
+import { ProfileManager } from './database/ProfileManager'
+import { BrowserManager } from './scraper/BrowserManager'
+import { SatAuthService } from './scraper/SatAuthService'
+import { SatBusquedaService } from './scraper/SatBusquedaService'
+import { SatDescargaService } from './scraper/SatDescargaService'
+import { ConfiguracionService } from './services/ConfiguracionService'
+import { CfdiGuardadoService } from './services/CfdiGuardadoService'
+import { DescargaService } from './services/DescargaService'
+import { PendientesService } from './services/PendientesService'
+import { ConciliacionService } from './services/ConciliacionService'
 
 function initDatabase(): void {
   const db = Database.getInstance()
@@ -37,7 +42,6 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     icon,
-    title: 'IFRAT',  // ← agregar esto
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -49,9 +53,7 @@ function createWindow(): void {
     mainWindow.setTitle('IFRAT - Inteligencia Fiscal para la Revisión y Administración Tributaria')
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
-  })
+  mainWindow.on('ready-to-show', () => mainWindow.show())
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -65,7 +67,7 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.electron')
 
   app.on('browser-window-created', (_, window) => {
@@ -74,30 +76,47 @@ app.whenReady().then(() => {
 
   initDatabase()
   const db = Database.getInstance()
-  const satScraper = new SatScraper()
-  new ImportacionHandler(db).registrar()
+
+  // Scraper — piezas base
+  const browserContext = await BrowserManager.newContext()
+  const authService = new SatAuthService(browserContext)
+  const busquedaService = new SatBusquedaService()
+  const satDescargaService = new SatDescargaService()
+
+  // Repositorios
   const facturaRepository = new FacturaRepository(db)
-  const descargaPendienteRepository = new DescargaPendienteRepository(db)
+  const pendienteRepository = new DescargaPendienteRepository(db)
   const conciliacionRepository = new ConciliacionRepository(db)
+
+  // Servicios base
   const configuracionService = new ConfiguracionService(db)
-  const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository, db, satScraper)
-  const conciliacionService = new ConciliacionService(facturaRepository, conciliacionRepository, descargaService)
+  const guardadoService = new CfdiGuardadoService(facturaRepository, pendienteRepository, db)
+
+  // Flujos
+  const descargaService = new DescargaService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, pendienteRepository)
+  const pendientesService = new PendientesService(authService, busquedaService, satDescargaService, guardadoService, pendienteRepository)
+  const conciliacionService = new ConciliacionService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, conciliacionRepository)
+
+  // Handlers
   const profileManager = new ProfileManager(db)
   new PerfilHandler(profileManager).registrar()
+  new FacturaHandler(descargaService, pendientesService, configuracionService, authService).registrar()
+  new ConciliacionHandler(conciliacionService, configuracionService, authService).registrar()
+  new ImportacionHandler(guardadoService).registrar()
   new ConfiguracionHandler(db).registrar()
   new DashboardHandler(db).registrar()
   new CatalogoHandler(db).registrar()
-  new FacturaHandler(descargaService, configuracionService, satScraper).registrar()
-  new ConciliacionHandler(conciliacionService, configuracionService, satScraper).registrar()
+
   createWindow()
 
-  app.on('activate', function () {
+  app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    BrowserManager.cerrar()
     Database.close()
     app.quit()
   }

@@ -1,0 +1,112 @@
+.iva-container {
+  padding: 24px;
+  max-width: 1000px;
+}
+
+.iva-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.iva-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iva-back-btn {
+  color: #595959;
+}
+
+.iva-title {
+  margin: 0 !important;
+  line-height: 1.2 !important;
+}
+
+.iva-subtitle {
+  color: #8c9db5;
+  font-size: 13px;
+}
+
+/* KPIs */
+.iva-kpis {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.iva-kpi {
+  flex: 1;
+  background: #fff;
+  border: 1px solid #e8ecf0;
+  border-radius: 8px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.iva-kpi-destacado {
+  border-color: #d9e8ff;
+  background: #f0f5ff;
+}
+
+.iva-kpi-label {
+  font-size: 12px;
+  color: #8c9db5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.iva-kpi-valor {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+/* Colores de valores */
+.iva-positivo {
+  color: #389e0d;
+}
+.iva-neutro {
+  color: #1677ff;
+}
+.iva-pagar {
+  color: #cf1322;
+}
+.iva-favor {
+  color: #389e0d;
+}
+.iva-cero {
+  color: #bfbfbf;
+}
+
+.iva-info-icon {
+  color: #8c9db5;
+  font-size: 12px;
+  cursor: help;
+}
+
+/* Disclaimer y alert */
+.iva-alert {
+  margin-bottom: 16px;
+}
+
+.iva-disclaimer {
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+
+/* Tabla */
+.iva-tabla {
+  background: #fff;
+  border-radius: 8px;
+}
+
+.iva-row-total td {
+  background: #fafafa !important;
+  font-weight: 600;
+  border-top: 2px solid #e8ecf0;
+}

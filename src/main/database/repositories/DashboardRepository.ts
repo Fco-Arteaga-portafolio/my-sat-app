@@ -108,4 +108,19 @@ export class DashboardRepository {
     FROM ${this.tabla}
   `).get()
   }
+
+  ivaAnual(año: number): any[] {
+    return this.db.prepare(`
+      SELECT
+        strftime('%m', fecha_emision) AS mes,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida'  AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_trasladados ELSE 0 END), 0) AS iva_cobrado,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_trasladados ELSE 0 END), 0) AS iva_acreditable,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida'  AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_retenidos  ELSE 0 END), 0) AS iva_retenido_cobrado,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_retenidos  ELSE 0 END), 0) AS iva_retenido_pagado
+      FROM ${this.tabla}
+      WHERE strftime('%Y', fecha_emision) = '${año}'
+      GROUP BY mes
+      ORDER BY mes ASC
+    `).all() as any[]
+  }
 }

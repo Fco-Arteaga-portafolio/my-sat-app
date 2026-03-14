@@ -1,13 +1,14 @@
 import { ipcMain } from 'electron'
 import { ConciliacionService, ParametrosConciliacion } from '../services/ConciliacionService'
 import { ConfiguracionService } from '../services/ConfiguracionService'
-import { SatScraper } from '../scraper/SatScraper'
+import { SatAuthService } from '../scraper/SatAuthService'
+import { manejarErrorSat } from './satErrores'
 
 export class ConciliacionHandler {
   constructor(
     private readonly conciliacionService: ConciliacionService,
     private readonly configuracionService: ConfiguracionService,
-    private readonly scraper: SatScraper
+    private readonly authService: SatAuthService
   ) { }
 
   registrar(): void {
@@ -21,26 +22,17 @@ export class ConciliacionHandler {
           params,
           (progreso) => event.sender.send('progreso-conciliacion', progreso)
         )
-
         return { success: true, resumen }
       } catch (error) {
-        const mensaje = String(error)
-        if (mensaje.includes('SAT_SATURADO')) {
-          return { success: false, error: 'El SAT se encuentra saturado. Intenta en 20 minutos.' }
-        }
-        if (mensaje.includes('CAPTCHA_INVALIDO')) {
-          return { success: false, error: 'El captcha es incorrecto. Intenta de nuevo.' }
-        }
-        return { success: false, error: mensaje }
+        return { success: false, error: manejarErrorSat(error) }
       } finally {
-        await this.scraper.cerrar()
+        await this.authService.cerrarSesion()
       }
     })
 
-    ipcMain.handle('obtener-ultima-conciliacion', (_event, params: { tipo: string; ejercicio: string; periodo: string }) => {
+    ipcMain.handle('obtener-ultima-conciliacion', (_, params: { tipo: string; ejercicio: string; periodo: string }) => {
       try {
-        const ultima = this.conciliacionService.obtenerUltima(params.tipo, params.ejercicio, params.periodo)
-        return { success: true, ultima }
+        return { success: true, ultima: this.conciliacionService.obtenerUltima(params.tipo, params.ejercicio, params.periodo) }
       } catch (error) {
         return { success: false, error: String(error) }
       }
@@ -48,8 +40,7 @@ export class ConciliacionHandler {
 
     ipcMain.handle('obtener-historial-conciliaciones', () => {
       try {
-        const historial = this.conciliacionService.obtenerHistorial()
-        return { success: true, historial }
+        return { success: true, historial: this.conciliacionService.obtenerHistorial() }
       } catch (error) {
         return { success: false, error: String(error) }
       }

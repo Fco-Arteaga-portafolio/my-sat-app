@@ -1,6 +1,10 @@
+import { app } from 'electron'
+import { SatAuthService } from '../scraper/SatAuthService'
+import { SatBusquedaService } from '../scraper/SatBusquedaService'
+import { SatDescargaService } from '../scraper/SatDescargaService'
+import { CfdiGuardadoService } from './CfdiGuardadoService'
 import { FacturaRepository } from '../database/repositories/FacturaRepository'
 import { ConciliacionRepository } from '../database/repositories/ConciliacionRepository'
-import { DescargaService } from './DescargaService'
 import { Configuracion } from './ConfiguracionService'
 
 export interface ParametrosConciliacion {
@@ -27,9 +31,12 @@ export interface ResumenConciliacion {
 
 export class ConciliacionService {
   constructor(
+    private readonly authService: SatAuthService,
+    private readonly busquedaService: SatBusquedaService,
+    private readonly descargaService: SatDescargaService,
+    private readonly guardadoService: CfdiGuardadoService,
     private readonly facturaRepository: FacturaRepository,
-    private readonly conciliacionRepository: ConciliacionRepository,
-    private readonly descargaService: DescargaService
+    private readonly conciliacionRepository: ConciliacionRepository
   ) { }
 
   async conciliar(
@@ -41,15 +48,15 @@ export class ConciliacionService {
     const ultimoDia = new Date(parseInt(params.ejercicio), parseInt(mes), 0).getDate()
     const fechaInicio = `01/${mes}/${params.ejercicio}`
     const fechaFin = `${ultimoDia}/${mes}/${params.ejercicio}`
+    const tipoDes = params.tipo === 'recibidas' ? 'recibida' : 'emitida'
+    const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
 
-    // 1. Consultar SAT
+    // 1. Login
+    const page = await this.login(config, params.captcha)
+
+    // 2. Consultar SAT
     onProgreso?.({ etapa: 'consultando' })
-    const scraper = (this.descargaService as any).scraper
-    const authService = scraper.authService
-    if (!authService) throw new Error('No hay sesión activa. Carga el captcha primero.')
-
-    const page = await authService.loginConContrasena(config.rfc, config.contrasena!, params.captcha!)
-    const filasSat = await scraper.buscarEnPagina(page, {
+    const filasSat = await this.busquedaService.buscarEnPagina(page, {
       tipo: params.tipo,
       buscarPor: 'fecha',
       fechaInicio,
@@ -57,43 +64,49 @@ export class ConciliacionService {
     })
     const totalSat = filasSat.length
 
-    // 2. Comparar con local
+    // 3. Comparar con local
     onProgreso?.({ etapa: 'comparando' })
-    const faltantes = filasSat.filter((f: any) => !this.facturaRepository.obtenerPorUuid(f.uuid))
-    const aActualizar = filasSat.filter((f: any) => {
+    const faltantes = filasSat.filter(f => !this.facturaRepository.obtenerPorUuid(f.uuid))
+    const aActualizar = filasSat.filter(f => {
       const local = this.facturaRepository.obtenerPorUuid(f.uuid)
       return local && local.estado === 'vigente' && f.estado === 'cancelado'
     })
     const totalLocal = totalSat - faltantes.length
 
-    // 3. Descargar faltantes
+    // 4. Descargar faltantes
     let descargadas = 0
     const errores: { uuid: string; error: string }[] = []
 
     if (faltantes.length > 0) {
       onProgreso?.({ etapa: 'descargando', descargadas: 0, totalFaltantes: faltantes.length })
 
-      const resultado = await this.descargaService.descargar(
-        config,
-        { tipo: params.tipo, buscarPor: 'fecha', fechaInicio, fechaFin },
-        params.captcha,
-        (p) => {
-          if (p.etapa === 'descargando') {
-            onProgreso?.({ etapa: 'descargando', descargadas: p.descargadas, totalFaltantes: faltantes.length })
-          }
-        }
+      const filasConTipo = faltantes.map(f => ({ ...f, tipo_descarga: tipoDes }))
+      const { exitosas, errores: erroresDescarga } = await this.descargaService.descargarEnLote(
+        page, filasConTipo, carpetaTemp,
+        (desc, _total, _uuid) => onProgreso?.({ etapa: 'descargando', descargadas: desc, totalFaltantes: faltantes.length })
       )
-      descargadas = resultado.total
-      errores.push(...resultado.errores)
+
+      for (const { rutaTemp, meta } of exitosas) {
+        try {
+          this.guardadoService.guardarDesdeRuta(rutaTemp, meta)
+          descargadas++
+        } catch (err: any) {
+          errores.push({ uuid: meta.uuid, error: err.message })
+        }
+      }
+
+      for (const e of erroresDescarga) {
+        errores.push({ uuid: e.uuid, error: e.error })
+      }
     }
 
-    // 4. Actualizar vigente→cancelado
+    // 5. Actualizar vigente → cancelado
     let actualizadas = 0
     if (aActualizar.length > 0) {
       onProgreso?.({ etapa: 'actualizando' })
       for (const f of aActualizar) {
         try {
-          this.facturaRepository.actualizar(f.uuid, { estado: 'cancelado' })
+          this.guardadoService.actualizarEstado(f.uuid, 'cancelado')
           actualizadas++
         } catch (err: any) {
           errores.push({ uuid: f.uuid, error: err.message })
@@ -101,7 +114,7 @@ export class ConciliacionService {
       }
     }
 
-    // 5. Guardar registro
+    // 6. Guardar historial
     this.conciliacionRepository.insertar({
       tipo: params.tipo,
       ejercicio: params.ejercicio,
@@ -113,11 +126,17 @@ export class ConciliacionService {
       errores: errores.length
     })
 
+    this.guardadoService.sincronizarCatalogos()
     onProgreso?.({ etapa: 'completado' })
 
-    try { await scraper.cerrar() } catch (_) { }
-
     return { totalSat, totalLocal, descargadas, actualizadas, errores }
+  }
+
+  private async login(config: Configuracion, captcha?: string) {
+    if (config.metodoAuth === 'contrasena') {
+      return this.authService.loginConContrasena(config.rfc, config.contrasena!, captcha!)
+    }
+    return this.authService.loginConEfirma(config.rutaCer!, config.rutaKey!, config.contrasenaFiel!)
   }
 
   obtenerUltima(tipo: string, ejercicio: string, periodo: string) {

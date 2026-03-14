@@ -2,21 +2,38 @@ import { Button, Modal, Space, Popconfirm, Alert, Tag, Avatar } from 'antd'
 import { PlusOutlined, UserOutlined, DeleteOutlined, LoginOutlined } from '@ant-design/icons'
 import { usePerfilesPage } from './PerfilesPage.hook'
 import ContribuyenteForm from '../../components/ContribuyenteForm/ContribuyenteForm'
+import logoIcon from '../../assets/icon.png'
 import './PerfilesPage.css'
 
-const PerfilesPage = ({ onPerfilSeleccionado }: { onPerfilSeleccionado?: (perfil: any) => void }) => {
+const PerfilesPage = ({
+  onPerfilSeleccionado
+}: {
+  onPerfilSeleccionado?: (perfil: any) => void
+}) => {
   const {
-    perfiles, loading, modalVisible, error, form,
-    setModalVisible, seleccionar, guardar, eliminar,
-    cambiarForm, seleccionarCarpetaEmitidos, seleccionarCarpetaRecibidos,
-    seleccionarCer, seleccionarKey, moverSlot, toggleSlot
+    perfiles,
+    loading,
+    modalVisible,
+    error,
+    form,
+    setModalVisible,
+    seleccionar,
+    guardar,
+    eliminar,
+    cambiarForm,
+    seleccionarCarpetaEmitidos,
+    seleccionarCarpetaRecibidos,
+    seleccionarCer,
+    seleccionarKey,
+    moverSlot,
+    toggleSlot
   } = usePerfilesPage(onPerfilSeleccionado)
 
   return (
     <div className="perfiles-container">
       {/* Logo y título */}
       <div className="perfiles-header">
-        <img src="/icon.png" alt="IFRAT" className="perfiles-logo" />
+        <img src={logoIcon} alt="IFRAT" className="perfiles-logo" />
         <h1 className="perfiles-titulo">IFRAT</h1>
         <p className="perfiles-subtitulo">Selecciona un contribuyente para continuar</p>
       </div>
@@ -75,21 +92,22 @@ const PerfilesPage = ({ onPerfilSeleccionado }: { onPerfilSeleccionado?: (perfil
         confirmLoading={loading}
         width={640}
       >
+        {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
         <ContribuyenteForm
           data={{
-            rfc:                  form.rfc,
-            nombre:               form.nombre,
-            metodoAuth:           form.metodo_auth,
-            contrasena:           form.contrasena,
-            rutaCer:              form.ruta_cer,
-            rutaKey:              form.ruta_key,
-            contrasenaFiel:       form.contrasena_fiel,
-            carpetaEmitidos:      form.carpeta_emitidos,
-            carpetaRecibidos:     form.carpeta_recibidos,
-            estructuraEmitidos:   form.estructura_emitidos,
-            estructuraRecibidos:  form.estructura_recibidos,
-            plantillaDefault:     form.plantilla_default,
-            configNombreArchivo:  form.config_nombre_archivo
+            rfc: form.rfc,
+            nombre: form.nombre,
+            metodoAuth: form.metodo_auth,
+            contrasena: form.contrasena,
+            rutaCer: form.ruta_cer,
+            rutaKey: form.ruta_key,
+            contrasenaFiel: form.contrasena_fiel,
+            carpetaEmitidos: form.carpeta_emitidos,
+            carpetaRecibidos: form.carpeta_recibidos,
+            estructuraEmitidos: form.estructura_emitidos,
+            estructuraRecibidos: form.estructura_recibidos,
+            plantillaDefault: form.plantilla_default,
+            configNombreArchivo: form.config_nombre_archivo
           }}
           onChange={cambiarForm}
           onSeleccionarCer={seleccionarCer}

@@ -77,7 +77,21 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
   }
 
   const guardar = async () => {
-    const err = validarContribuyenteForm(form as any)
+    const err = validarContribuyenteForm({
+      rfc: form.rfc,
+      nombre: form.nombre,
+      metodoAuth: form.metodo_auth,
+      contrasena: form.contrasena,
+      rutaCer: form.ruta_cer,
+      rutaKey: form.ruta_key,
+      contrasenaFiel: form.contrasena_fiel,
+      carpetaEmitidos: form.carpeta_emitidos,
+      carpetaRecibidos: form.carpeta_recibidos,
+      estructuraEmitidos: form.estructura_emitidos,
+      estructuraRecibidos: form.estructura_recibidos,
+      plantillaDefault: form.plantilla_default,
+      configNombreArchivo: form.config_nombre_archivo
+    })
     if (err) { setError(err); return }
     setLoading(true)
     const res = await window.api.crearPerfil(form)

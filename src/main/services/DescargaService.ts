@@ -1,29 +1,23 @@
-import { SatScraper, ParametrosBusqueda, ProgresoDescarga } from '../scraper/SatScraper'
+import { app } from 'electron'
+import { SatAuthService } from '../scraper/SatAuthService'
+import { SatBusquedaService } from '../scraper/SatBusquedaService'
+import { SatDescargaService } from '../scraper/SatDescargaService'
+import { CfdiGuardadoService } from './CfdiGuardadoService'
 import { FacturaRepository } from '../database/repositories/FacturaRepository'
 import { DescargaPendienteRepository } from '../database/repositories/DescargaPendienteRepository'
 import { Configuracion } from './ConfiguracionService'
-import { FacturaGuardadoService } from './FacturaGuardadoService'
-import { CatalogoRepository } from '../database/repositories/CatalogoRepository'
-import BetterSqlite3 from 'better-sqlite3'
+import { ParametrosBusqueda, ProgresoDescarga } from '../scraper/SatTypes'
+import { Page } from 'playwright'
 
 export class DescargaService {
-  private readonly guardadoService: FacturaGuardadoService
-  private readonly catalogoRepository: CatalogoRepository
-
   constructor(
+    private readonly authService: SatAuthService,
+    private readonly busquedaService: SatBusquedaService,
+    private readonly descargaService: SatDescargaService,
+    private readonly guardadoService: CfdiGuardadoService,
     private readonly facturaRepository: FacturaRepository,
-    private readonly pendienteRepository: DescargaPendienteRepository,
-    db: BetterSqlite3.Database,
-    private readonly scraper: SatScraper
-  ) {
-    this.guardadoService = new FacturaGuardadoService(facturaRepository, pendienteRepository)
-    this.catalogoRepository = new CatalogoRepository(db)
-  }
-
-  async obtenerCaptcha(): Promise<string> {
-    await this.scraper.iniciar()
-    return await this.scraper.obtenerCaptcha()
-  }
+    private readonly pendienteRepository: DescargaPendienteRepository
+  ) { }
 
   async descargar(
     config: Configuracion,
@@ -31,62 +25,67 @@ export class DescargaService {
     captcha?: string,
     onProgreso?: (progreso: ProgresoDescarga) => void
   ): Promise<{ total: number; errores: { uuid: string; error: string }[] }> {
+    const page = await this.login(config, captcha)
+    const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
     const tipoDes = params.tipo === 'recibidas' ? 'recibida' : 'emitida'
-    const { facturas, errores } = await this.scraper.descargarFacturas(config, params, captcha, onProgreso)
 
-    let guardadas = 0
-    for (const f of facturas) {
-      if (!f.urlDescarga) continue
-      this.guardadoService.guardar(f, tipoDes)
-      guardadas++
-    }
+    onProgreso?.({ etapa: 'buscando' })
+    const filas = await this.busquedaService.buscarPorParametros(page, params,
+      (mesActual, totalMeses) => onProgreso?.({ etapa: 'buscando', mesActual, totalMeses })
+    )
 
-    for (const e of errores) {
-      if (e.fila) {
-        this.guardadoService.guardarPendiente({ uuid: e.uuid, ...e.fila }, tipoDes, e.error)
-      }
-    }
+    const filasConTipo = filas.map(f => ({ ...f, tipo_descarga: tipoDes }))
 
-    this.catalogoRepository.sincronizarTodos()
-    return { total: guardadas, errores }
-  }
-
-  async reintentarPendientes(
-    config: Configuracion,
-    captcha?: string,
-    onProgreso?: (progreso: ProgresoDescarga) => void
-  ): Promise<{ total: number; errores: { uuid: string; error: string }[] }> {
-    const pendientes = this.pendienteRepository.obtenerTodas()
-    if (pendientes.length === 0) return { total: 0, errores: [] }
-
-    await this.scraper.iniciar()
-    const { facturas, errores } = await this.scraper.reintentarDescargas(
-      config, captcha, pendientes, onProgreso
+    const { exitosas, errores: erroresDescarga } = await this.descargaService.descargarEnLote(
+      page, filasConTipo, carpetaTemp,
+      (descargadas, totalFacturas, uuid) => onProgreso?.({ etapa: 'descargando', descargadas, totalFacturas, uuid })
     )
 
     let guardadas = 0
-    for (const f of facturas) {
-      if (!f.urlDescarga) continue
-      const tipoDes = f.tipo_descarga as 'recibida' | 'emitida'
-      this.guardadoService.guardar(f, tipoDes)
-      guardadas++
-    }
+    const errores: { uuid: string; error: string }[] = []
 
-    for (const e of errores) {
-      const pendiente = pendientes.find(p => p.uuid === e.uuid)
-      if (pendiente) {
-        this.pendienteRepository.insertar({ ...pendiente, error: e.error })
+    for (const { rutaTemp, meta } of exitosas) {
+      try {
+        this.guardadoService.guardarDesdeRuta(rutaTemp, meta)
+        guardadas++
+      } catch (err: any) {
+        errores.push({ uuid: meta.uuid, error: err.message })
       }
     }
 
-    return { total: guardadas, errores }
+    for (const e of erroresDescarga) {
+      this.guardadoService.guardarPendiente({
+        uuid: e.uuid,
+        rfc_emisor: e.fila.rfc_emisor,
+        nombre_emisor: e.fila.nombre_emisor,
+        rfc_receptor: e.fila.rfc_receptor,
+        nombre_receptor: e.fila.nombre_receptor,
+        fecha_emision: e.fila.fecha_emision,
+        total: e.fila.total,
+        tipo_comprobante: e.fila.tipo_comprobante,
+        estado: e.fila.estado,
+        tipo_descarga: tipoDes
+      }, e.error)
+    }
+
+    this.guardadoService.sincronizarCatalogos()
+    onProgreso?.({ etapa: 'completado', totalFacturas: guardadas })
+
+    return { total: guardadas, errores: [...errores, ...erroresDescarga.map(e => ({ uuid: e.uuid, error: e.error }))] }
+  }
+
+  async login(config: Configuracion, captcha?: string): Promise<Page> {
+    if (config.metodoAuth === 'contrasena') {
+      return this.authService.loginConContrasena(config.rfc, config.contrasena!, captcha!)
+    }
+    return this.authService.loginConEfirma(config.rutaCer!, config.rutaKey!, config.contrasenaFiel!)
   }
 
   obtenerFacturas() { return this.facturaRepository.obtenerTodas() }
   obtenerFacturaPorUuid(uuid: string) { return this.facturaRepository.obtenerPorUuid(uuid) }
   eliminarFactura(uuid: string) { return this.facturaRepository.eliminar(uuid) }
+  obtenerDrillDown(rfc: string) { return this.facturaRepository.obtenerDrillDown(rfc) }
   obtenerPendientes() { return this.pendienteRepository.obtenerTodas() }
   contarPendientes() { return this.pendienteRepository.contar() }
   limpiarPendientes() { return this.pendienteRepository.limpiar() }
-  obtenerDrillDown(rfc: string) { return this.facturaRepository.obtenerDrillDown(rfc) }
 }

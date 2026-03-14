@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { DescargaPendiente } from '../../../../main/database/repositories/DescargaPendienteRepository'
-import { ProgresoDescarga } from '../../../../main/scraper/SatScraper'
+import { ProgresoDescarga } from '../../../../main/scraper/SatTypes'
 import { useContribuyente } from '@renderer/context/ContribuyenteContext'
 
 export const usePendientesPage = () => {

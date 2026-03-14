@@ -20,21 +20,59 @@ const InteligenciaHubPage = () => {
   return (
     <HubPage
       title="Inteligencia"
-      subtitle="Catálogos automáticos generados desde tus CFDIs"
-      cards={[
-        { icon: '👤', label: 'Clientes', count: conteos.clientes, onClick: () => navigate('/clientes') },
-        { icon: '🏢', label: 'Proveedores', count: conteos.proveedores, onClick: () => navigate('/proveedores') },
+      subtitle="Catálogos y análisis financiero generados desde tus CFDIs"
+      sections={[
         {
-          icon: '👥', label: 'Empleados', count: conteos.empleados,
-          disabled: conteos.empleados === 0,
-          disabledTooltip: 'No se detectaron CFDIs de nómina donde seas patrón',
-          onClick: () => navigate('/empleados')
+          title: 'Catálogos',
+          cards: [
+            {
+              icon: '👤',
+              label: 'Clientes',
+              count: conteos.clientes,
+              onClick: () => navigate('/clientes')
+            },
+            {
+              icon: '🏢',
+              label: 'Proveedores',
+              count: conteos.proveedores,
+              onClick: () => navigate('/proveedores')
+            },
+            {
+              icon: '👥',
+              label: 'Empleados',
+              count: conteos.empleados,
+              disabled: conteos.empleados === 0,
+              disabledTooltip: 'No se detectaron CFDIs de nómina donde seas patrón',
+              onClick: () => navigate('/empleados')
+            },
+            {
+              icon: '🏭',
+              label: 'Patrones',
+              count: conteos.patrones,
+              disabled: conteos.patrones === 0,
+              disabledTooltip: 'No se detectaron CFDIs de nómina donde seas empleado',
+              onClick: () => navigate('/patrones')
+            }
+          ]
         },
         {
-          icon: '🏭', label: 'Patrones', count: conteos.patrones,
-          disabled: conteos.patrones === 0,
-          disabledTooltip: 'No se detectaron CFDIs de nómina donde seas empleado',
-          onClick: () => navigate('/patrones')
+          title: 'Finanzas',
+          cards: [
+            {
+              icon: '📥',
+              label: 'Cuentas por Cobrar',
+              description: 'Facturas emitidas pendientes de pago',
+              comingSoon: true,
+              onClick: () => navigate('/cuentas-por-cobrar')
+            },
+            {
+              icon: '📤',
+              label: 'Cuentas por Pagar',
+              description: 'Facturas recibidas pendientes de pago',
+              comingSoon: true,
+              onClick: () => navigate('/cuentas-por-pagar')
+            }
+          ]
         }
       ]}
     />

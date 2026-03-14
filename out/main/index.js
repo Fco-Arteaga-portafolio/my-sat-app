@@ -5,8 +5,8 @@ const utils = require("@electron-toolkit/utils");
 const BetterSqlite3 = require("better-sqlite3");
 const fs = require("fs");
 const playwright = require("playwright");
-const xmldom = require("@xmldom/xmldom");
 const axios = require("axios");
+const xmldom = require("@xmldom/xmldom");
 function _interopNamespaceDefault(e) {
   const n = Object.create(null, { [Symbol.toStringTag]: { value: "Module" } });
   if (e) {
@@ -628,17 +628,31 @@ class PdfService {
     });
   }
 }
+function manejarErrorSat(error) {
+  const mensaje = String(error);
+  if (mensaje.includes("SAT_SATURADO")) {
+    return "El SAT se encuentra saturado en este momento. Intenta de nuevo en 20 minutos.";
+  }
+  if (mensaje.includes("CAPTCHA_INVALIDO")) {
+    return "El captcha es incorrecto. Recarga el captcha e intenta de nuevo.";
+  }
+  if (mensaje.includes("SAT_TIMEOUT")) {
+    return "El servicio del SAT parece inestable en este momento. Intenta de nuevo en 5 minutos.";
+  }
+  return mensaje;
+}
 class FacturaHandler {
-  constructor(descargaService, configuracionService, scraper) {
+  constructor(descargaService, pendientesService, configuracionService, authService) {
     this.descargaService = descargaService;
+    this.pendientesService = pendientesService;
     this.configuracionService = configuracionService;
-    this.scraper = scraper;
+    this.authService = authService;
   }
   registrar() {
     electron.ipcMain.handle("obtener-captcha", async () => {
       try {
-        const imagenBase64 = await this.descargaService.obtenerCaptcha();
-        return { success: true, imagenBase64 };
+        const imagenBase64 = await this.authService.obtenerCaptcha();
+        return { success: true, imagenBase64: imagenBase64.imagenBase64 };
       } catch (error) {
         return { success: false, error: String(error) };
       }
@@ -655,45 +669,30 @@ class FacturaHandler {
         );
         return { success: true, total: resultado.total, errores: resultado.errores };
       } catch (error) {
-        const mensaje = String(error);
-        if (mensaje.includes("SAT_SATURADO")) {
-          return { success: false, error: "El SAT se encuentra saturado en este momento. Intenta de nuevo en 20 minutos." };
-        }
-        if (mensaje.includes("CAPTCHA_INVALIDO")) {
-          return { success: false, error: "El captcha es incorrecto. Recarga el captcha e intenta de nuevo." };
-        }
-        return { success: false, error: mensaje };
+        return { success: false, error: manejarErrorSat(error) };
       } finally {
-        await this.scraper.cerrar();
+        await this.authService.cerrarSesion();
       }
     });
     electron.ipcMain.handle("reintentar-pendientes", async (event, datos) => {
       try {
         const config = this.configuracionService.obtener();
         if (!config) return { success: false, error: "No hay configuración guardada" };
-        const resultado = await this.descargaService.reintentarPendientes(
+        const resultado = await this.pendientesService.reintentar(
           config,
           datos.captcha,
           (progreso) => event.sender.send("progreso-descarga", progreso)
         );
         return { success: true, total: resultado.total, errores: resultado.errores };
       } catch (error) {
-        const mensaje = String(error);
-        if (mensaje.includes("SAT_SATURADO")) {
-          return { success: false, error: "El SAT se encuentra saturado. Intenta en 20 minutos." };
-        }
-        if (mensaje.includes("CAPTCHA_INVALIDO")) {
-          return { success: false, error: "El captcha es incorrecto. Intenta de nuevo." };
-        }
-        return { success: false, error: mensaje };
+        return { success: false, error: manejarErrorSat(error) };
       } finally {
-        await this.scraper.cerrar();
+        await this.authService.cerrarSesion();
       }
     });
     electron.ipcMain.handle("obtener-facturas", async () => {
       try {
-        const facturas = this.descargaService.obtenerFacturas();
-        return { success: true, facturas };
+        return { success: true, facturas: this.descargaService.obtenerFacturas() };
       } catch (error) {
         return { success: false, error: String(error) };
       }
@@ -718,8 +717,7 @@ class FacturaHandler {
     electron.ipcMain.handle("leer-xml", async (_, ruta) => {
       try {
         const fs2 = require("fs");
-        const contenido = fs2.readFileSync(ruta, "utf-8");
-        return { success: true, contenido };
+        return { success: true, contenido: fs2.readFileSync(ruta, "utf-8") };
       } catch (error) {
         return { success: false, error: String(error) };
       }
@@ -727,13 +725,7 @@ class FacturaHandler {
     electron.ipcMain.handle("generar-pdf", async (_, datos) => {
       try {
         const pdfService = new PdfService();
-        await pdfService.generarPdf(
-          datos.xmlContenido,
-          datos.parseada,
-          datos.uuid,
-          datos.plantilla,
-          datos.rutaDestino
-        );
+        await pdfService.generarPdf(datos.xmlContenido, datos.parseada, datos.uuid, datos.plantilla, datos.rutaDestino);
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -741,16 +733,14 @@ class FacturaHandler {
     });
     electron.ipcMain.handle("obtener-pendientes", async () => {
       try {
-        const pendientes = this.descargaService.obtenerPendientes();
-        return { success: true, pendientes };
+        return { success: true, pendientes: this.descargaService.obtenerPendientes() };
       } catch (error) {
         return { success: false, error: String(error) };
       }
     });
     electron.ipcMain.handle("contar-pendientes", async () => {
       try {
-        const total = this.descargaService.contarPendientes();
-        return { success: true, total };
+        return { success: true, total: this.descargaService.contarPendientes() };
       } catch (error) {
         return { success: false, error: String(error) };
       }
@@ -765,8 +755,7 @@ class FacturaHandler {
     });
     electron.ipcMain.handle("facturas-drill-down", async (_, rfc) => {
       try {
-        const data = this.descargaService.obtenerDrillDown(rfc);
-        return { success: true, data };
+        return { success: true, data: this.descargaService.obtenerDrillDown(rfc) };
       } catch (error) {
         return { success: false, error: String(error) };
       }
@@ -781,8 +770,7 @@ class FacturaHandler {
           const plantilla = this.configuracionService.obtener()?.plantillaDefault ?? "clasica";
           await pdfService.generarPdf(xmlContenido, datos.parseada, datos.uuid, plantilla, rutaPdf);
         }
-        const buffer = fs2.readFileSync(rutaPdf);
-        const base64 = buffer.toString("base64");
+        const base64 = fs2.readFileSync(rutaPdf).toString("base64");
         return { success: true, base64, rutaPdf };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -1101,6 +1089,446 @@ class ConfiguracionHandler {
     });
   }
 }
+class ConciliacionHandler {
+  constructor(conciliacionService, configuracionService, authService) {
+    this.conciliacionService = conciliacionService;
+    this.configuracionService = configuracionService;
+    this.authService = authService;
+  }
+  registrar() {
+    electron.ipcMain.handle("iniciar-conciliacion", async (event, params) => {
+      try {
+        const config = this.configuracionService.obtener();
+        if (!config) return { success: false, error: "No hay configuración guardada" };
+        const resumen = await this.conciliacionService.conciliar(
+          config,
+          params,
+          (progreso) => event.sender.send("progreso-conciliacion", progreso)
+        );
+        return { success: true, resumen };
+      } catch (error) {
+        return { success: false, error: manejarErrorSat(error) };
+      } finally {
+        await this.authService.cerrarSesion();
+      }
+    });
+    electron.ipcMain.handle("obtener-ultima-conciliacion", (_, params) => {
+      try {
+        return { success: true, ultima: this.conciliacionService.obtenerUltima(params.tipo, params.ejercicio, params.periodo) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("obtener-historial-conciliaciones", () => {
+      try {
+        return { success: true, historial: this.conciliacionService.obtenerHistorial() };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
+class ImportacionHandler {
+  constructor(guardadoService) {
+    this.guardadoService = guardadoService;
+  }
+  registrar() {
+    electron.ipcMain.handle("seleccionar-xmls", async () => {
+      const result = await electron.dialog.showOpenDialog({
+        title: "Seleccionar archivos XML",
+        filters: [{ name: "XML", extensions: ["xml"] }],
+        properties: ["openFile", "multiSelections"]
+      });
+      return { success: true, rutas: result.canceled ? [] : result.filePaths };
+    });
+    electron.ipcMain.handle("seleccionar-carpeta-xml", async () => {
+      const result = await electron.dialog.showOpenDialog({
+        title: "Seleccionar carpeta con XMLs",
+        properties: ["openDirectory"]
+      });
+      if (result.canceled) return { success: true, rutas: [] };
+      const carpeta = result.filePaths[0];
+      const rutas = fs__namespace.readdirSync(carpeta).filter((f) => f.toLowerCase().endsWith(".xml")).map((f) => path__namespace.join(carpeta, f));
+      return { success: true, rutas };
+    });
+    electron.ipcMain.handle("importar-xmls", async (_, rutas) => {
+      let importadas = 0;
+      let omitidas = 0;
+      const errores = [];
+      for (const ruta of rutas) {
+        try {
+          const resultado = this.guardadoService.importarDesdeRutaLocal(ruta);
+          if (resultado === "importada") importadas++;
+          else omitidas++;
+        } catch (err) {
+          errores.push({ archivo: path__namespace.basename(ruta), error: err.message });
+        }
+      }
+      this.guardadoService.sincronizarCatalogos();
+      return { success: true, importadas, omitidas, errores };
+    });
+  }
+}
+class PerfilHandler {
+  constructor(profileManager) {
+    this.profileManager = profileManager;
+  }
+  registrar() {
+    electron.ipcMain.handle("obtener-perfiles", async () => {
+      try {
+        const perfiles = this.profileManager.obtenerTodos();
+        return { success: true, perfiles };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("crear-perfil", async (_, perfil) => {
+      try {
+        this.profileManager.insertar(perfil);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("eliminar-perfil", async (_, rfc) => {
+      try {
+        this.profileManager.eliminar(rfc);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("seleccionar-perfil", async (_, rfc) => {
+      try {
+        const perfil = this.profileManager.obtenerPorRfc(rfc);
+        if (!perfil) return { success: false, error: "Perfil no encontrado" };
+        ProfileManager.setPerfilActivo(perfil);
+        this.profileManager.crearTablasPerfil(rfc);
+        return { success: true, perfil };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("obtener-perfil-activo", async () => {
+      try {
+        const perfil = ProfileManager.getPerfilActivo();
+        return { success: true, perfil };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("cerrar-perfil", async () => {
+      try {
+        ProfileManager.limpiarPerfil();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
+class DashboardRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  get tabla() {
+    return ProfileManager.getTablaFacturas();
+  }
+  kpisDelMes(año, mes) {
+    const mesStr = String(mes).padStart(2, "0");
+    const mesAnterior = mes === 1 ? 12 : mes - 1;
+    const añoAnterior = mes === 1 ? año - 1 : año;
+    const mesAnteriorStr = String(mesAnterior).padStart(2, "0");
+    const query = (a, m) => this.db.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as ingresos,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as egresos,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_trasladados ELSE 0 END), 0) as iva_cobrado,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_trasladados ELSE 0 END), 0) as iva_pagado
+      FROM ${this.tabla}
+      WHERE strftime('%Y', fecha_emision) = '${a}' AND strftime('%m', fecha_emision) = '${m}'
+    `).get();
+    const actual = query(año, mesStr);
+    const anterior = query(añoAnterior, mesAnteriorStr);
+    const variacion = (a, b) => b === 0 ? 0 : Math.round((a - b) / b * 100);
+    return {
+      ingresos: actual.ingresos,
+      egresos: actual.egresos,
+      balance: actual.ingresos - actual.egresos,
+      iva_estimado: actual.iva_cobrado - actual.iva_pagado,
+      variacion_ingresos: variacion(actual.ingresos, anterior.ingresos),
+      variacion_egresos: variacion(actual.egresos, anterior.egresos),
+      variacion_balance: variacion(actual.ingresos - actual.egresos, anterior.ingresos - anterior.egresos)
+    };
+  }
+  flujoAnual(año) {
+    return this.db.prepare(`
+      SELECT
+        strftime('%m', fecha_emision) as mes,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as ingresos,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as egresos
+      FROM ${this.tabla}
+      WHERE strftime('%Y', fecha_emision) = '${año}'
+      GROUP BY mes
+      ORDER BY mes ASC
+    `).all();
+  }
+  topProveedores(año, mes) {
+    const mesStr = String(mes).padStart(2, "0");
+    return this.db.prepare(`
+      SELECT
+        rfc_emisor as rfc,
+        nombre_emisor as nombre,
+        COUNT(*) as facturas,
+        SUM(total) as total
+      FROM ${this.tabla}
+      WHERE tipo_descarga = 'recibida'
+        AND tipo_comprobante = 'I'
+        AND estado = 'vigente'
+        AND strftime('%Y', fecha_emision) = '${año}'
+        AND strftime('%m', fecha_emision) = '${mesStr}'
+      GROUP BY rfc_emisor
+      ORDER BY total DESC
+      LIMIT 5
+    `).all();
+  }
+  topClientes(año, mes) {
+    const mesStr = String(mes).padStart(2, "0");
+    return this.db.prepare(`
+      SELECT
+        rfc_receptor as rfc,
+        nombre_receptor as nombre,
+        COUNT(*) as facturas,
+        SUM(total) as total
+      FROM ${this.tabla}
+      WHERE tipo_descarga = 'emitida'
+        AND tipo_comprobante = 'I'
+        AND estado = 'vigente'
+        AND strftime('%Y', fecha_emision) = '${año}'
+        AND strftime('%m', fecha_emision) = '${mesStr}'
+      GROUP BY rfc_receptor
+      ORDER BY total DESC
+      LIMIT 5
+    `).all();
+  }
+  obtenerConteos(rfcActivo) {
+    return this.db.prepare(`
+    SELECT
+      SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' THEN 1 ELSE 0 END) as recibidas,
+      SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' THEN 1 ELSE 0 END) as emitidas,
+      SUM(CASE WHEN tipo_comprobante = 'N' THEN 1 ELSE 0 END) as nomina,
+      SUM(CASE WHEN tipo_comprobante = 'P' THEN 1 ELSE 0 END) as pagos,
+      COUNT(DISTINCT CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' THEN rfc_receptor END) as clientes,
+      COUNT(DISTINCT CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' THEN rfc_emisor END) as proveedores,
+      SUM(CASE WHEN tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}' THEN 1 ELSE 0 END) as empleados,
+      SUM(CASE WHEN tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}' THEN 1 ELSE 0 END) as patrones
+    FROM ${this.tabla}
+  `).get();
+  }
+  ivaAnual(año) {
+    return this.db.prepare(`
+      SELECT
+        strftime('%m', fecha_emision) AS mes,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida'  AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_trasladados ELSE 0 END), 0) AS iva_cobrado,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_trasladados ELSE 0 END), 0) AS iva_acreditable,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida'  AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_retenidos  ELSE 0 END), 0) AS iva_retenido_cobrado,
+        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_retenidos  ELSE 0 END), 0) AS iva_retenido_pagado
+      FROM ${this.tabla}
+      WHERE strftime('%Y', fecha_emision) = '${año}'
+      GROUP BY mes
+      ORDER BY mes ASC
+    `).all();
+  }
+}
+class DashboardHandler {
+  repository;
+  constructor(db) {
+    this.repository = new DashboardRepository(db);
+  }
+  registrar() {
+    electron.ipcMain.handle("dashboard-kpis", async (_, año, mes) => {
+      try {
+        return { success: true, data: this.repository.kpisDelMes(año, mes) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("dashboard-flujo-anual", async (_, año) => {
+      try {
+        return { success: true, data: this.repository.flujoAnual(año) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("dashboard-top-proveedores", async (_, año, mes) => {
+      try {
+        return { success: true, data: this.repository.topProveedores(año, mes) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("dashboard-top-clientes", async (_, año, mes) => {
+      try {
+        return { success: true, data: this.repository.topClientes(año, mes) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("dashboard-obtener-conteos", async () => {
+      try {
+        const perfil = ProfileManager.getPerfilActivo();
+        const data = this.repository.obtenerConteos(perfil?.rfc || "");
+        return { success: true, data };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("reportes-iva-anual", async (_, año) => {
+      try {
+        return { success: true, data: this.repository.ivaAnual(año) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
+class CatalogoRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  tabla(tipo) {
+    return `${tipo}_${ProfileManager.getRfcActivo()}`;
+  }
+  tablaFacturas() {
+    return ProfileManager.getTablaFacturas();
+  }
+  obtenerTodos(tipo) {
+    const tablaF = this.tablaFacturas();
+    const rfcActivo = ProfileManager.getRfcActivo();
+    const campoRfc = tipo === "clientes" || tipo === "empleados" ? "rfc_receptor" : "rfc_emisor";
+    const filtroTipo = tipo === "clientes" ? `tipo_descarga = 'emitida' AND tipo_comprobante = 'I'` : tipo === "proveedores" ? `tipo_descarga = 'recibida' AND tipo_comprobante = 'I'` : tipo === "empleados" ? `tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}'` : `tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}'`;
+    const camposExtra = tipo === "clientes" || tipo === "proveedores" ? `c.limite_credito, c.dias_credito, c.contacto,` : tipo === "empleados" ? `c.puesto, c.fecha_ingreso,` : `c.contacto,`;
+    return this.db.prepare(`
+    SELECT
+      c.id, c.rfc, c.nombre, c.telefono, c.email,
+      c.direccion, c.notas, ${camposExtra}
+      c.created_at, c.updated_at,
+      COUNT(f.uuid) as total_facturas,
+      COALESCE(SUM(f.total), 0) as total_facturado,
+      MAX(f.fecha_emision) as ultimo_cfdi
+    FROM ${this.tabla(tipo)} c
+    LEFT JOIN ${tablaF} f ON f.${campoRfc} = c.rfc AND ${filtroTipo}
+    GROUP BY c.id
+    ORDER BY total_facturado DESC
+  `).all();
+  }
+  obtenerPorRfc(tipo, rfc) {
+    const tablaF = this.tablaFacturas();
+    const rfcActivo = ProfileManager.getRfcActivo();
+    const campoRfc = tipo === "clientes" || tipo === "empleados" ? "rfc_receptor" : "rfc_emisor";
+    const filtroTipo = tipo === "clientes" ? `tipo_descarga = 'emitida' AND tipo_comprobante = 'I'` : tipo === "proveedores" ? `tipo_descarga = 'recibida' AND tipo_comprobante = 'I'` : tipo === "empleados" ? `tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}'` : `tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}'`;
+    return this.db.prepare(`
+      SELECT
+        c.*,
+        COUNT(f.uuid) as total_facturas,
+        COALESCE(SUM(f.total), 0) as total_facturado,
+        MAX(f.fecha_emision) as ultimo_cfdi
+      FROM ${this.tabla(tipo)} c
+      LEFT JOIN ${tablaF} f ON f.${campoRfc} = c.rfc AND ${filtroTipo}
+      WHERE c.rfc = ?
+      GROUP BY c.id
+    `).get(rfc);
+  }
+  actualizar(tipo, rfc, datos) {
+    const campos = Object.keys(datos).filter((k) => k !== "rfc" && k !== "id").map((k) => `${k} = @${k}`).join(", ");
+    this.db.prepare(`
+      UPDATE ${this.tabla(tipo)}
+      SET ${campos}, updated_at = datetime('now')
+      WHERE rfc = @rfc
+    `).run({ ...datos, rfc });
+  }
+  sincronizar(tipo) {
+    const tablaF = this.tablaFacturas();
+    const rfcActivo = ProfileManager.getRfcActivo();
+    const queries = {
+      clientes: `
+        INSERT OR IGNORE INTO ${this.tabla("clientes")} (rfc, nombre)
+        SELECT DISTINCT rfc_receptor, nombre_receptor
+        FROM ${tablaF}
+        WHERE tipo_descarga = 'emitida' AND tipo_comprobante = 'I'
+          AND rfc_receptor IS NOT NULL AND rfc_receptor != ''
+      `,
+      proveedores: `
+        INSERT OR IGNORE INTO ${this.tabla("proveedores")} (rfc, nombre)
+        SELECT DISTINCT rfc_emisor, nombre_emisor
+        FROM ${tablaF}
+        WHERE tipo_descarga = 'recibida' AND tipo_comprobante = 'I'
+          AND rfc_emisor IS NOT NULL AND rfc_emisor != ''
+      `,
+      empleados: `
+        INSERT OR IGNORE INTO ${this.tabla("empleados")} (rfc, nombre)
+        SELECT DISTINCT rfc_receptor, nombre_receptor
+        FROM ${tablaF}
+        WHERE tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}'
+          AND rfc_receptor IS NOT NULL AND rfc_receptor != ''
+      `,
+      patrones: `
+        INSERT OR IGNORE INTO ${this.tabla("patrones")} (rfc, nombre)
+        SELECT DISTINCT rfc_emisor, nombre_emisor
+        FROM ${tablaF}
+        WHERE tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}'
+          AND rfc_emisor IS NOT NULL AND rfc_emisor != ''
+      `
+    };
+    this.db.prepare(queries[tipo]).run();
+  }
+  sincronizarTodos() {
+    this.sincronizar("clientes");
+    this.sincronizar("proveedores");
+    this.sincronizar("empleados");
+    this.sincronizar("patrones");
+  }
+}
+class CatalogoHandler {
+  repository;
+  constructor(db) {
+    this.repository = new CatalogoRepository(db);
+  }
+  registrar() {
+    electron.ipcMain.handle("catalogo-obtener", async (_, tipo) => {
+      try {
+        const data = this.repository.obtenerTodos(tipo);
+        return { success: true, data };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("catalogo-obtener-por-rfc", async (_, tipo, rfc) => {
+      try {
+        const data = this.repository.obtenerPorRfc(tipo, rfc);
+        return { success: true, data };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("catalogo-actualizar", async (_, tipo, rfc, datos) => {
+      try {
+        this.repository.actualizar(tipo, rfc, datos);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("catalogo-sincronizar", async () => {
+      try {
+        this.repository.sincronizarTodos();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
 class FacturaRepository {
   constructor(db) {
     this.db = db;
@@ -1214,6 +1642,366 @@ class DescargaPendienteRepository {
     return row.total;
   }
 }
+class ConciliacionRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  get tabla() {
+    return ProfileManager.getTablaConciliaciones();
+  }
+  insertar(c) {
+    this.db.prepare(`
+      INSERT INTO ${this.tabla}
+        (tipo, ejercicio, periodo, total_sat, total_local, descargadas, actualizadas, errores)
+      VALUES
+        (@tipo, @ejercicio, @periodo, @total_sat, @total_local, @descargadas, @actualizadas, @errores)
+    `).run(c);
+  }
+  obtenerUltima(tipo, ejercicio, periodo) {
+    return this.db.prepare(`
+      SELECT * FROM ${this.tabla}
+      WHERE tipo = ? AND ejercicio = ? AND periodo = ?
+      ORDER BY fecha_conciliacion DESC
+      LIMIT 1
+    `).get(tipo, ejercicio, periodo);
+  }
+  obtenerHistorial(limite = 20) {
+    return this.db.prepare(`
+      SELECT * FROM ${this.tabla}
+      ORDER BY fecha_conciliacion DESC
+      LIMIT ?
+    `).all(limite);
+  }
+}
+const MAX_REINTENTOS = 3;
+const ESPERA_ENTRE_REINTENTOS_MS = 5e3;
+class SatAuthService {
+  constructor(context) {
+    this.context = context;
+  }
+  paginaLogin = null;
+  async obtenerCaptcha() {
+    if (this.paginaLogin) {
+      await this.paginaLogin.close();
+      this.paginaLogin = null;
+    }
+    this.paginaLogin = await this.context.newPage();
+    await this.paginaLogin.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
+    await this.paginaLogin.waitForSelector("#divCaptcha", { timeout: 15e3 });
+    const imagenBase64 = await this.paginaLogin.$eval(
+      "#divCaptcha img",
+      (img) => img.src
+    );
+    return { imagenBase64 };
+  }
+  async loginConContrasena(rfc, password, captcha) {
+    if (!this.paginaLogin) {
+      throw new Error("Primero debes cargar el captcha");
+    }
+    const page = this.paginaLogin;
+    this.paginaLogin = null;
+    await page.fill("#rfc", rfc);
+    await page.fill("#password", password);
+    await page.fill("#userCaptcha", captcha.toUpperCase());
+    await this.intentarLogin(page, () => page.click("#submit", { timeout: 9e4 }), "contrasena");
+    return page;
+  }
+  async loginConEfirma(rutaCer, rutaKey, contrasenaFiel) {
+    const page = this.paginaLogin ?? await this.context.newPage();
+    this.paginaLogin = null;
+    if (!page.url().includes("portalcfdi")) {
+      await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
+    }
+    await page.waitForSelector("#buttonFiel", { timeout: 15e3 });
+    await page.click("#buttonFiel");
+    await page.waitForSelector("#fileCertificate", { timeout: 1e4 });
+    await page.setInputFiles("#fileCertificate", rutaCer);
+    await page.setInputFiles("#filePrivateKey", rutaKey);
+    await page.fill("#privateKeyPassword", contrasenaFiel);
+    await this.intentarLogin(page, () => page.click("#submit", { timeout: 9e4 }), "efirma");
+    return page;
+  }
+  // Orquesta reintentos — no sabe de SAT, solo reintenta si es timeout
+  async intentarLogin(page, accion, metodoAuth, intento = 1) {
+    try {
+      await this.esperarLoginExitoso(page, accion);
+    } catch (error) {
+      const esTimeout = error.message?.includes("Timeout") || error.message?.includes("timeout");
+      const esCaptchaInvalido = error.message?.includes("CAPTCHA_INVALIDO");
+      const esSaturado = error.message?.includes("SAT_SATURADO");
+      if (esCaptchaInvalido || esSaturado) throw error;
+      if (esTimeout && metodoAuth === "contrasena") {
+        throw new Error("SAT_TIMEOUT");
+      }
+      if (esTimeout && intento < MAX_REINTENTOS) {
+        console.log(`Login timeout (intento ${intento}/${MAX_REINTENTOS}), reintentando en ${ESPERA_ENTRE_REINTENTOS_MS / 1e3}s...`);
+        await page.waitForTimeout(ESPERA_ENTRE_REINTENTOS_MS);
+        await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
+        await page.waitForSelector("#divCaptcha", { timeout: 15e3 });
+        return this.intentarLogin(page, accion, metodoAuth, intento + 1);
+      }
+      if (esTimeout) throw new Error("SAT_TIMEOUT");
+      throw error;
+    }
+  }
+  // Hace una sola cosa: esperar que el login complete y verificar resultado
+  async esperarLoginExitoso(page, accion) {
+    await Promise.all([
+      page.waitForNavigation({ timeout: 9e4 }).catch(() => null),
+      accion()
+    ]);
+    await page.waitForTimeout(4e3);
+    const url = page.url();
+    console.log("URL después de login:", url);
+    const esPaginaError = await page.$("text=Ha ocurrido un error al procesar").catch(() => null);
+    if (esPaginaError) throw new Error("SAT_SATURADO");
+    const errorCaptcha = await page.$("#divCapError, .alert-danger, .mensaje-error").catch(() => null);
+    if (errorCaptcha) {
+      const textoError = await errorCaptcha.textContent().catch(() => "");
+      throw new Error(`CAPTCHA_INVALIDO: ${textoError?.trim()}`);
+    }
+    const llegamosAlPortal = url.includes("portalcfdi.facturaelectronica.sat.gob.mx") && !url.includes("login") && !url.includes("Login");
+    if (!llegamosAlPortal) {
+      const mensajeError = await page.$eval(
+        '.alert, .error, [class*="error"], [class*="Error"]',
+        (el) => el.textContent?.trim()
+      ).catch(() => null);
+      throw new Error(mensajeError || "Login fallido: no se pudo acceder al portal");
+    }
+    console.log("Login exitoso");
+  }
+  async logout(page) {
+    try {
+      await page.click("#salir");
+    } finally {
+      await page.close();
+    }
+  }
+  async cerrarSesion() {
+    if (this.paginaLogin) {
+      await this.paginaLogin.close().catch(() => null);
+      this.paginaLogin = null;
+    }
+    await BrowserManager.cerrar();
+  }
+}
+class SatBusquedaService {
+  async buscarPorParametros(page, params, onProgreso) {
+    if (params.buscarPor === "folio") {
+      return this.buscarEnPagina(page, params);
+    }
+    if (params.tipo === "recibidas") {
+      return this.buscarRecibidasPorMes(page, params, onProgreso);
+    }
+    return this.buscarEnPagina(page, params);
+  }
+  async buscarRecibidasPorMes(page, params, onProgreso) {
+    const meses = this.dividirEnMeses(params.fechaInicio, params.fechaFin);
+    const [dI, mI, aI] = params.fechaInicio.split("/").map(Number);
+    const [dF, mF, aF] = params.fechaFin.split("/").map(Number);
+    const fechaMin = new Date(aI, mI - 1, dI, 0, 0, 0);
+    const fechaMax = new Date(aF, mF - 1, dF, 23, 59, 59);
+    const todas = [];
+    for (let i = 0; i < meses.length; i++) {
+      onProgreso?.(i + 1, meses.length);
+      const paramsMes = { ...params, fechaInicio: meses[i].inicio, fechaFin: meses[i].fin };
+      const filas = await this.buscarEnPagina(page, paramsMes);
+      const filtradas = filas.filter((f) => {
+        const fechaFactura = new Date(f.fecha_emision.replace(" ", "T"));
+        return fechaFactura >= fechaMin && fechaFactura <= fechaMax;
+      });
+      todas.push(...filtradas);
+      console.log(`Mes ${i + 1}/${meses.length}: ${filtradas.length} facturas`);
+    }
+    return todas;
+  }
+  async buscarEnPagina(page, params) {
+    const urlConsulta = params.tipo === "recibidas" ? "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaReceptor.aspx" : "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaEmisor.aspx";
+    await page.goto(urlConsulta);
+    await page.waitForSelector("#ctl00_MainContent_BtnBusqueda", { timeout: 15e3 });
+    if (params.buscarPor === "folio") {
+      await page.click("#ctl00_MainContent_RdoFolioFiscal");
+      await page.waitForTimeout(1e3);
+      await page.fill("#ctl00_MainContent_TxtUUID", params.folioFiscal);
+    } else {
+      await page.click("#ctl00_MainContent_RdoFechas");
+      await page.waitForTimeout(1500);
+      const [diaI, mesI, anioI] = params.fechaInicio.split("/");
+      if (params.tipo === "recibidas") {
+        await page.selectOption("#DdlAnio", anioI);
+        await page.waitForTimeout(500);
+        await page.selectOption("#ctl00_MainContent_CldFecha_DdlMes", String(parseInt(mesI)));
+        await page.waitForTimeout(300);
+        await page.selectOption("#ctl00_MainContent_CldFecha_DdlDia", String(parseInt(diaI)));
+      } else {
+        const [diaF, mesF, anioF] = params.fechaFin.split("/");
+        await page.evaluate((id) => {
+          const el = document.getElementById(id);
+          if (el) el.removeAttribute("disabled");
+        }, "ctl00_MainContent_CldFechaInicial2_Calendario_text");
+        await page.fill("#ctl00_MainContent_CldFechaInicial2_Calendario_text", `${diaI}/${mesI}/${anioI}`);
+        await page.waitForTimeout(300);
+        await page.evaluate((id) => {
+          const el = document.getElementById(id);
+          if (el) el.removeAttribute("disabled");
+        }, "ctl00_MainContent_CldFechaFinal2_Calendario_text");
+        await page.fill("#ctl00_MainContent_CldFechaFinal2_Calendario_text", `${diaF}/${mesF}/${anioF}`);
+        await page.waitForTimeout(300);
+        await page.selectOption("#ctl00_MainContent_CldFechaFinal2_DdlHora", "23");
+        await page.selectOption("#ctl00_MainContent_CldFechaFinal2_DdlMinuto", "59");
+        await page.selectOption("#ctl00_MainContent_CldFechaFinal2_DdlSegundo", "59");
+      }
+    }
+    if (params.rfcTercero) {
+      await page.fill("#ctl00_MainContent_TxtRfcReceptor", params.rfcTercero);
+    }
+    if (params.estadoComprobante) {
+      const valorEstado = params.estadoComprobante === "cancelado" ? "0" : "1";
+      await page.selectOption("#ctl00_MainContent_DdlEstadoComprobante", valorEstado);
+    }
+    await page.click("#ctl00_MainContent_BtnBusqueda");
+    await page.waitForTimeout(6e3);
+    const sinResultados = await page.$("#ctl00_MainContent_PnlNoResultados");
+    if (sinResultados && await sinResultados.isVisible()) return [];
+    return page.$$eval(
+      "#ctl00_MainContent_tblResult tbody tr:not(:first-child)",
+      (filas) => filas.map((fila) => {
+        const celdas = fila.querySelectorAll("td");
+        if (celdas.length < 17) return null;
+        const checkbox = fila.querySelector("input.ListaFolios");
+        const btnDescarga = fila.querySelector("#BtnDescarga");
+        const getText = (idx) => celdas[idx]?.textContent?.trim() || "";
+        const onclick = btnDescarga?.getAttribute("onclick") || "";
+        const match = onclick.match(/RecuperaCfdi\.aspx\?Datos=[^']+/);
+        const urlDescarga = match ? match[0] : "";
+        const totalStr = getText(16).replace("$", "").replace(/,/g, "").trim();
+        const tipoTexto = getText(17).toLowerCase();
+        let tipo = "I";
+        if (tipoTexto.includes("egreso")) tipo = "E";
+        else if (tipoTexto.includes("traslado")) tipo = "T";
+        else if (tipoTexto.includes("nómina") || tipoTexto.includes("nomina")) tipo = "N";
+        else if (tipoTexto.includes("pago")) tipo = "P";
+        return {
+          uuid: checkbox?.value || getText(8),
+          rfc_emisor: getText(9),
+          nombre_emisor: getText(10),
+          rfc_receptor: getText(11),
+          nombre_receptor: getText(12),
+          fecha_emision: getText(13),
+          total: parseFloat(totalStr) || 0,
+          tipo_comprobante: tipo,
+          estado: getText(19).toLowerCase().includes("vigente") ? "vigente" : "cancelado",
+          urlDescarga
+        };
+      }).filter(Boolean)
+    );
+  }
+  dividirEnMeses(fechaInicio, fechaFin) {
+    const [_diaI, mesI, anioI] = fechaInicio.split("/").map(Number);
+    const [_diaF, mesF, anioF] = fechaFin.split("/").map(Number);
+    const meses = [];
+    let anio = anioI;
+    let mes = mesI;
+    while (anio < anioF || anio === anioF && mes <= mesF) {
+      const ultimoDia = new Date(anio, mes, 0).getDate();
+      const inicio = anio === anioI && mes === mesI ? fechaInicio : `01/${String(mes).padStart(2, "0")}/${anio}`;
+      const fin = anio === anioF && mes === mesF ? fechaFin : `${ultimoDia}/${String(mes).padStart(2, "0")}/${anio}`;
+      meses.push({ inicio, fin });
+      mes++;
+      if (mes > 12) {
+        mes = 1;
+        anio++;
+      }
+    }
+    return meses;
+  }
+}
+class SatDescargaService {
+  LOTE_SIZE = 10;
+  async descargarEnLote(page, filas, carpetaTemp, onProgreso) {
+    const exitosas = [];
+    const errores = [];
+    const context = page.context();
+    const cookies = await context.cookies();
+    const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+    const userAgent = await page.evaluate(() => navigator.userAgent);
+    const referer = page.url();
+    let procesadas = 0;
+    for (let i = 0; i < filas.length; i += this.LOTE_SIZE) {
+      const lote = filas.slice(i, i + this.LOTE_SIZE);
+      const resultados = await Promise.all(
+        lote.map((fila) => this.descargarUnoConAxios(fila, carpetaTemp, cookieString, userAgent, referer))
+      );
+      for (const r of resultados) {
+        if (r) exitosas.push(r);
+        else if (lote[resultados.indexOf(r)]) {
+          const fila = lote[resultados.indexOf(r)];
+          errores.push({ uuid: fila.uuid, error: "Descarga fallida", fila });
+        }
+      }
+      procesadas += lote.length;
+      onProgreso?.(procesadas, filas.length, lote[lote.length - 1]?.uuid || "");
+    }
+    return { exitosas, errores };
+  }
+  async descargarUnoConPlaywright(page, urlRelativa, uuid, carpetaTemp) {
+    try {
+      const urlCompleta = `https://portalcfdi.facturaelectronica.sat.gob.mx/${urlRelativa}`;
+      const rutaFinal = path.join(carpetaTemp, `${uuid}.xml`);
+      const [download] = await Promise.all([
+        page.waitForEvent("download", { timeout: 2e4 }),
+        page.evaluate((url) => {
+          window.location.href = url;
+        }, urlCompleta)
+      ]);
+      const rutaTemp = await download.path();
+      if (!rutaTemp) return null;
+      fs__namespace.renameSync(rutaTemp, rutaFinal);
+      return rutaFinal;
+    } catch {
+      return null;
+    }
+  }
+  async descargarUnoConAxios(fila, carpetaTemp, cookieString, userAgent, referer) {
+    if (!fila.urlDescarga) return null;
+    try {
+      const urlCompleta = `https://portalcfdi.facturaelectronica.sat.gob.mx/${fila.urlDescarga}`;
+      const rutaTemp = path.join(carpetaTemp, `${fila.uuid}.xml`);
+      const response = await axios({
+        method: "get",
+        url: urlCompleta,
+        headers: {
+          Cookie: cookieString,
+          "User-Agent": userAgent,
+          Referer: referer,
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        },
+        timeout: 15e3,
+        responseType: "text"
+      });
+      if (!response.data.includes("<?xml")) return null;
+      fs__namespace.writeFileSync(rutaTemp, response.data);
+      return {
+        rutaTemp,
+        meta: {
+          uuid: fila.uuid,
+          rfc_emisor: fila.rfc_emisor,
+          nombre_emisor: fila.nombre_emisor,
+          rfc_receptor: fila.rfc_receptor,
+          nombre_receptor: fila.nombre_receptor,
+          fecha_emision: fila.fecha_emision,
+          total: fila.total,
+          tipo_comprobante: fila.tipo_comprobante,
+          estado: fila.estado,
+          tipo_descarga: fila.tipo_descarga
+        }
+      };
+    } catch (err) {
+      console.error(`Fallo descarga ${fila.uuid}:`, err.message);
+      return null;
+    }
+  }
+}
 class XmlParserService {
   extraerCampos(rutaXml) {
     try {
@@ -1225,7 +2013,8 @@ class XmlParserService {
       const cfdi = doc.getElementsByTagNameNS(ns, "Comprobante")[0] || doc.documentElement;
       const tfd = doc.getElementsByTagNameNS(nsTfd, "TimbreFiscalDigital")[0] || null;
       const cfdiRelacionado = doc.getElementsByTagNameNS(ns, "CfdiRelacionado")[0] || null;
-      const impuestosEl = doc.getElementsByTagNameNS(ns, "Impuestos")[0] || null;
+      const todosLosImpuestos = doc.getElementsByTagNameNS(ns, "Impuestos");
+      const impuestosEl = todosLosImpuestos.length > 0 ? todosLosImpuestos[todosLosImpuestos.length - 1] : null;
       const emisor = doc.getElementsByTagNameNS(ns, "Emisor")[0] || null;
       const receptor = doc.getElementsByTagNameNS(ns, "Receptor")[0] || null;
       const getAttr = (el, attr) => el?.getAttribute(attr) || "";
@@ -1336,220 +2125,172 @@ class RutaArchivoService {
     }
   }
 }
-class FacturaGuardadoService {
-  constructor(facturaRepository, pendienteRepository) {
+class CfdiGuardadoService {
+  constructor(facturaRepository, pendienteRepository, db) {
     this.facturaRepository = facturaRepository;
     this.pendienteRepository = pendienteRepository;
+    this.catalogoRepository = new CatalogoRepository(db);
   }
   xmlParser = new XmlParserService();
   rutaService = new RutaArchivoService();
-  guardar(factura, tipoDes) {
-    if (!factura.urlDescarga) return;
-    const camposXml = this.xmlParser.extraerCampos(factura.urlDescarga);
+  catalogoRepository;
+  // Descarga / conciliación — el XML ya está en rutaTemp
+  guardarDesdeRuta(rutaTemp, meta) {
     const rutaDestino = this.rutaService.construirRutaXml({
-      uuid: factura.uuid,
-      fecha_emision: factura.fecha_emision,
-      rfc_emisor: factura.rfc_emisor,
-      rfc_receptor: factura.rfc_receptor,
-      tipo_descarga: tipoDes
+      uuid: meta.uuid,
+      fecha_emision: meta.fecha_emision,
+      rfc_emisor: meta.rfc_emisor,
+      rfc_receptor: meta.rfc_receptor,
+      tipo_descarga: meta.tipo_descarga
     });
-    fs__namespace.copyFileSync(factura.urlDescarga, rutaDestino);
-    const yaExiste = this.facturaRepository.obtenerPorUuid(factura.uuid);
+    fs__namespace.copyFileSync(rutaTemp, rutaDestino);
+    const camposXml = this.xmlParser.extraerCampos(rutaDestino);
+    const yaExiste = this.facturaRepository.obtenerPorUuid(meta.uuid);
     if (!yaExiste) {
       this.facturaRepository.insertar({
-        uuid: factura.uuid,
-        fecha_emision: factura.fecha_emision,
-        rfc_emisor: factura.rfc_emisor,
-        nombre_emisor: factura.nombre_emisor,
-        rfc_receptor: factura.rfc_receptor,
-        nombre_receptor: factura.nombre_receptor,
-        subtotal: factura.total,
-        total: factura.total,
-        tipo_comprobante: factura.tipo_comprobante,
-        estado: factura.estado,
+        uuid: meta.uuid,
+        fecha_emision: meta.fecha_emision,
+        rfc_emisor: meta.rfc_emisor,
+        nombre_emisor: meta.nombre_emisor,
+        rfc_receptor: meta.rfc_receptor,
+        nombre_receptor: meta.nombre_receptor,
+        subtotal: meta.total,
+        total: meta.total,
+        tipo_comprobante: meta.tipo_comprobante,
+        estado: meta.estado,
         xml: rutaDestino,
-        tipo_descarga: tipoDes,
+        tipo_descarga: meta.tipo_descarga,
         fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
         ...camposXml
       });
     } else {
-      this.facturaRepository.actualizar(factura.uuid, {
-        xml: rutaDestino,
-        ...camposXml
-      });
+      this.facturaRepository.actualizar(meta.uuid, { xml: rutaDestino, ...camposXml });
     }
-    this.pendienteRepository.eliminar(factura.uuid);
+    this.pendienteRepository.eliminar(meta.uuid);
   }
-  guardarPendiente(factura, tipoDes, error) {
-    this.pendienteRepository.insertar({
-      uuid: factura.uuid,
-      rfc_emisor: factura.rfc_emisor,
-      nombre_emisor: factura.nombre_emisor,
-      rfc_receptor: factura.rfc_receptor,
-      nombre_receptor: factura.nombre_receptor,
-      fecha_emision: factura.fecha_emision,
-      total: factura.total,
-      tipo_comprobante: factura.tipo_comprobante,
-      estado: factura.estado,
-      url_descarga: factura.urlDescarga ?? "",
-      // fix: string | undefined → string
+  // Importación manual — el XML ya está en ruta local del usuario
+  importarDesdeRutaLocal(rutaOrigen) {
+    const perfil = ProfileManager.getPerfilActivo();
+    if (!perfil) throw new Error("No hay perfil activo");
+    const camposXml = this.xmlParser.extraerCampos(rutaOrigen);
+    if (!camposXml.uuid) throw new Error("No se encontró UUID en el XML");
+    const perteneceAlPerfil = camposXml.rfc_emisor === perfil.rfc || camposXml.rfc_receptor === perfil.rfc;
+    if (!perteneceAlPerfil) {
+      throw new Error(`El XML no pertenece al contribuyente activo (${perfil.rfc})`);
+    }
+    const yaExiste = this.facturaRepository.obtenerPorUuid(camposXml.uuid);
+    if (yaExiste) return "omitida";
+    const tipoDes = camposXml.rfc_receptor === perfil.rfc ? "recibida" : "emitida";
+    const rutaDestino = this.rutaService.construirRutaXml({
+      uuid: camposXml.uuid,
+      fecha_emision: camposXml.fecha_emision || "",
+      rfc_emisor: camposXml.rfc_emisor || "",
+      rfc_receptor: camposXml.rfc_receptor || "",
+      tipo_descarga: tipoDes
+    });
+    fs__namespace.copyFileSync(rutaOrigen, rutaDestino);
+    this.facturaRepository.insertar({
+      uuid: camposXml.uuid,
+      fecha_emision: camposXml.fecha_emision || "",
+      rfc_emisor: camposXml.rfc_emisor || "",
+      nombre_emisor: camposXml.nombre_emisor || "",
+      rfc_receptor: camposXml.rfc_receptor || "",
+      nombre_receptor: camposXml.nombre_receptor || "",
+      subtotal: camposXml.subtotal || 0,
+      total: camposXml.total || 0,
+      tipo_comprobante: camposXml.tipo_comprobante || "I",
+      estado: "vigente",
+      xml: rutaDestino,
       tipo_descarga: tipoDes,
+      fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
+      ...camposXml
+    });
+    return "importada";
+  }
+  // Conciliación — actualiza estado de vigente a cancelado
+  actualizarEstado(uuid, estado) {
+    this.facturaRepository.actualizar(uuid, { estado });
+  }
+  // Pendientes — registra fallo de descarga para reintentar después
+  guardarPendiente(meta, error) {
+    this.pendienteRepository.insertar({
+      uuid: meta.uuid,
+      rfc_emisor: meta.rfc_emisor,
+      nombre_emisor: meta.nombre_emisor,
+      rfc_receptor: meta.rfc_receptor,
+      nombre_receptor: meta.nombre_receptor,
+      fecha_emision: meta.fecha_emision,
+      total: meta.total,
+      tipo_comprobante: meta.tipo_comprobante,
+      estado: meta.estado,
+      url_descarga: "",
+      tipo_descarga: meta.tipo_descarga,
       error
     });
   }
-}
-class CatalogoRepository {
-  constructor(db) {
-    this.db = db;
-  }
-  tabla(tipo) {
-    return `${tipo}_${ProfileManager.getRfcActivo()}`;
-  }
-  tablaFacturas() {
-    return ProfileManager.getTablaFacturas();
-  }
-  obtenerTodos(tipo) {
-    const tablaF = this.tablaFacturas();
-    const rfcActivo = ProfileManager.getRfcActivo();
-    const campoRfc = tipo === "clientes" || tipo === "empleados" ? "rfc_receptor" : "rfc_emisor";
-    const filtroTipo = tipo === "clientes" ? `tipo_descarga = 'emitida' AND tipo_comprobante = 'I'` : tipo === "proveedores" ? `tipo_descarga = 'recibida' AND tipo_comprobante = 'I'` : tipo === "empleados" ? `tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}'` : `tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}'`;
-    const camposExtra = tipo === "clientes" || tipo === "proveedores" ? `c.limite_credito, c.dias_credito, c.contacto,` : tipo === "empleados" ? `c.puesto, c.fecha_ingreso,` : `c.contacto,`;
-    return this.db.prepare(`
-    SELECT
-      c.id, c.rfc, c.nombre, c.telefono, c.email,
-      c.direccion, c.notas, ${camposExtra}
-      c.created_at, c.updated_at,
-      COUNT(f.uuid) as total_facturas,
-      COALESCE(SUM(f.total), 0) as total_facturado,
-      MAX(f.fecha_emision) as ultimo_cfdi
-    FROM ${this.tabla(tipo)} c
-    LEFT JOIN ${tablaF} f ON f.${campoRfc} = c.rfc AND ${filtroTipo}
-    GROUP BY c.id
-    ORDER BY total_facturado DESC
-  `).all();
-  }
-  obtenerPorRfc(tipo, rfc) {
-    const tablaF = this.tablaFacturas();
-    const rfcActivo = ProfileManager.getRfcActivo();
-    const campoRfc = tipo === "clientes" || tipo === "empleados" ? "rfc_receptor" : "rfc_emisor";
-    const filtroTipo = tipo === "clientes" ? `tipo_descarga = 'emitida' AND tipo_comprobante = 'I'` : tipo === "proveedores" ? `tipo_descarga = 'recibida' AND tipo_comprobante = 'I'` : tipo === "empleados" ? `tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}'` : `tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}'`;
-    return this.db.prepare(`
-      SELECT
-        c.*,
-        COUNT(f.uuid) as total_facturas,
-        COALESCE(SUM(f.total), 0) as total_facturado,
-        MAX(f.fecha_emision) as ultimo_cfdi
-      FROM ${this.tabla(tipo)} c
-      LEFT JOIN ${tablaF} f ON f.${campoRfc} = c.rfc AND ${filtroTipo}
-      WHERE c.rfc = ?
-      GROUP BY c.id
-    `).get(rfc);
-  }
-  actualizar(tipo, rfc, datos) {
-    const campos = Object.keys(datos).filter((k) => k !== "rfc" && k !== "id").map((k) => `${k} = @${k}`).join(", ");
-    this.db.prepare(`
-      UPDATE ${this.tabla(tipo)}
-      SET ${campos}, updated_at = datetime('now')
-      WHERE rfc = @rfc
-    `).run({ ...datos, rfc });
-  }
-  sincronizar(tipo) {
-    const tablaF = this.tablaFacturas();
-    const rfcActivo = ProfileManager.getRfcActivo();
-    const queries = {
-      clientes: `
-        INSERT OR IGNORE INTO ${this.tabla("clientes")} (rfc, nombre)
-        SELECT DISTINCT rfc_receptor, nombre_receptor
-        FROM ${tablaF}
-        WHERE tipo_descarga = 'emitida' AND tipo_comprobante = 'I'
-          AND rfc_receptor IS NOT NULL AND rfc_receptor != ''
-      `,
-      proveedores: `
-        INSERT OR IGNORE INTO ${this.tabla("proveedores")} (rfc, nombre)
-        SELECT DISTINCT rfc_emisor, nombre_emisor
-        FROM ${tablaF}
-        WHERE tipo_descarga = 'recibida' AND tipo_comprobante = 'I'
-          AND rfc_emisor IS NOT NULL AND rfc_emisor != ''
-      `,
-      empleados: `
-        INSERT OR IGNORE INTO ${this.tabla("empleados")} (rfc, nombre)
-        SELECT DISTINCT rfc_receptor, nombre_receptor
-        FROM ${tablaF}
-        WHERE tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}'
-          AND rfc_receptor IS NOT NULL AND rfc_receptor != ''
-      `,
-      patrones: `
-        INSERT OR IGNORE INTO ${this.tabla("patrones")} (rfc, nombre)
-        SELECT DISTINCT rfc_emisor, nombre_emisor
-        FROM ${tablaF}
-        WHERE tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}'
-          AND rfc_emisor IS NOT NULL AND rfc_emisor != ''
-      `
-    };
-    this.db.prepare(queries[tipo]).run();
-  }
-  sincronizarTodos() {
-    this.sincronizar("clientes");
-    this.sincronizar("proveedores");
-    this.sincronizar("empleados");
-    this.sincronizar("patrones");
+  sincronizarCatalogos() {
+    this.catalogoRepository.sincronizarTodos();
   }
 }
 class DescargaService {
-  constructor(facturaRepository, pendienteRepository, db, scraper) {
+  constructor(authService, busquedaService, descargaService, guardadoService, facturaRepository, pendienteRepository) {
+    this.authService = authService;
+    this.busquedaService = busquedaService;
+    this.descargaService = descargaService;
+    this.guardadoService = guardadoService;
     this.facturaRepository = facturaRepository;
     this.pendienteRepository = pendienteRepository;
-    this.scraper = scraper;
-    this.guardadoService = new FacturaGuardadoService(facturaRepository, pendienteRepository);
-    this.catalogoRepository = new CatalogoRepository(db);
-  }
-  guardadoService;
-  catalogoRepository;
-  async obtenerCaptcha() {
-    await this.scraper.iniciar();
-    return await this.scraper.obtenerCaptcha();
   }
   async descargar(config, params, captcha, onProgreso) {
+    const page = await this.login(config, captcha);
+    const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
     const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
-    const { facturas, errores } = await this.scraper.descargarFacturas(config, params, captcha, onProgreso);
-    let guardadas = 0;
-    for (const f of facturas) {
-      if (!f.urlDescarga) continue;
-      this.guardadoService.guardar(f, tipoDes);
-      guardadas++;
-    }
-    for (const e of errores) {
-      if (e.fila) {
-        this.guardadoService.guardarPendiente({ uuid: e.uuid, ...e.fila }, tipoDes, e.error);
-      }
-    }
-    this.catalogoRepository.sincronizarTodos();
-    return { total: guardadas, errores };
-  }
-  async reintentarPendientes(config, captcha, onProgreso) {
-    const pendientes = this.pendienteRepository.obtenerTodas();
-    if (pendientes.length === 0) return { total: 0, errores: [] };
-    await this.scraper.iniciar();
-    const { facturas, errores } = await this.scraper.reintentarDescargas(
-      config,
-      captcha,
-      pendientes,
-      onProgreso
+    onProgreso?.({ etapa: "buscando" });
+    const filas = await this.busquedaService.buscarPorParametros(
+      page,
+      params,
+      (mesActual, totalMeses) => onProgreso?.({ etapa: "buscando", mesActual, totalMeses })
+    );
+    const filasConTipo = filas.map((f) => ({ ...f, tipo_descarga: tipoDes }));
+    const { exitosas, errores: erroresDescarga } = await this.descargaService.descargarEnLote(
+      page,
+      filasConTipo,
+      carpetaTemp,
+      (descargadas, totalFacturas, uuid) => onProgreso?.({ etapa: "descargando", descargadas, totalFacturas, uuid })
     );
     let guardadas = 0;
-    for (const f of facturas) {
-      if (!f.urlDescarga) continue;
-      const tipoDes = f.tipo_descarga;
-      this.guardadoService.guardar(f, tipoDes);
-      guardadas++;
-    }
-    for (const e of errores) {
-      const pendiente = pendientes.find((p) => p.uuid === e.uuid);
-      if (pendiente) {
-        this.pendienteRepository.insertar({ ...pendiente, error: e.error });
+    const errores = [];
+    for (const { rutaTemp, meta } of exitosas) {
+      try {
+        this.guardadoService.guardarDesdeRuta(rutaTemp, meta);
+        guardadas++;
+      } catch (err) {
+        errores.push({ uuid: meta.uuid, error: err.message });
       }
     }
-    return { total: guardadas, errores };
+    for (const e of erroresDescarga) {
+      this.guardadoService.guardarPendiente({
+        uuid: e.uuid,
+        rfc_emisor: e.fila.rfc_emisor,
+        nombre_emisor: e.fila.nombre_emisor,
+        rfc_receptor: e.fila.rfc_receptor,
+        nombre_receptor: e.fila.nombre_receptor,
+        fecha_emision: e.fila.fecha_emision,
+        total: e.fila.total,
+        tipo_comprobante: e.fila.tipo_comprobante,
+        estado: e.fila.estado,
+        tipo_descarga: tipoDes
+      }, e.error);
+    }
+    this.guardadoService.sincronizarCatalogos();
+    onProgreso?.({ etapa: "completado", totalFacturas: guardadas });
+    return { total: guardadas, errores: [...errores, ...erroresDescarga.map((e) => ({ uuid: e.uuid, error: e.error }))] };
+  }
+  async login(config, captcha) {
+    if (config.metodoAuth === "contrasena") {
+      return this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
+    }
+    return this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
   }
   obtenerFacturas() {
     return this.facturaRepository.obtenerTodas();
@@ -1560,6 +2301,9 @@ class DescargaService {
   eliminarFactura(uuid) {
     return this.facturaRepository.eliminar(uuid);
   }
+  obtenerDrillDown(rfc) {
+    return this.facturaRepository.obtenerDrillDown(rfc);
+  }
   obtenerPendientes() {
     return this.pendienteRepository.obtenerTodas();
   }
@@ -1569,356 +2313,98 @@ class DescargaService {
   limpiarPendientes() {
     return this.pendienteRepository.limpiar();
   }
-  obtenerDrillDown(rfc) {
-    return this.facturaRepository.obtenerDrillDown(rfc);
-  }
 }
-class PerfilHandler {
-  constructor(profileManager) {
-    this.profileManager = profileManager;
+class PendientesService {
+  constructor(authService, busquedaService, descargaService, guardadoService, pendienteRepository) {
+    this.authService = authService;
+    this.busquedaService = busquedaService;
+    this.descargaService = descargaService;
+    this.guardadoService = guardadoService;
+    this.pendienteRepository = pendienteRepository;
   }
-  registrar() {
-    electron.ipcMain.handle("obtener-perfiles", async () => {
-      try {
-        const perfiles = this.profileManager.obtenerTodos();
-        return { success: true, perfiles };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("crear-perfil", async (_, perfil) => {
-      try {
-        this.profileManager.insertar(perfil);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("eliminar-perfil", async (_, rfc) => {
-      try {
-        this.profileManager.eliminar(rfc);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("seleccionar-perfil", async (_, rfc) => {
-      try {
-        const perfil = this.profileManager.obtenerPorRfc(rfc);
-        if (!perfil) return { success: false, error: "Perfil no encontrado" };
-        ProfileManager.setPerfilActivo(perfil);
-        this.profileManager.crearTablasPerfil(rfc);
-        return { success: true, perfil };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("obtener-perfil-activo", async () => {
-      try {
-        const perfil = ProfileManager.getPerfilActivo();
-        return { success: true, perfil };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("cerrar-perfil", async () => {
-      try {
-        ProfileManager.limpiarPerfil();
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-  }
-}
-class ImportacionHandler {
-  constructor(db) {
-    this.db = db;
-  }
-  xmlParser = new XmlParserService();
-  rutaService = new RutaArchivoService();
-  registrar() {
-    electron.ipcMain.handle("seleccionar-xmls", async () => {
-      const result = await electron.dialog.showOpenDialog({
-        title: "Seleccionar archivos XML",
-        filters: [{ name: "XML", extensions: ["xml"] }],
-        properties: ["openFile", "multiSelections"]
+  async reintentar(config, captcha, onProgreso) {
+    const pendientes = this.pendienteRepository.obtenerTodas();
+    if (pendientes.length === 0) return { total: 0, errores: [] };
+    const page = await this.login(config, captcha);
+    const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+    let guardadas = 0;
+    const errores = [];
+    for (let i = 0; i < pendientes.length; i++) {
+      const pendiente = pendientes[i];
+      onProgreso?.({
+        etapa: "descargando",
+        descargadas: i,
+        totalFacturas: pendientes.length,
+        uuid: pendiente.uuid
       });
-      return { success: true, rutas: result.canceled ? [] : result.filePaths };
-    });
-    electron.ipcMain.handle("seleccionar-carpeta-xml", async () => {
-      const result = await electron.dialog.showOpenDialog({
-        title: "Seleccionar carpeta con XMLs",
-        properties: ["openDirectory"]
-      });
-      if (result.canceled) return { success: true, rutas: [] };
-      const carpeta = result.filePaths[0];
-      const archivos = fs__namespace.readdirSync(carpeta).filter((f) => f.toLowerCase().endsWith(".xml")).map((f) => path__namespace.join(carpeta, f));
-      return { success: true, rutas: archivos };
-    });
-    electron.ipcMain.handle("importar-xmls", async (_, rutas) => {
-      const repository = new FacturaRepository(this.db);
-      let importadas = 0;
-      let omitidas = 0;
-      const errores = [];
-      for (const ruta of rutas) {
-        try {
-          const camposXml = this.xmlParser.extraerCampos(ruta);
-          const perfil = ProfileManager.getPerfilActivo();
-          const rfcActivo = perfil?.rfc;
-          if (!camposXml.uuid) {
-            errores.push({ archivo: path__namespace.basename(ruta), error: "No se encontró UUID en el XML" });
-            continue;
-          }
-          if (camposXml.rfc_emisor !== rfcActivo && camposXml.rfc_receptor !== rfcActivo) {
-            errores.push({
-              archivo: path__namespace.basename(ruta),
-              error: `El XML no pertenece al contribuyente activo (${rfcActivo})`
-            });
-            continue;
-          }
-          const yaExiste = repository.obtenerPorUuid(camposXml.uuid);
-          if (yaExiste) {
-            omitidas++;
-            continue;
-          }
-          const tipoDes = camposXml.rfc_receptor === rfcActivo ? "recibida" : "emitida";
-          const rutaDestino = this.rutaService.construirRutaXml({
-            uuid: camposXml.uuid,
-            fecha_emision: camposXml.fecha_emision || "",
-            rfc_emisor: camposXml.rfc_emisor || "",
-            rfc_receptor: camposXml.rfc_receptor || "",
-            tipo_descarga: tipoDes
-          });
-          fs__namespace.copyFileSync(ruta, rutaDestino);
-          repository.insertar({
-            uuid: camposXml.uuid,
-            fecha_emision: camposXml.fecha_emision || "",
-            rfc_emisor: camposXml.rfc_emisor || "",
-            nombre_emisor: camposXml.nombre_emisor || "",
-            rfc_receptor: camposXml.rfc_receptor || "",
-            nombre_receptor: camposXml.nombre_receptor || "",
-            subtotal: camposXml.subtotal || 0,
-            total: camposXml.total || 0,
-            tipo_comprobante: camposXml.tipo_comprobante || "I",
-            estado: "vigente",
-            xml: rutaDestino,
-            tipo_descarga: tipoDes,
-            fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
-            ...camposXml
-          });
-          importadas++;
-        } catch (err) {
-          errores.push({ archivo: path__namespace.basename(ruta), error: err.message });
+      try {
+        const tipoBusqueda = pendiente.tipo_descarga === "recibida" ? "recibidas" : "emitidas";
+        const filas = await this.busquedaService.buscarEnPagina(page, {
+          tipo: tipoBusqueda,
+          buscarPor: "folio",
+          folioFiscal: pendiente.uuid
+        });
+        if (!filas.length || !filas[0].urlDescarga) {
+          errores.push({ uuid: pendiente.uuid, error: "No encontrado en el portal" });
+          continue;
         }
+        const rutaTemp = await this.descargaService.descargarUnoConPlaywright(
+          page,
+          filas[0].urlDescarga,
+          pendiente.uuid,
+          carpetaTemp
+        );
+        if (!rutaTemp) {
+          errores.push({ uuid: pendiente.uuid, error: "No se pudo descargar el archivo" });
+          continue;
+        }
+        this.guardadoService.guardarDesdeRuta(rutaTemp, {
+          uuid: pendiente.uuid,
+          rfc_emisor: pendiente.rfc_emisor,
+          nombre_emisor: pendiente.nombre_emisor,
+          rfc_receptor: pendiente.rfc_receptor,
+          nombre_receptor: pendiente.nombre_receptor,
+          fecha_emision: pendiente.fecha_emision,
+          total: pendiente.total,
+          tipo_comprobante: pendiente.tipo_comprobante,
+          estado: pendiente.estado,
+          tipo_descarga: pendiente.tipo_descarga
+        });
+        guardadas++;
+      } catch (err) {
+        errores.push({ uuid: pendiente.uuid, error: err.message });
       }
-      const catalogoRepo = new CatalogoRepository(this.db);
-      catalogoRepo.sincronizarTodos();
-      return { success: true, importadas, omitidas, errores };
-    });
+    }
+    this.guardadoService.sincronizarCatalogos();
+    onProgreso?.({ etapa: "completado", totalFacturas: guardadas });
+    return { total: guardadas, errores };
   }
-}
-class DashboardRepository {
-  constructor(db) {
-    this.db = db;
-  }
-  get tabla() {
-    return ProfileManager.getTablaFacturas();
-  }
-  kpisDelMes(año, mes) {
-    const mesStr = String(mes).padStart(2, "0");
-    const mesAnterior = mes === 1 ? 12 : mes - 1;
-    const añoAnterior = mes === 1 ? año - 1 : año;
-    const mesAnteriorStr = String(mesAnterior).padStart(2, "0");
-    const query = (a, m) => this.db.prepare(`
-      SELECT
-        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as ingresos,
-        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as egresos,
-        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_trasladados ELSE 0 END), 0) as iva_cobrado,
-        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total_impuestos_trasladados ELSE 0 END), 0) as iva_pagado
-      FROM ${this.tabla}
-      WHERE strftime('%Y', fecha_emision) = '${a}' AND strftime('%m', fecha_emision) = '${m}'
-    `).get();
-    const actual = query(año, mesStr);
-    const anterior = query(añoAnterior, mesAnteriorStr);
-    const variacion = (a, b) => b === 0 ? 0 : Math.round((a - b) / b * 100);
-    return {
-      ingresos: actual.ingresos,
-      egresos: actual.egresos,
-      balance: actual.ingresos - actual.egresos,
-      iva_estimado: actual.iva_cobrado - actual.iva_pagado,
-      variacion_ingresos: variacion(actual.ingresos, anterior.ingresos),
-      variacion_egresos: variacion(actual.egresos, anterior.egresos),
-      variacion_balance: variacion(actual.ingresos - actual.egresos, anterior.ingresos - anterior.egresos)
-    };
-  }
-  flujoAnual(año) {
-    return this.db.prepare(`
-      SELECT
-        strftime('%m', fecha_emision) as mes,
-        COALESCE(SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as ingresos,
-        COALESCE(SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' AND estado = 'vigente' THEN total ELSE 0 END), 0) as egresos
-      FROM ${this.tabla}
-      WHERE strftime('%Y', fecha_emision) = '${año}'
-      GROUP BY mes
-      ORDER BY mes ASC
-    `).all();
-  }
-  topProveedores(año, mes) {
-    const mesStr = String(mes).padStart(2, "0");
-    return this.db.prepare(`
-      SELECT
-        rfc_emisor as rfc,
-        nombre_emisor as nombre,
-        COUNT(*) as facturas,
-        SUM(total) as total
-      FROM ${this.tabla}
-      WHERE tipo_descarga = 'recibida'
-        AND tipo_comprobante = 'I'
-        AND estado = 'vigente'
-        AND strftime('%Y', fecha_emision) = '${año}'
-        AND strftime('%m', fecha_emision) = '${mesStr}'
-      GROUP BY rfc_emisor
-      ORDER BY total DESC
-      LIMIT 5
-    `).all();
-  }
-  topClientes(año, mes) {
-    const mesStr = String(mes).padStart(2, "0");
-    return this.db.prepare(`
-      SELECT
-        rfc_receptor as rfc,
-        nombre_receptor as nombre,
-        COUNT(*) as facturas,
-        SUM(total) as total
-      FROM ${this.tabla}
-      WHERE tipo_descarga = 'emitida'
-        AND tipo_comprobante = 'I'
-        AND estado = 'vigente'
-        AND strftime('%Y', fecha_emision) = '${año}'
-        AND strftime('%m', fecha_emision) = '${mesStr}'
-      GROUP BY rfc_receptor
-      ORDER BY total DESC
-      LIMIT 5
-    `).all();
-  }
-  obtenerConteos(rfcActivo) {
-    return this.db.prepare(`
-    SELECT
-      SUM(CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' THEN 1 ELSE 0 END) as recibidas,
-      SUM(CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' THEN 1 ELSE 0 END) as emitidas,
-      SUM(CASE WHEN tipo_comprobante = 'N' THEN 1 ELSE 0 END) as nomina,
-      SUM(CASE WHEN tipo_comprobante = 'P' THEN 1 ELSE 0 END) as pagos,
-      COUNT(DISTINCT CASE WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' THEN rfc_receptor END) as clientes,
-      COUNT(DISTINCT CASE WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'I' THEN rfc_emisor END) as proveedores,
-      SUM(CASE WHEN tipo_comprobante = 'N' AND rfc_emisor = '${rfcActivo}' THEN 1 ELSE 0 END) as empleados,
-      SUM(CASE WHEN tipo_comprobante = 'N' AND rfc_receptor = '${rfcActivo}' THEN 1 ELSE 0 END) as patrones
-    FROM ${this.tabla}
-  `).get();
-  }
-}
-class DashboardHandler {
-  repository;
-  constructor(db) {
-    this.repository = new DashboardRepository(db);
-  }
-  registrar() {
-    electron.ipcMain.handle("dashboard-kpis", async (_, año, mes) => {
-      try {
-        return { success: true, data: this.repository.kpisDelMes(año, mes) };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("dashboard-flujo-anual", async (_, año) => {
-      try {
-        return { success: true, data: this.repository.flujoAnual(año) };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("dashboard-top-proveedores", async (_, año, mes) => {
-      try {
-        return { success: true, data: this.repository.topProveedores(año, mes) };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("dashboard-top-clientes", async (_, año, mes) => {
-      try {
-        return { success: true, data: this.repository.topClientes(año, mes) };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("dashboard-obtener-conteos", async () => {
-      try {
-        const perfil = ProfileManager.getPerfilActivo();
-        const data = this.repository.obtenerConteos(perfil?.rfc || "");
-        return { success: true, data };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-  }
-}
-class CatalogoHandler {
-  repository;
-  constructor(db) {
-    this.repository = new CatalogoRepository(db);
-  }
-  registrar() {
-    electron.ipcMain.handle("catalogo-obtener", async (_, tipo) => {
-      try {
-        const data = this.repository.obtenerTodos(tipo);
-        return { success: true, data };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("catalogo-obtener-por-rfc", async (_, tipo, rfc) => {
-      try {
-        const data = this.repository.obtenerPorRfc(tipo, rfc);
-        return { success: true, data };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("catalogo-actualizar", async (_, tipo, rfc, datos) => {
-      try {
-        this.repository.actualizar(tipo, rfc, datos);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("catalogo-sincronizar", async () => {
-      try {
-        this.repository.sincronizarTodos();
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
+  async login(config, captcha) {
+    if (config.metodoAuth === "contrasena") {
+      return this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
+    }
+    return this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
   }
 }
 class ConciliacionService {
-  constructor(facturaRepository, conciliacionRepository, descargaService) {
+  constructor(authService, busquedaService, descargaService, guardadoService, facturaRepository, conciliacionRepository) {
+    this.authService = authService;
+    this.busquedaService = busquedaService;
+    this.descargaService = descargaService;
+    this.guardadoService = guardadoService;
     this.facturaRepository = facturaRepository;
     this.conciliacionRepository = conciliacionRepository;
-    this.descargaService = descargaService;
   }
   async conciliar(config, params, onProgreso) {
     const mes = params.periodo.padStart(2, "0");
     const ultimoDia = new Date(parseInt(params.ejercicio), parseInt(mes), 0).getDate();
     const fechaInicio = `01/${mes}/${params.ejercicio}`;
     const fechaFin = `${ultimoDia}/${mes}/${params.ejercicio}`;
+    const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
+    const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+    const page = await this.login(config, params.captcha);
     onProgreso?.({ etapa: "consultando" });
-    const scraper = this.descargaService.scraper;
-    const authService = scraper.authService;
-    if (!authService) throw new Error("No hay sesión activa. Carga el captcha primero.");
-    const page = await authService.loginConContrasena(config.rfc, config.contrasena, params.captcha);
-    const filasSat = await scraper.buscarEnPagina(page, {
+    const filasSat = await this.busquedaService.buscarEnPagina(page, {
       tipo: params.tipo,
       buscarPor: "fecha",
       fechaInicio,
@@ -1936,25 +2422,31 @@ class ConciliacionService {
     const errores = [];
     if (faltantes.length > 0) {
       onProgreso?.({ etapa: "descargando", descargadas: 0, totalFaltantes: faltantes.length });
-      const resultado = await this.descargaService.descargar(
-        config,
-        { tipo: params.tipo, buscarPor: "fecha", fechaInicio, fechaFin },
-        params.captcha,
-        (p) => {
-          if (p.etapa === "descargando") {
-            onProgreso?.({ etapa: "descargando", descargadas: p.descargadas, totalFaltantes: faltantes.length });
-          }
-        }
+      const filasConTipo = faltantes.map((f) => ({ ...f, tipo_descarga: tipoDes }));
+      const { exitosas, errores: erroresDescarga } = await this.descargaService.descargarEnLote(
+        page,
+        filasConTipo,
+        carpetaTemp,
+        (desc, _total, _uuid) => onProgreso?.({ etapa: "descargando", descargadas: desc, totalFaltantes: faltantes.length })
       );
-      descargadas = resultado.total;
-      errores.push(...resultado.errores);
+      for (const { rutaTemp, meta } of exitosas) {
+        try {
+          this.guardadoService.guardarDesdeRuta(rutaTemp, meta);
+          descargadas++;
+        } catch (err) {
+          errores.push({ uuid: meta.uuid, error: err.message });
+        }
+      }
+      for (const e of erroresDescarga) {
+        errores.push({ uuid: e.uuid, error: e.error });
+      }
     }
     let actualizadas = 0;
     if (aActualizar.length > 0) {
       onProgreso?.({ etapa: "actualizando" });
       for (const f of aActualizar) {
         try {
-          this.facturaRepository.actualizar(f.uuid, { estado: "cancelado" });
+          this.guardadoService.actualizarEstado(f.uuid, "cancelado");
           actualizadas++;
         } catch (err) {
           errores.push({ uuid: f.uuid, error: err.message });
@@ -1971,501 +2463,21 @@ class ConciliacionService {
       actualizadas,
       errores: errores.length
     });
+    this.guardadoService.sincronizarCatalogos();
     onProgreso?.({ etapa: "completado" });
-    try {
-      await scraper.cerrar();
-    } catch (_) {
-    }
     return { totalSat, totalLocal, descargadas, actualizadas, errores };
+  }
+  async login(config, captcha) {
+    if (config.metodoAuth === "contrasena") {
+      return this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
+    }
+    return this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
   }
   obtenerUltima(tipo, ejercicio, periodo) {
     return this.conciliacionRepository.obtenerUltima(tipo, ejercicio, periodo);
   }
   obtenerHistorial() {
     return this.conciliacionRepository.obtenerHistorial();
-  }
-}
-class ConciliacionHandler {
-  constructor(conciliacionService, configuracionService, scraper) {
-    this.conciliacionService = conciliacionService;
-    this.configuracionService = configuracionService;
-    this.scraper = scraper;
-  }
-  registrar() {
-    electron.ipcMain.handle("iniciar-conciliacion", async (event, params) => {
-      try {
-        const config = this.configuracionService.obtener();
-        if (!config) return { success: false, error: "No hay configuración guardada" };
-        const resumen = await this.conciliacionService.conciliar(
-          config,
-          params,
-          (progreso) => event.sender.send("progreso-conciliacion", progreso)
-        );
-        return { success: true, resumen };
-      } catch (error) {
-        const mensaje = String(error);
-        if (mensaje.includes("SAT_SATURADO")) {
-          return { success: false, error: "El SAT se encuentra saturado. Intenta en 20 minutos." };
-        }
-        if (mensaje.includes("CAPTCHA_INVALIDO")) {
-          return { success: false, error: "El captcha es incorrecto. Intenta de nuevo." };
-        }
-        return { success: false, error: mensaje };
-      } finally {
-        await this.scraper.cerrar();
-      }
-    });
-    electron.ipcMain.handle("obtener-ultima-conciliacion", (_event, params) => {
-      try {
-        const ultima = this.conciliacionService.obtenerUltima(params.tipo, params.ejercicio, params.periodo);
-        return { success: true, ultima };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("obtener-historial-conciliaciones", () => {
-      try {
-        const historial = this.conciliacionService.obtenerHistorial();
-        return { success: true, historial };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-  }
-}
-class ConciliacionRepository {
-  constructor(db) {
-    this.db = db;
-  }
-  get tabla() {
-    return ProfileManager.getTablaConciliaciones();
-  }
-  insertar(c) {
-    this.db.prepare(`
-      INSERT INTO ${this.tabla}
-        (tipo, ejercicio, periodo, total_sat, total_local, descargadas, actualizadas, errores)
-      VALUES
-        (@tipo, @ejercicio, @periodo, @total_sat, @total_local, @descargadas, @actualizadas, @errores)
-    `).run(c);
-  }
-  obtenerUltima(tipo, ejercicio, periodo) {
-    return this.db.prepare(`
-      SELECT * FROM ${this.tabla}
-      WHERE tipo = ? AND ejercicio = ? AND periodo = ?
-      ORDER BY fecha_conciliacion DESC
-      LIMIT 1
-    `).get(tipo, ejercicio, periodo);
-  }
-  obtenerHistorial(limite = 20) {
-    return this.db.prepare(`
-      SELECT * FROM ${this.tabla}
-      ORDER BY fecha_conciliacion DESC
-      LIMIT ?
-    `).all(limite);
-  }
-}
-class SatAuthService {
-  constructor(context) {
-    this.context = context;
-  }
-  paginaLogin = null;
-  async obtenerCaptcha() {
-    if (this.paginaLogin) {
-      await this.paginaLogin.close();
-      this.paginaLogin = null;
-    }
-    this.paginaLogin = await this.context.newPage();
-    await this.paginaLogin.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
-    await this.paginaLogin.waitForSelector("#divCaptcha", { timeout: 15e3 });
-    const imagenBase64 = await this.paginaLogin.$eval(
-      "#divCaptcha img",
-      (img) => img.src
-    );
-    return { imagenBase64 };
-  }
-  async loginConContrasena(rfc, password, captcha) {
-    if (!this.paginaLogin) {
-      throw new Error("Primero debes cargar el captcha");
-    }
-    const page = this.paginaLogin;
-    this.paginaLogin = null;
-    await page.fill("#rfc", rfc);
-    await page.fill("#password", password);
-    await page.fill("#userCaptcha", captcha.toUpperCase());
-    await this.esperarLoginExitoso(page, () => page.click("#submit"));
-    return page;
-  }
-  async loginConEfirma(rutaCer, rutaKey, contrasenaFiel) {
-    const page = this.paginaLogin ?? await this.context.newPage();
-    this.paginaLogin = null;
-    if (!page.url().includes("portalcfdi")) {
-      await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
-    }
-    await page.waitForSelector("#buttonFiel", { timeout: 15e3 });
-    await page.click("#buttonFiel");
-    await page.waitForSelector("#fileCertificate", { timeout: 1e4 });
-    await page.setInputFiles("#fileCertificate", rutaCer);
-    await page.setInputFiles("#filePrivateKey", rutaKey);
-    await page.fill("#privateKeyPassword", contrasenaFiel);
-    await this.esperarLoginExitoso(page, () => page.click("#submit"));
-    return page;
-  }
-  async esperarLoginExitoso(page, accion) {
-    await Promise.all([
-      page.waitForNavigation({ timeout: 6e4 }).catch(() => null),
-      accion()
-    ]);
-    await page.waitForTimeout(4e3);
-    const url = page.url();
-    console.log("URL después de login:", url);
-    const esPaginaError = await page.$("text=Ha ocurrido un error al procesar").catch(() => null);
-    if (esPaginaError) {
-      throw new Error("SAT_SATURADO");
-    }
-    const errorCaptcha = await page.$("#divCapError, .alert-danger, .mensaje-error").catch(() => null);
-    if (errorCaptcha) {
-      const textoError = await errorCaptcha.textContent().catch(() => "");
-      throw new Error(`CAPTCHA_INVALIDO: ${textoError?.trim()}`);
-    }
-    const llegamosAlPortal = url.includes("portalcfdi.facturaelectronica.sat.gob.mx") && !url.includes("login") && !url.includes("Login");
-    if (!llegamosAlPortal) {
-      const mensajeError = await page.$eval(
-        '.alert, .error, [class*="error"], [class*="Error"]',
-        (el) => el.textContent?.trim()
-      ).catch(() => null);
-      throw new Error(mensajeError || "Login fallido: no se pudo acceder al portal");
-    }
-    console.log("Login exitoso");
-  }
-  async logout(page) {
-    try {
-      await page.click("#salir");
-    } finally {
-      await page.close();
-    }
-  }
-  async loginConContrasenaDirecto(rfc, password, captcha) {
-    const page = await this.context.newPage();
-    await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
-    await page.waitForSelector("#divCaptcha", { timeout: 15e3 });
-    await page.fill("#rfc", rfc);
-    await page.fill("#password", password);
-    await page.fill("#userCaptcha", captcha.toUpperCase());
-    await this.esperarLoginExitoso(page, () => page.click("#submit"));
-    return page;
-  }
-}
-class SatScraper {
-  context = null;
-  authService = null;
-  async iniciar() {
-    if (this.context) {
-      console.log("Browser ya existe, reutilizando");
-      return;
-    }
-    console.log("Creando nuevo browser");
-    this.context = await BrowserManager.newContext();
-    this.authService = new SatAuthService(this.context);
-  }
-  async obtenerCaptcha() {
-    if (!this.authService) await this.iniciar();
-    const resultado = await this.authService.obtenerCaptcha();
-    return resultado.imagenBase64;
-  }
-  async descargarFacturas(config, params, captcha, onProgreso) {
-    if (!this.authService) throw new Error("Debes cargar el captcha primero");
-    let page;
-    if (config.metodoAuth === "contrasena") {
-      page = await this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
-    } else {
-      page = await this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
-    }
-    const carpeta = config.carpetaDescarga || electron.app.getPath("downloads");
-    let todasLasFilas = [];
-    if (params.buscarPor === "folio") {
-      const filas = await this.buscarEnPagina(page, params);
-      todasLasFilas = filas;
-    } else if (params.tipo === "recibidas") {
-      const meses = this.dividirEnMeses(params.fechaInicio, params.fechaFin);
-      const [dI, mI, aI] = params.fechaInicio.split("/").map(Number);
-      const [dF, mF, aF] = params.fechaFin.split("/").map(Number);
-      const fechaMin = new Date(aI, mI - 1, dI, 0, 0, 0);
-      const fechaMax = new Date(aF, mF - 1, dF, 23, 59, 59);
-      for (let i = 0; i < meses.length; i++) {
-        const mes = meses[i];
-        onProgreso?.({ etapa: "buscando", mesActual: i + 1, totalMeses: meses.length });
-        const paramsMes = { ...params, fechaInicio: mes.inicio, fechaFin: mes.fin };
-        const filasMes = await this.buscarEnPagina(page, paramsMes);
-        const filasFiltradas = filasMes.filter((f) => {
-          const fechaFactura = new Date(f.fecha_emision.replace(" ", "T"));
-          return fechaFactura >= fechaMin && fechaFactura <= fechaMax;
-        });
-        todasLasFilas.push(...filasFiltradas);
-        console.log(`Mes ${i + 1}/${meses.length}: ${filasFiltradas.length} facturas`);
-      }
-    } else {
-      const filas = await this.buscarEnPagina(page, params);
-      todasLasFilas = filas;
-    }
-    console.log(`Total facturas a procesar: ${todasLasFilas.length}`);
-    const { facturas, errores } = await this.descargarEnParalelo(page, todasLasFilas, carpeta, (progreso) => {
-      onProgreso?.({ etapa: "descargando", ...progreso });
-    });
-    if (errores.length > 0) {
-      console.warn(`Se terminaron con ${errores.length} errores de descarga.`);
-    }
-    onProgreso?.({ etapa: "completado", totalFacturas: facturas.length });
-    return { facturas, errores };
-  }
-  dividirEnMeses(fechaInicio, fechaFin) {
-    const [_diaI, mesI, anioI] = fechaInicio.split("/").map(Number);
-    const [_diaF, mesF, anioF] = fechaFin.split("/").map(Number);
-    const meses = [];
-    let anio = anioI;
-    let mes = mesI;
-    while (anio < anioF || anio === anioF && mes <= mesF) {
-      const ultimoDia = new Date(anio, mes, 0).getDate();
-      const inicio = anio === anioI && mes === mesI ? fechaInicio : `01/${String(mes).padStart(2, "0")}/${anio}`;
-      const fin = anio === anioF && mes === mesF ? fechaFin : `${ultimoDia}/${String(mes).padStart(2, "0")}/${anio}`;
-      meses.push({ inicio, fin });
-      mes++;
-      if (mes > 12) {
-        mes = 1;
-        anio++;
-      }
-    }
-    return meses;
-  }
-  async buscarEnPagina(page, params) {
-    const urlConsulta = params.tipo === "recibidas" ? "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaReceptor.aspx" : "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaEmisor.aspx";
-    await page.goto(urlConsulta);
-    await page.waitForSelector("#ctl00_MainContent_BtnBusqueda", { timeout: 15e3 });
-    if (params.buscarPor === "folio") {
-      await page.click("#ctl00_MainContent_RdoFolioFiscal");
-      await page.waitForTimeout(1e3);
-      await page.fill("#ctl00_MainContent_TxtUUID", params.folioFiscal);
-    } else {
-      await page.click("#ctl00_MainContent_RdoFechas");
-      await page.waitForTimeout(1500);
-      const [diaI, mesI, anioI] = params.fechaInicio.split("/");
-      if (params.tipo === "recibidas") {
-        await page.selectOption("#DdlAnio", anioI);
-        await page.waitForTimeout(500);
-        await page.selectOption("#ctl00_MainContent_CldFecha_DdlMes", String(parseInt(mesI)));
-        await page.waitForTimeout(300);
-        await page.selectOption("#ctl00_MainContent_CldFecha_DdlDia", String(parseInt(diaI)));
-      } else {
-        const [diaI2, mesI2, anioI2] = params.fechaInicio.split("/");
-        const [diaF, mesF, anioF] = params.fechaFin.split("/");
-        const fechaInicialStr = `${diaI2}/${mesI2}/${anioI2}`;
-        const fechaFinalStr = `${diaF}/${mesF}/${anioF}`;
-        await page.evaluate((id) => {
-          const el = document.getElementById(id);
-          if (el) el.removeAttribute("disabled");
-        }, "ctl00_MainContent_CldFechaInicial2_Calendario_text");
-        await page.fill("#ctl00_MainContent_CldFechaInicial2_Calendario_text", fechaInicialStr);
-        await page.waitForTimeout(300);
-        await page.evaluate((id) => {
-          const el = document.getElementById(id);
-          if (el) el.removeAttribute("disabled");
-        }, "ctl00_MainContent_CldFechaFinal2_Calendario_text");
-        await page.fill("#ctl00_MainContent_CldFechaFinal2_Calendario_text", fechaFinalStr);
-        await page.waitForTimeout(300);
-        await page.selectOption("#ctl00_MainContent_CldFechaFinal2_DdlHora", "23");
-        await page.selectOption("#ctl00_MainContent_CldFechaFinal2_DdlMinuto", "59");
-        await page.selectOption("#ctl00_MainContent_CldFechaFinal2_DdlSegundo", "59");
-      }
-    }
-    if (params.rfcTercero) {
-      await page.fill("#ctl00_MainContent_TxtRfcReceptor", params.rfcTercero);
-    }
-    if (params.estadoComprobante) {
-      const valorEstado = params.estadoComprobante === "cancelado" ? "0" : "1";
-      await page.selectOption("#ctl00_MainContent_DdlEstadoComprobante", valorEstado);
-    }
-    await page.click("#ctl00_MainContent_BtnBusqueda");
-    await page.waitForTimeout(3e3);
-    const sinResultados = await page.$("#ctl00_MainContent_PnlNoResultados");
-    if (sinResultados && await sinResultados.isVisible()) return [];
-    return await page.$$eval(
-      "#ctl00_MainContent_tblResult tbody tr:not(:first-child)",
-      (filas) => {
-        return filas.map((fila) => {
-          const celdas = fila.querySelectorAll("td");
-          if (celdas.length < 17) return null;
-          const checkbox = fila.querySelector("input.ListaFolios");
-          const btnDescarga = fila.querySelector("#BtnDescarga");
-          const getText = (idx) => celdas[idx]?.textContent?.trim() || "";
-          const onclick = btnDescarga?.getAttribute("onclick") || "";
-          const match = onclick.match(/RecuperaCfdi\.aspx\?Datos=[^']+/);
-          const urlDescarga = match ? match[0] : "";
-          const totalStr = getText(16).replace("$", "").replace(/,/g, "").trim();
-          const tipoTexto = getText(17).toLowerCase();
-          let tipo = "I";
-          if (tipoTexto.includes("egreso")) tipo = "E";
-          else if (tipoTexto.includes("traslado")) tipo = "T";
-          else if (tipoTexto.includes("nómina") || tipoTexto.includes("nomina")) tipo = "N";
-          else if (tipoTexto.includes("pago")) tipo = "P";
-          return {
-            uuid: checkbox?.value || getText(8),
-            rfc_emisor: getText(9),
-            nombre_emisor: getText(10),
-            rfc_receptor: getText(11),
-            nombre_receptor: getText(12),
-            fecha_emision: getText(13),
-            total: parseFloat(totalStr) || 0,
-            tipo_comprobante: tipo,
-            estado: getText(19).toLowerCase().includes("vigente") ? "vigente" : "cancelado",
-            urlDescarga
-          };
-        }).filter(Boolean);
-      }
-    );
-  }
-  async descargarEnParalelo(page, filas, carpeta, onProgreso) {
-    const facturas = [];
-    const errores = [];
-    let descargadas = 0;
-    const context = page.context();
-    const cookies = await context.cookies();
-    const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-    const userAgent = await page.evaluate(() => navigator.userAgent);
-    const currentUrl = page.url();
-    const LOTE_SIZE = 10;
-    for (let i = 0; i < filas.length; i += LOTE_SIZE) {
-      const lote = filas.slice(i, i + LOTE_SIZE);
-      const resultadosLote = await Promise.all(
-        lote.map(async (fila) => {
-          if (!fila.urlDescarga) return null;
-          try {
-            const urlCompleta = `https://portalcfdi.facturaelectronica.sat.gob.mx/${fila.urlDescarga}`;
-            const rutaFinal = path.join(carpeta, `${fila.uuid}.xml`);
-            const response = await axios({
-              method: "get",
-              url: urlCompleta,
-              headers: {
-                "Cookie": cookieString,
-                "User-Agent": userAgent,
-                "Referer": currentUrl,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-              },
-              timeout: 15e3,
-              responseType: "text"
-            });
-            if (response.data.includes("<?xml")) {
-              fs__namespace.writeFileSync(rutaFinal, response.data);
-              return { ...fila, urlDescarga: rutaFinal };
-            } else {
-              errores.push({ uuid: fila.uuid, error: "El SAT no devolvió un XML válido", fila });
-              return null;
-            }
-          } catch (err) {
-            console.error(`Fallo en descarga de ${fila.uuid}:`, err.message);
-            errores.push({ uuid: fila.uuid, error: err.message, fila });
-            return null;
-          }
-        })
-      );
-      const exitosos = resultadosLote.filter((f) => f !== null);
-      facturas.push(...exitosos);
-      descargadas += lote.length;
-      onProgreso?.({
-        descargadas,
-        totalFacturas: filas.length,
-        uuid: lote[lote.length - 1]?.uuid || ""
-      });
-    }
-    return { facturas, errores };
-  }
-  async cerrar() {
-    if (this.context) {
-      await this.context.close();
-      this.context = null;
-      this.authService = null;
-    }
-  }
-  async reintentarDescargas(config, captcha, pendientes, onProgreso) {
-    let page;
-    if (config.metodoAuth === "contrasena") {
-      page = await this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
-    } else {
-      page = await this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
-    }
-    const carpeta = config.carpetaDescarga || electron.app.getPath("downloads");
-    const facturas = [];
-    const errores = [];
-    let procesadas = 0;
-    for (const pendiente of pendientes) {
-      try {
-        onProgreso?.({
-          etapa: "descargando",
-          descargadas: procesadas,
-          totalFacturas: pendientes.length,
-          uuid: pendiente.uuid
-        });
-        const urlConsulta = pendiente.tipo_descarga === "recibida" ? "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaReceptor.aspx" : "https://portalcfdi.facturaelectronica.sat.gob.mx/ConsultaEmisor.aspx";
-        await page.goto(urlConsulta);
-        await page.waitForSelector("#ctl00_MainContent_BtnBusqueda", { timeout: 15e3 });
-        await page.click("#ctl00_MainContent_RdoFolioFiscal");
-        await page.waitForTimeout(1e3);
-        await page.fill("#ctl00_MainContent_TxtUUID", pendiente.uuid);
-        await page.click("#ctl00_MainContent_BtnBusqueda");
-        await page.waitForTimeout(3e3);
-        const sinResultados = await page.$("#ctl00_MainContent_PnlNoResultados");
-        if (sinResultados && await sinResultados.isVisible()) {
-          errores.push({ uuid: pendiente.uuid, error: "No encontrado en el portal", fila: pendiente });
-          procesadas++;
-          continue;
-        }
-        const filas = await page.$$eval(
-          "#ctl00_MainContent_tblResult tbody tr:not(:first-child)",
-          (filas2) => filas2.map((fila) => {
-            const btnDescarga = fila.querySelector("#BtnDescarga");
-            const onclick = btnDescarga?.getAttribute("onclick") || "";
-            const match = onclick.match(/RecuperaCfdi\.aspx\?Datos=[^']+/);
-            return match ? match[0] : "";
-          }).filter(Boolean)
-        );
-        if (!filas.length) {
-          errores.push({ uuid: pendiente.uuid, error: "No se encontró botón de descarga", fila: pendiente });
-          procesadas++;
-          continue;
-        }
-        const urlCompleta = `https://portalcfdi.facturaelectronica.sat.gob.mx/${filas[0]}`;
-        const rutaFinal = path.join(carpeta, `${pendiente.uuid}.xml`);
-        const [download] = await Promise.all([
-          page.waitForEvent("download", { timeout: 2e4 }),
-          page.evaluate((url) => {
-            window.location.href = url;
-          }, urlCompleta)
-        ]);
-        const rutaTemp = await download.path();
-        if (rutaTemp) {
-          fs__namespace.renameSync(rutaTemp, rutaFinal);
-          facturas.push({
-            uuid: pendiente.uuid,
-            rfc_emisor: pendiente.rfc_emisor,
-            nombre_emisor: pendiente.nombre_emisor,
-            rfc_receptor: pendiente.rfc_receptor,
-            nombre_receptor: pendiente.nombre_receptor,
-            fecha_emision: pendiente.fecha_emision,
-            total: pendiente.total,
-            tipo_comprobante: pendiente.tipo_comprobante,
-            estado: pendiente.estado,
-            urlDescarga: rutaFinal,
-            tipo_descarga: pendiente.tipo_descarga
-          });
-        } else {
-          errores.push({ uuid: pendiente.uuid, error: "No se pudo guardar el archivo", fila: pendiente });
-        }
-      } catch (err) {
-        console.error(`Error reintentando ${pendiente.uuid}:`, err.message);
-        errores.push({ uuid: pendiente.uuid, error: err.message, fila: pendiente });
-      }
-      procesadas++;
-    }
-    onProgreso?.({ etapa: "completado", totalFacturas: facturas.length });
-    return { facturas, errores };
   }
 }
 function initDatabase() {
@@ -2484,8 +2496,6 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     icon,
-    title: "IFRAT",
-    // ← agregar esto
     ...process.platform === "linux" ? { icon } : {},
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
@@ -2495,9 +2505,7 @@ function createWindow() {
   mainWindow.webContents.on("did-finish-load", () => {
     mainWindow.setTitle("IFRAT - Inteligencia Fiscal para la Revisión y Administración Tributaria");
   });
-  mainWindow.on("ready-to-show", () => {
-    mainWindow.show();
-  });
+  mainWindow.on("ready-to-show", () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler((details) => {
     electron.shell.openExternal(details.url);
     return { action: "deny" };
@@ -2508,35 +2516,41 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 }
-electron.app.whenReady().then(() => {
+electron.app.whenReady().then(async () => {
   utils.electronApp.setAppUserModelId("com.electron");
   electron.app.on("browser-window-created", (_, window2) => {
     utils.optimizer.watchWindowShortcuts(window2);
   });
   initDatabase();
   const db = Database.getInstance();
-  const satScraper = new SatScraper();
-  new ImportacionHandler(db).registrar();
+  const browserContext = await BrowserManager.newContext();
+  const authService = new SatAuthService(browserContext);
+  const busquedaService = new SatBusquedaService();
+  const satDescargaService = new SatDescargaService();
   const facturaRepository = new FacturaRepository(db);
-  const descargaPendienteRepository = new DescargaPendienteRepository(db);
+  const pendienteRepository = new DescargaPendienteRepository(db);
   const conciliacionRepository = new ConciliacionRepository(db);
   const configuracionService = new ConfiguracionService(db);
-  const descargaService = new DescargaService(facturaRepository, descargaPendienteRepository, db, satScraper);
-  const conciliacionService = new ConciliacionService(facturaRepository, conciliacionRepository, descargaService);
+  const guardadoService = new CfdiGuardadoService(facturaRepository, pendienteRepository, db);
+  const descargaService = new DescargaService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, pendienteRepository);
+  const pendientesService = new PendientesService(authService, busquedaService, satDescargaService, guardadoService, pendienteRepository);
+  const conciliacionService = new ConciliacionService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, conciliacionRepository);
   const profileManager = new ProfileManager(db);
   new PerfilHandler(profileManager).registrar();
+  new FacturaHandler(descargaService, pendientesService, configuracionService, authService).registrar();
+  new ConciliacionHandler(conciliacionService, configuracionService, authService).registrar();
+  new ImportacionHandler(guardadoService).registrar();
   new ConfiguracionHandler(db).registrar();
   new DashboardHandler(db).registrar();
   new CatalogoHandler(db).registrar();
-  new FacturaHandler(descargaService, configuracionService, satScraper).registrar();
-  new ConciliacionHandler(conciliacionService, configuracionService, satScraper).registrar();
   createWindow();
-  electron.app.on("activate", function() {
+  electron.app.on("activate", () => {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 electron.app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
+    BrowserManager.cerrar();
     Database.close();
     electron.app.quit();
   }

@@ -50,6 +50,7 @@ declare global {
       onProgresoConciliacion(callback: (progreso: any) => void): void
       obtenerUltimaConciliacion(params: { tipo: string; ejercicio: string; periodo: string }): Promise<{ success: boolean; ultima?: any; error?: string }>
       obtenerHistorialConciliaciones(): Promise<{ success: boolean; historial?: any[]; error?: string }>
+      reportesIvaAnual(año: number): Promise<{ success: boolean; data?: any[]; error?: string }>
     }
   }
 }

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { ParametrosBusqueda } from '../main/scraper/SatScraper'
+import { ParametrosBusqueda } from '../main/scraper/SatTypes'
 import { Configuracion } from '../main/services/ConfiguracionService'
 
 const api = {
@@ -44,6 +44,7 @@ const api = {
   iniciarConciliacion: (params: any) => ipcRenderer.invoke('iniciar-conciliacion', params),
   obtenerUltimaConciliacion: (params: any) => ipcRenderer.invoke('obtener-ultima-conciliacion', params),
   obtenerHistorialConciliaciones: () => ipcRenderer.invoke('obtener-historial-conciliaciones'),
+  reportesIvaAnual: (año: number) => ipcRenderer.invoke('reportes-iva-anual', año),
   onProgresoConciliacion: (callback: (progreso: any) => void) => {
     ipcRenderer.on('progreso-conciliacion', (_, progreso) => callback(progreso))
   },
