@@ -5,7 +5,6 @@ import logoIcon from '../../assets/icon.png'
 import { useState, useEffect } from 'react'
 import {
   HomeOutlined,
-  FileTextOutlined,
   AuditOutlined,
   BarChartOutlined,
   SafetyOutlined,
@@ -38,7 +37,6 @@ const AppLayout = () => {
 
   const menuItems = [
     { key: '/inicio', icon: <HomeOutlined />, label: 'Inicio' },
-    { key: '/facturas-hub', icon: <FileTextOutlined />, label: 'Facturas' },
     { key: '/cfdi', icon: <AuditOutlined />, label: 'CFDI' },
     { key: '/reportes', icon: <BarChartOutlined />, label: 'Reportes' },
     { key: '/cumplimiento', icon: <SafetyOutlined />, label: 'Cumplimiento' },
@@ -47,15 +45,15 @@ const AppLayout = () => {
   ]
 
   const selectedKey = () => {
-    if (location.pathname.startsWith('/facturas')) return '/facturas-hub'
+    if (location.pathname.startsWith('/cfdi')) return '/cfdi'
     if (location.pathname.startsWith('/descarga')) return '/cfdi'
     if (location.pathname.startsWith('/pendientes')) return '/cfdi'
     if (location.pathname.startsWith('/importacion')) return '/cfdi'
+    if (location.pathname.startsWith('/conciliacion')) return '/cfdi'
     if (location.pathname.startsWith('/clientes')) return '/inteligencia'
     if (location.pathname.startsWith('/proveedores')) return '/inteligencia'
     if (location.pathname.startsWith('/empleados')) return '/inteligencia'
     if (location.pathname.startsWith('/patrones')) return '/inteligencia'
-    if (location.pathname.startsWith('/conciliacion')) return '/cfdi'
     return location.pathname
   }
 

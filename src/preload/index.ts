@@ -4,7 +4,8 @@ import { ParametrosBusqueda } from '../main/scraper/SatTypes'
 import { Configuracion } from '../main/services/ConfiguracionService'
 
 const api = {
-  descargarFacturas: (datos: { captcha?: string; params: ParametrosBusqueda }) => ipcRenderer.invoke('descargar-facturas', datos),
+  descargarFacturas: (datos: { captcha?: string; params: ParametrosBusqueda }) =>
+    ipcRenderer.invoke('descargar-facturas', datos),
   obtenerFacturas: () => ipcRenderer.invoke('obtener-facturas'),
   eliminarFactura: (uuid: string) => ipcRenderer.invoke('eliminar-factura', uuid),
   guardarConfiguracion: (config: Configuracion) => ipcRenderer.invoke('guardar-configuracion', config),
@@ -45,6 +46,22 @@ const api = {
   obtenerUltimaConciliacion: (params: any) => ipcRenderer.invoke('obtener-ultima-conciliacion', params),
   obtenerHistorialConciliaciones: () => ipcRenderer.invoke('obtener-historial-conciliaciones'),
   reportesIvaAnual: (año: number) => ipcRenderer.invoke('reportes-iva-anual', año),
+  obtenerFacturasPorTipo: (datos: {
+    tipoDescarga: 'recibida' | 'emitida'
+    filtros?: {
+      busqueda?: string
+      fechaDesde?: string
+      fechaHasta?: string
+      rfcContraparte?: string
+      tipoComprobante?: string
+      tiposComprobante?: string[]
+      formaPago?: string
+      metodoPago?: string
+      estado?: string
+    }
+  }) => ipcRenderer.invoke('obtener-facturas-por-tipo', datos),
+  obtenerPagoComplemento: (uuid_rep: string) =>
+    ipcRenderer.invoke('obtener-pago-complemento', uuid_rep),
   onProgresoConciliacion: (callback: (progreso: any) => void) => {
     ipcRenderer.on('progreso-conciliacion', (_, progreso) => callback(progreso))
   },

@@ -5,15 +5,22 @@ import { ConfiguracionService } from '../services/ConfiguracionService'
 import { SatAuthService } from '../scraper/SatAuthService'
 import { ParametrosBusqueda } from '../scraper/SatTypes'
 import { PdfService, Plantilla } from '../services/PdfService'
+import { PagoComplementoRepository } from '../database/repositories/PagoComplementoRepository'
 import { manejarErrorSat } from './satErrores'
+import BetterSqlite3 from 'better-sqlite3'
 
 export class FacturaHandler {
+  private readonly pagoComplementoRepository: PagoComplementoRepository
+
   constructor(
     private readonly descargaService: DescargaService,
     private readonly pendientesService: PendientesService,
     private readonly configuracionService: ConfiguracionService,
-    private readonly authService: SatAuthService
-  ) { }
+    private readonly authService: SatAuthService,
+    db: BetterSqlite3.Database
+  ) {
+    this.pagoComplementoRepository = new PagoComplementoRepository(db)
+  }
 
   registrar(): void {
     ipcMain.handle('obtener-captcha', async () => {
@@ -73,9 +80,51 @@ export class FacturaHandler {
       }
     })
 
+    ipcMain.handle('obtener-facturas-por-tipo', async (_, datos: {
+      tipoDescarga: 'recibida' | 'emitida'
+      filtros?: {
+        busqueda?: string
+        fechaDesde?: string
+        fechaHasta?: string
+        rfcContraparte?: string
+        tipoComprobante?: string
+        tiposComprobante?: string[]
+        formaPago?: string
+        metodoPago?: string
+        estado?: string
+      }
+    }) => {
+      try {
+        const facturas = this.descargaService.obtenerFacturasPorTipo(
+          datos.tipoDescarga,
+          datos.filtros ?? {}
+        )
+        return { success: true, facturas }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
+
+    ipcMain.handle('obtener-pago-complemento', async (_, uuid_rep: string) => {
+      try {
+        const pago = this.pagoComplementoRepository.obtenerPorUuidRep(uuid_rep)
+        if (!pago) return { success: true, pago: null }
+        return {
+          success: true,
+          pago: {
+            ...pago,
+            documentos: pago.documentos ? JSON.parse(pago.documentos) : []
+          }
+        }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
+
     ipcMain.handle('eliminar-factura', async (_, uuid: string) => {
       try {
         this.descargaService.eliminarFactura(uuid)
+        this.pagoComplementoRepository.eliminar(uuid)
         return { success: true }
       } catch (error) {
         return { success: false, error: String(error) }

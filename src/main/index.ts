@@ -78,8 +78,7 @@ app.whenReady().then(async () => {
   const db = Database.getInstance()
 
   // Scraper — piezas base
-  const browserContext = await BrowserManager.newContext()
-  const authService = new SatAuthService(browserContext)
+  const authService = new SatAuthService()
   const busquedaService = new SatBusquedaService()
   const satDescargaService = new SatDescargaService()
 
@@ -100,7 +99,7 @@ app.whenReady().then(async () => {
   // Handlers
   const profileManager = new ProfileManager(db)
   new PerfilHandler(profileManager).registrar()
-  new FacturaHandler(descargaService, pendientesService, configuracionService, authService).registrar()
+  new FacturaHandler(descargaService, pendientesService, configuracionService, authService, db).registrar()
   new ConciliacionHandler(conciliacionService, configuracionService, authService).registrar()
   new ImportacionHandler(guardadoService).registrar()
   new ConfiguracionHandler(db).registrar()

@@ -42,6 +42,8 @@ const api = {
   obtenerUltimaConciliacion: (params) => electron.ipcRenderer.invoke("obtener-ultima-conciliacion", params),
   obtenerHistorialConciliaciones: () => electron.ipcRenderer.invoke("obtener-historial-conciliaciones"),
   reportesIvaAnual: (año) => electron.ipcRenderer.invoke("reportes-iva-anual", año),
+  obtenerFacturasPorTipo: (datos) => electron.ipcRenderer.invoke("obtener-facturas-por-tipo", datos),
+  obtenerPagoComplemento: (uuid_rep) => electron.ipcRenderer.invoke("obtener-pago-complemento", uuid_rep),
   onProgresoConciliacion: (callback) => {
     electron.ipcRenderer.on("progreso-conciliacion", (_, progreso) => callback(progreso));
   },

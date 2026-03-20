@@ -236,6 +236,58 @@ function migration008(db) {
     `).run();
   }
 }
+const migration009 = (db) => {
+  const perfiles = db.prepare("SELECT rfc FROM perfiles").all();
+  for (const { rfc } of perfiles) {
+    const r = rfc.replace(/[^a-zA-Z0-9]/g, "_");
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS pagos_complemento_${r} (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid_rep      TEXT NOT NULL,
+        fecha_pago    TEXT,
+        forma_pago_p  TEXT,
+        moneda_p      TEXT,
+        tipo_cambio_p REAL,
+        monto         REAL,
+        documentos    TEXT,
+        FOREIGN KEY (uuid_rep) REFERENCES facturas_${r}(uuid)
+      )
+    `).run();
+  }
+};
+const migration010 = (db) => {
+  const perfiles = db.prepare("SELECT rfc FROM perfiles").all();
+  for (const { rfc } of perfiles) {
+    const r = rfc.replace(/[^a-zA-Z0-9]/g, "_");
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS nomina_complemento_${r} (
+        id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid_cfdi               TEXT NOT NULL UNIQUE,
+        tipo_nomina             TEXT,
+        fecha_pago              TEXT,
+        fecha_inicial_pago      TEXT,
+        fecha_final_pago        TEXT,
+        num_dias_pagados        REAL,
+        total_percepciones      REAL,
+        total_deducciones       REAL,
+        total_otros_pagos       REAL,
+        curp                    TEXT,
+        num_empleado            TEXT,
+        departamento            TEXT,
+        puesto                  TEXT,
+        tipo_regimen            TEXT,
+        tipo_contrato           TEXT,
+        periodicidad_pago       TEXT,
+        salario_diario_integrado REAL,
+        percepciones            TEXT,
+        deducciones             TEXT,
+        otros_pagos             TEXT,
+        incapacidades           TEXT,
+        FOREIGN KEY (uuid_cfdi) REFERENCES facturas_${r}(uuid)
+      )
+    `).run();
+  }
+};
 class MigrationRunner {
   constructor(db) {
     this.db = db;
@@ -262,17 +314,15 @@ class MigrationRunner {
       { nombre: "005_perfiles", fn: migration005 },
       { nombre: "006_catalogos", fn: migration006 },
       { nombre: "007_config_pdf", fn: migration007 },
-      { nombre: "008_conciliaciones", fn: migration008 }
+      { nombre: "008_conciliaciones", fn: migration008 },
+      { nombre: "009_pagos_complemento", fn: migration009 },
+      { nombre: "010_nomina_complemento", fn: migration010 }
     ];
     for (const migration of migrations) {
-      const yaEjecutada = this.db.prepare(
-        "SELECT id FROM migrations WHERE nombre = ?"
-      ).get(migration.nombre);
+      const yaEjecutada = this.db.prepare("SELECT id FROM migrations WHERE nombre = ?").get(migration.nombre);
       if (!yaEjecutada) {
         migration.fn(this.db);
-        this.db.prepare(
-          "INSERT INTO migrations (nombre) VALUES (?)"
-        ).run(migration.nombre);
+        this.db.prepare("INSERT INTO migrations (nombre) VALUES (?)").run(migration.nombre);
         console.log(`Migración ejecutada: ${migration.nombre}`);
       }
     }
@@ -628,6 +678,219 @@ class PdfService {
     });
   }
 }
+class ProfileManager {
+  constructor(db) {
+    this.db = db;
+  }
+  static perfilActivo = null;
+  obtenerTodos() {
+    return this.db.prepare("SELECT * FROM perfiles ORDER BY nombre ASC").all();
+  }
+  obtenerPorRfc(rfc) {
+    return this.db.prepare("SELECT * FROM perfiles WHERE rfc = ?").get(rfc);
+  }
+  insertar(perfil) {
+    this.db.prepare(`
+      INSERT OR REPLACE INTO perfiles
+        (rfc, nombre, metodo_auth, contrasena, ruta_cer, ruta_key, contrasena_fiel, carpeta_descarga)
+      VALUES
+        (@rfc, @nombre, @metodo_auth, @contrasena, @ruta_cer, @ruta_key, @contrasena_fiel, @carpeta_descarga)
+    `).run({
+      contrasena: null,
+      ruta_cer: null,
+      ruta_key: null,
+      contrasena_fiel: null,
+      carpeta_descarga: null,
+      ...perfil
+    });
+    this.crearTablasPerfil(perfil.rfc);
+  }
+  eliminar(rfc) {
+    this.db.prepare("DELETE FROM perfiles WHERE rfc = ?").run(rfc);
+  }
+  static getPerfilActivo() {
+    return this.perfilActivo;
+  }
+  static setPerfilActivo(perfil) {
+    this.perfilActivo = perfil;
+  }
+  static limpiarPerfil() {
+    this.perfilActivo = null;
+  }
+  static getTablaFacturas(rfc) {
+    const r = rfc || this.perfilActivo?.rfc;
+    if (!r) throw new Error("No hay perfil activo");
+    return `facturas_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  }
+  static getTablaPendientes(rfc) {
+    const r = rfc || this.perfilActivo?.rfc;
+    if (!r) throw new Error("No hay perfil activo");
+    return `descargas_pendientes_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  }
+  static getTablaConciliaciones(rfc) {
+    const r = rfc || this.perfilActivo?.rfc;
+    if (!r) throw new Error("No hay perfil activo");
+    return `conciliaciones_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  }
+  static getTablaPagosComplemento(rfc) {
+    const r = rfc || this.perfilActivo?.rfc;
+    if (!r) throw new Error("No hay perfil activo");
+    return `pagos_complemento_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  }
+  static getTablaNominaComplemento(rfc) {
+    const r = rfc || this.perfilActivo?.rfc;
+    if (!r) throw new Error("No hay perfil activo");
+    return `nomina_complemento_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  }
+  static getRfcActivo() {
+    return ProfileManager.perfilActivo?.rfc || "";
+  }
+  crearTablasPerfil(rfc) {
+    const r = rfc.replace(/[^A-Z0-9]/gi, "");
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS facturas_${r} (
+      uuid TEXT PRIMARY KEY,
+      version TEXT, serie TEXT, folio TEXT,
+      fecha_emision TEXT, fecha_timbrado TEXT,
+      rfc_emisor TEXT, nombre_emisor TEXT,
+      rfc_receptor TEXT, nombre_receptor TEXT,
+      subtotal REAL, descuento REAL,
+      total_impuestos_trasladados REAL,
+      total_impuestos_retenidos REAL,
+      total REAL, tipo_comprobante TEXT,
+      forma_pago TEXT, metodo_pago TEXT,
+      moneda TEXT, tipo_cambio REAL,
+      estado TEXT, estado_cancelacion TEXT,
+      estado_proceso_cancelacion TEXT,
+      fecha_cancelacion TEXT, rfc_pac TEXT,
+      folio_sustitucion TEXT, xml TEXT,
+      tipo_descarga TEXT, fecha_descarga TEXT
+    )`).run();
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS descargas_pendientes_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT UNIQUE, rfc_emisor TEXT, nombre_emisor TEXT,
+      rfc_receptor TEXT, nombre_receptor TEXT,
+      fecha_emision TEXT, total REAL,
+      tipo_comprobante TEXT, estado TEXT,
+      url_descarga TEXT, tipo_descarga TEXT,
+      error TEXT, intentos INTEGER, fecha_fallo TEXT
+    )`).run();
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS clientes_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      contacto TEXT, notas TEXT,
+      limite_credito REAL, dias_credito INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS proveedores_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      contacto TEXT, notas TEXT,
+      limite_credito REAL, dias_credito INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS empleados_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      notas TEXT, puesto TEXT, fecha_ingreso DATE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS patrones_${r} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
+      telefono TEXT, email TEXT, direccion TEXT,
+      contacto TEXT, notas TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS conciliaciones_${r} (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tipo               TEXT    NOT NULL CHECK(tipo IN ('emitidas','recibidas')),
+      ejercicio          TEXT    NOT NULL,
+      periodo            TEXT    NOT NULL,
+      fecha_conciliacion TEXT    NOT NULL DEFAULT (datetime('now')),
+      total_sat          INTEGER NOT NULL DEFAULT 0,
+      total_local        INTEGER NOT NULL DEFAULT 0,
+      descargadas        INTEGER NOT NULL DEFAULT 0,
+      actualizadas       INTEGER NOT NULL DEFAULT 0,
+      errores            INTEGER NOT NULL DEFAULT 0
+    )`).run();
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS pagos_complemento_${r} (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid_rep      TEXT NOT NULL,
+      fecha_pago    TEXT,
+      forma_pago_p  TEXT,
+      moneda_p      TEXT,
+      tipo_cambio_p REAL,
+      monto         REAL,
+      documentos    TEXT,
+      FOREIGN KEY (uuid_rep) REFERENCES facturas_${r}(uuid)
+    )`).run();
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS nomina_complemento_${r} (
+      id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid_cfdi               TEXT NOT NULL UNIQUE,
+      tipo_nomina             TEXT,
+      fecha_pago              TEXT,
+      fecha_inicial_pago      TEXT,
+      fecha_final_pago        TEXT,
+      num_dias_pagados        REAL,
+      total_percepciones      REAL,
+      total_deducciones       REAL,
+      total_otros_pagos       REAL,
+      curp                    TEXT,
+      num_empleado            TEXT,
+      departamento            TEXT,
+      puesto                  TEXT,
+      tipo_regimen            TEXT,
+      tipo_contrato           TEXT,
+      periodicidad_pago       TEXT,
+      salario_diario_integrado REAL,
+      percepciones            TEXT,
+      deducciones             TEXT,
+      otros_pagos             TEXT,
+      incapacidades           TEXT,
+      FOREIGN KEY (uuid_cfdi) REFERENCES facturas_${r}(uuid)
+    )`).run();
+  }
+}
+class PagoComplementoRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  get tabla() {
+    return ProfileManager.getTablaPagosComplemento();
+  }
+  insertar(pago) {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO ${this.tabla}
+        (uuid_rep, fecha_pago, forma_pago_p, moneda_p, tipo_cambio_p, monto, documentos)
+      VALUES
+        (@uuid_rep, @fecha_pago, @forma_pago_p, @moneda_p, @tipo_cambio_p, @monto, @documentos)
+    `).run({
+      fecha_pago: null,
+      forma_pago_p: null,
+      moneda_p: null,
+      tipo_cambio_p: null,
+      monto: null,
+      documentos: null,
+      ...pago
+    });
+  }
+  obtenerPorUuidRep(uuid_rep) {
+    return this.db.prepare(`SELECT * FROM ${this.tabla} WHERE uuid_rep = ?`).get(uuid_rep);
+  }
+  obtenerTodos() {
+    return this.db.prepare(`SELECT * FROM ${this.tabla} ORDER BY fecha_pago DESC`).all();
+  }
+  eliminar(uuid_rep) {
+    this.db.prepare(`DELETE FROM ${this.tabla} WHERE uuid_rep = ?`).run(uuid_rep);
+  }
+}
 function manejarErrorSat(error) {
   const mensaje = String(error);
   if (mensaje.includes("SAT_SATURADO")) {
@@ -642,12 +905,14 @@ function manejarErrorSat(error) {
   return mensaje;
 }
 class FacturaHandler {
-  constructor(descargaService, pendientesService, configuracionService, authService) {
+  constructor(descargaService, pendientesService, configuracionService, authService, db) {
     this.descargaService = descargaService;
     this.pendientesService = pendientesService;
     this.configuracionService = configuracionService;
     this.authService = authService;
+    this.pagoComplementoRepository = new PagoComplementoRepository(db);
   }
+  pagoComplementoRepository;
   registrar() {
     electron.ipcMain.handle("obtener-captcha", async () => {
       try {
@@ -697,9 +962,36 @@ class FacturaHandler {
         return { success: false, error: String(error) };
       }
     });
+    electron.ipcMain.handle("obtener-facturas-por-tipo", async (_, datos) => {
+      try {
+        const facturas = this.descargaService.obtenerFacturasPorTipo(
+          datos.tipoDescarga,
+          datos.filtros ?? {}
+        );
+        return { success: true, facturas };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("obtener-pago-complemento", async (_, uuid_rep) => {
+      try {
+        const pago = this.pagoComplementoRepository.obtenerPorUuidRep(uuid_rep);
+        if (!pago) return { success: true, pago: null };
+        return {
+          success: true,
+          pago: {
+            ...pago,
+            documentos: pago.documentos ? JSON.parse(pago.documentos) : []
+          }
+        };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
     electron.ipcMain.handle("eliminar-factura", async (_, uuid) => {
       try {
         this.descargaService.eliminarFactura(uuid);
+        this.pagoComplementoRepository.eliminar(uuid);
         return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -776,154 +1068,6 @@ class FacturaHandler {
         return { success: false, error: String(error) };
       }
     });
-  }
-}
-class ProfileManager {
-  constructor(db) {
-    this.db = db;
-  }
-  static perfilActivo = null;
-  // ── Perfiles ──────────────────────────────────────────
-  obtenerTodos() {
-    return this.db.prepare("SELECT * FROM perfiles ORDER BY nombre ASC").all();
-  }
-  obtenerPorRfc(rfc) {
-    return this.db.prepare("SELECT * FROM perfiles WHERE rfc = ?").get(rfc);
-  }
-  insertar(perfil) {
-    this.db.prepare(`
-      INSERT OR REPLACE INTO perfiles
-        (rfc, nombre, metodo_auth, contrasena, ruta_cer, ruta_key, contrasena_fiel, carpeta_descarga)
-      VALUES
-        (@rfc, @nombre, @metodo_auth, @contrasena, @ruta_cer, @ruta_key, @contrasena_fiel, @carpeta_descarga)
-    `).run({
-      contrasena: null,
-      ruta_cer: null,
-      ruta_key: null,
-      contrasena_fiel: null,
-      carpeta_descarga: null,
-      ...perfil
-    });
-    this.crearTablasPerfil(perfil.rfc);
-  }
-  eliminar(rfc) {
-    this.db.prepare("DELETE FROM perfiles WHERE rfc = ?").run(rfc);
-  }
-  // ── Perfil activo ─────────────────────────────────────
-  static getPerfilActivo() {
-    return this.perfilActivo;
-  }
-  static setPerfilActivo(perfil) {
-    this.perfilActivo = perfil;
-  }
-  static limpiarPerfil() {
-    this.perfilActivo = null;
-  }
-  // ── Nombres de tablas dinámicos ───────────────────────
-  static getTablaFacturas(rfc) {
-    const r = rfc || this.perfilActivo?.rfc;
-    if (!r) throw new Error("No hay perfil activo");
-    return `facturas_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
-  }
-  static getTablaPendientes(rfc) {
-    const r = rfc || this.perfilActivo?.rfc;
-    if (!r) throw new Error("No hay perfil activo");
-    return `descargas_pendientes_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
-  }
-  static getTablaConciliaciones(rfc) {
-    const r = rfc || this.perfilActivo?.rfc;
-    if (!r) throw new Error("No hay perfil activo");
-    return `conciliaciones_${r.replace(/[^a-zA-Z0-9]/g, "_")}`;
-  }
-  static getRfcActivo() {
-    return ProfileManager.perfilActivo?.rfc || "";
-  }
-  // ── Crear tablas para un RFC nuevo ────────────────────
-  crearTablasPerfil(rfc) {
-    const r = rfc.replace(/[^A-Z0-9]/gi, "");
-    this.db.prepare(`CREATE TABLE IF NOT EXISTS facturas_${r} (
-    uuid TEXT PRIMARY KEY,
-    version TEXT, serie TEXT, folio TEXT,
-    fecha_emision TEXT, fecha_timbrado TEXT,
-    rfc_emisor TEXT, nombre_emisor TEXT,
-    rfc_receptor TEXT, nombre_receptor TEXT,
-    subtotal REAL, descuento REAL,
-    total_impuestos_trasladados REAL,
-    total_impuestos_retenidos REAL,
-    total REAL, tipo_comprobante TEXT,
-    forma_pago TEXT, metodo_pago TEXT,
-    moneda TEXT, tipo_cambio REAL,
-    estado TEXT, estado_cancelacion TEXT,
-    estado_proceso_cancelacion TEXT,
-    fecha_cancelacion TEXT, rfc_pac TEXT,
-    folio_sustitucion TEXT, xml TEXT,
-    tipo_descarga TEXT, fecha_descarga TEXT
-)`).run();
-    this.db.prepare(`CREATE TABLE IF NOT EXISTS descargas_pendientes_${r} (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    uuid TEXT UNIQUE, rfc_emisor TEXT, nombre_emisor TEXT,
-    rfc_receptor TEXT, nombre_receptor TEXT,
-    fecha_emision TEXT, total REAL,
-    tipo_comprobante TEXT, estado TEXT,
-    url_descarga TEXT, tipo_descarga TEXT,
-    error TEXT, intentos INTEGER, fecha_fallo TEXT
-)`).run();
-    this.db.prepare(`
-    CREATE TABLE IF NOT EXISTS clientes_${r} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
-      telefono TEXT, email TEXT, direccion TEXT,
-      contacto TEXT, notas TEXT,
-      limite_credito REAL, dias_credito INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `).run();
-    this.db.prepare(`
-    CREATE TABLE IF NOT EXISTS proveedores_${r} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
-      telefono TEXT, email TEXT, direccion TEXT,
-      contacto TEXT, notas TEXT,
-      limite_credito REAL, dias_credito INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `).run();
-    this.db.prepare(`
-    CREATE TABLE IF NOT EXISTS empleados_${r} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
-      telefono TEXT, email TEXT, direccion TEXT,
-      notas TEXT, puesto TEXT, fecha_ingreso DATE,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `).run();
-    this.db.prepare(`
-    CREATE TABLE IF NOT EXISTS patrones_${r} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      rfc TEXT UNIQUE NOT NULL, nombre TEXT,
-      telefono TEXT, email TEXT, direccion TEXT,
-      contacto TEXT, notas TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `).run();
-    this.db.prepare(`
-    CREATE TABLE IF NOT EXISTS conciliaciones_${r} (
-      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-      tipo               TEXT    NOT NULL CHECK(tipo IN ('emitidas','recibidas')),
-      ejercicio          TEXT    NOT NULL,
-      periodo            TEXT    NOT NULL,
-      fecha_conciliacion TEXT    NOT NULL DEFAULT (datetime('now')),
-      total_sat          INTEGER NOT NULL DEFAULT 0,
-      total_local        INTEGER NOT NULL DEFAULT 0,
-      descargadas        INTEGER NOT NULL DEFAULT 0,
-      actualizadas       INTEGER NOT NULL DEFAULT 0,
-      errores            INTEGER NOT NULL DEFAULT 0
-    )
-  `).run();
   }
 }
 const ESTRUCTURA_DEFAULT$1 = [
@@ -1536,6 +1680,12 @@ class FacturaRepository {
   get tabla() {
     return ProfileManager.getTablaFacturas();
   }
+  get tablaPagos() {
+    return ProfileManager.getTablaPagosComplemento();
+  }
+  get tablaNomina() {
+    return ProfileManager.getTablaNominaComplemento();
+  }
   insertar(factura) {
     const stmt = this.db.prepare(`
       INSERT OR IGNORE INTO ${this.tabla}
@@ -1598,12 +1748,123 @@ class FacturaRepository {
   }
   obtenerDrillDown(rfc) {
     return this.db.prepare(`
-    SELECT * FROM ${this.tabla}
-    WHERE (rfc_emisor = ? OR rfc_receptor = ?)
-      AND tipo_comprobante IN ('I', 'E')
-      AND estado = 'vigente'
-    ORDER BY fecha_emision DESC
-  `).all(rfc, rfc);
+      SELECT * FROM ${this.tabla}
+      WHERE (rfc_emisor = ? OR rfc_receptor = ?)
+        AND tipo_comprobante IN ('I', 'E')
+        AND estado = 'vigente'
+      ORDER BY fecha_emision DESC
+    `).all(rfc, rfc);
+  }
+  obtenerPorTipoDescarga(tipoDescarga, filtros = {}) {
+    const esPago = filtros.tiposComprobante?.length === 1 && filtros.tiposComprobante[0] === "P";
+    const esNomina = filtros.tiposComprobante?.length === 1 && filtros.tiposComprobante[0] === "N";
+    const condiciones = ["f.tipo_descarga = @tipoDescarga"];
+    const params = { tipoDescarga };
+    if (filtros.tiposComprobante?.length) {
+      const placeholders = filtros.tiposComprobante.map((_, i) => `@tc${i}`).join(", ");
+      filtros.tiposComprobante.forEach((v, i) => {
+        params[`tc${i}`] = v;
+      });
+      condiciones.push(`f.tipo_comprobante IN (${placeholders})`);
+    }
+    if (filtros.fechaDesde) {
+      condiciones.push("f.fecha_emision >= @fechaDesde");
+      params.fechaDesde = filtros.fechaDesde;
+    }
+    if (filtros.fechaHasta) {
+      condiciones.push("f.fecha_emision <= @fechaHasta");
+      params.fechaHasta = filtros.fechaHasta + "T23:59:59";
+    }
+    if (filtros.rfcContraparte) {
+      const campo = tipoDescarga === "recibida" ? "f.rfc_emisor" : "f.rfc_receptor";
+      condiciones.push(`${campo} LIKE @rfcContraparte`);
+      params.rfcContraparte = `%${filtros.rfcContraparte}%`;
+    }
+    if (filtros.tipoComprobante) {
+      condiciones.push("f.tipo_comprobante = @tipoComprobante");
+      params.tipoComprobante = filtros.tipoComprobante;
+    }
+    if (filtros.formaPago) {
+      condiciones.push("f.forma_pago = @formaPago");
+      params.formaPago = filtros.formaPago;
+    }
+    if (filtros.metodoPago) {
+      condiciones.push("f.metodo_pago = @metodoPago");
+      params.metodoPago = filtros.metodoPago;
+    }
+    if (filtros.estado) {
+      condiciones.push("f.estado = @estado");
+      params.estado = filtros.estado;
+    }
+    if (filtros.busqueda) {
+      condiciones.push(`(
+        f.uuid LIKE @b OR
+        f.rfc_emisor LIKE @b OR f.nombre_emisor LIKE @b OR
+        f.rfc_receptor LIKE @b OR f.nombre_receptor LIKE @b OR
+        f.serie LIKE @b OR f.folio LIKE @b
+      )`);
+      params.b = `%${filtros.busqueda}%`;
+    }
+    const where = condiciones.join(" AND ");
+    if (esPago) {
+      return this.db.prepare(`
+        SELECT
+          f.*,
+          p.fecha_pago,
+          p.forma_pago_p,
+          p.moneda_p,
+          p.tipo_cambio_p,
+          p.monto,
+          p.documentos
+        FROM ${this.tabla} f
+        LEFT JOIN ${this.tablaPagos} p ON p.uuid_rep = f.uuid
+        WHERE ${where}
+        ORDER BY p.fecha_pago DESC, f.fecha_timbrado DESC
+      `).all(params);
+    }
+    if (esNomina) {
+      return this.db.prepare(`
+        SELECT
+          f.*,
+          n.tipo_nomina,
+          n.fecha_pago,
+          n.fecha_inicial_pago,
+          n.fecha_final_pago,
+          n.num_dias_pagados,
+          n.total_percepciones,
+          n.total_deducciones,
+          n.total_otros_pagos,
+          n.curp,
+          n.num_empleado,
+          n.departamento,
+          n.puesto,
+          n.tipo_regimen,
+          n.tipo_contrato,
+          n.periodicidad_pago,
+          n.salario_diario_integrado
+        FROM ${this.tabla} f
+        LEFT JOIN ${this.tablaNomina} n ON n.uuid_cfdi = f.uuid
+        WHERE ${where}
+        ORDER BY n.fecha_pago DESC, f.fecha_timbrado DESC
+      `).all(params);
+    }
+    return this.db.prepare(`SELECT f.* FROM ${this.tabla} f WHERE ${where} ORDER BY f.fecha_emision DESC`).all(params);
+  }
+  contarPorTipoDescarga() {
+    const row = this.db.prepare(`
+      SELECT
+        SUM(CASE WHEN tipo_descarga = 'recibida' THEN 1 ELSE 0 END) AS recibidas,
+        SUM(CASE WHEN tipo_descarga = 'emitida'  THEN 1 ELSE 0 END) AS emitidas,
+        SUM(CASE WHEN tipo_comprobante = 'N'     THEN 1 ELSE 0 END) AS nomina,
+        SUM(CASE WHEN tipo_comprobante = 'P'     THEN 1 ELSE 0 END) AS pagos
+      FROM ${this.tabla}
+    `).get();
+    return {
+      recibidas: row.recibidas || 0,
+      emitidas: row.emitidas || 0,
+      nomina: row.nomina || 0,
+      pagos: row.pagos || 0
+    };
   }
 }
 class DescargaPendienteRepository {
@@ -1676,16 +1937,21 @@ class ConciliacionRepository {
 const MAX_REINTENTOS = 3;
 const ESPERA_ENTRE_REINTENTOS_MS = 5e3;
 class SatAuthService {
-  constructor(context) {
-    this.context = context;
-  }
+  context = null;
   paginaLogin = null;
+  async getContext() {
+    if (!this.context) {
+      this.context = await BrowserManager.newContext();
+    }
+    return this.context;
+  }
   async obtenerCaptcha() {
     if (this.paginaLogin) {
-      await this.paginaLogin.close();
+      await this.paginaLogin.close().catch(() => null);
       this.paginaLogin = null;
     }
-    this.paginaLogin = await this.context.newPage();
+    const context = await this.getContext();
+    this.paginaLogin = await context.newPage();
     await this.paginaLogin.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
     await this.paginaLogin.waitForSelector("#divCaptcha", { timeout: 15e3 });
     const imagenBase64 = await this.paginaLogin.$eval(
@@ -1707,7 +1973,8 @@ class SatAuthService {
     return page;
   }
   async loginConEfirma(rutaCer, rutaKey, contrasenaFiel) {
-    const page = this.paginaLogin ?? await this.context.newPage();
+    const context = await this.getContext();
+    const page = this.paginaLogin ?? await context.newPage();
     this.paginaLogin = null;
     if (!page.url().includes("portalcfdi")) {
       await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
@@ -1721,7 +1988,17 @@ class SatAuthService {
     await this.intentarLogin(page, () => page.click("#submit", { timeout: 9e4 }), "efirma");
     return page;
   }
-  // Orquesta reintentos — no sabe de SAT, solo reintenta si es timeout
+  async cerrarSesion() {
+    if (this.paginaLogin) {
+      await this.paginaLogin.close().catch(() => null);
+      this.paginaLogin = null;
+    }
+    if (this.context) {
+      await this.context.close().catch(() => null);
+      this.context = null;
+    }
+    await BrowserManager.cerrar();
+  }
   async intentarLogin(page, accion, metodoAuth, intento = 1) {
     try {
       await this.esperarLoginExitoso(page, accion);
@@ -1744,7 +2021,6 @@ class SatAuthService {
       throw error;
     }
   }
-  // Hace una sola cosa: esperar que el login complete y verificar resultado
   async esperarLoginExitoso(page, accion) {
     await Promise.all([
       page.waitForNavigation({ timeout: 9e4 }).catch(() => null),
@@ -1776,13 +2052,6 @@ class SatAuthService {
     } finally {
       await page.close();
     }
-  }
-  async cerrarSesion() {
-    if (this.paginaLogin) {
-      await this.paginaLogin.close().catch(() => null);
-      this.paginaLogin = null;
-    }
-    await BrowserManager.cerrar();
   }
 }
 class SatBusquedaService {
@@ -2002,6 +2271,58 @@ class SatDescargaService {
     }
   }
 }
+class NominaComplementoRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  get tabla() {
+    return ProfileManager.getTablaNominaComplemento();
+  }
+  insertar(nomina) {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO ${this.tabla}
+        (uuid_cfdi, tipo_nomina, fecha_pago, fecha_inicial_pago, fecha_final_pago,
+         num_dias_pagados, total_percepciones, total_deducciones, total_otros_pagos,
+         curp, num_empleado, departamento, puesto, tipo_regimen, tipo_contrato,
+         periodicidad_pago, salario_diario_integrado,
+         percepciones, deducciones, otros_pagos, incapacidades)
+      VALUES
+        (@uuid_cfdi, @tipo_nomina, @fecha_pago, @fecha_inicial_pago, @fecha_final_pago,
+         @num_dias_pagados, @total_percepciones, @total_deducciones, @total_otros_pagos,
+         @curp, @num_empleado, @departamento, @puesto, @tipo_regimen, @tipo_contrato,
+         @periodicidad_pago, @salario_diario_integrado,
+         @percepciones, @deducciones, @otros_pagos, @incapacidades)
+    `).run({
+      tipo_nomina: null,
+      fecha_pago: null,
+      fecha_inicial_pago: null,
+      fecha_final_pago: null,
+      num_dias_pagados: null,
+      total_percepciones: null,
+      total_deducciones: null,
+      total_otros_pagos: null,
+      curp: null,
+      num_empleado: null,
+      departamento: null,
+      puesto: null,
+      tipo_regimen: null,
+      tipo_contrato: null,
+      periodicidad_pago: null,
+      salario_diario_integrado: null,
+      percepciones: null,
+      deducciones: null,
+      otros_pagos: null,
+      incapacidades: null,
+      ...nomina
+    });
+  }
+  obtenerPorUuid(uuid_cfdi) {
+    return this.db.prepare(`SELECT * FROM ${this.tabla} WHERE uuid_cfdi = ?`).get(uuid_cfdi);
+  }
+  eliminar(uuid_cfdi) {
+    this.db.prepare(`DELETE FROM ${this.tabla} WHERE uuid_cfdi = ?`).run(uuid_cfdi);
+  }
+}
 class XmlParserService {
   extraerCampos(rutaXml) {
     try {
@@ -2020,7 +2341,7 @@ class XmlParserService {
       const getAttr = (el, attr) => el?.getAttribute(attr) || "";
       const getFloat = (el, attr) => parseFloat(el?.getAttribute(attr) || "0") || 0;
       const tipoTexto = getAttr(cfdi, "TipoDeComprobante");
-      return {
+      const base = {
         uuid: getAttr(tfd, "UUID"),
         version: getAttr(cfdi, "Version"),
         serie: getAttr(cfdi, "Serie"),
@@ -2044,9 +2365,129 @@ class XmlParserService {
         total_impuestos_trasladados: getFloat(impuestosEl, "TotalImpuestosTrasladados"),
         total_impuestos_retenidos: getFloat(impuestosEl, "TotalImpuestosRetenidos")
       };
+      if (tipoTexto === "P") {
+        return { ...base, complementoPago: this.extraerComplementoPago(doc) };
+      }
+      if (tipoTexto === "N") {
+        return { ...base, complementoNomina: this.extraerComplementoNomina(doc) };
+      }
+      return base;
     } catch (err) {
       console.error("Error extrayendo campos XML:", err);
       return {};
+    }
+  }
+  extraerComplementoPago(doc) {
+    try {
+      const nsPago = "http://www.sat.gob.mx/Pagos20";
+      const pagoEl = doc.getElementsByTagNameNS(nsPago, "Pago")[0] || null;
+      if (!pagoEl) return null;
+      const getAttr = (el, attr) => el?.getAttribute(attr) || "";
+      const getFloat = (el, attr) => parseFloat(el?.getAttribute(attr) || "0") || 0;
+      const getInt = (el, attr) => parseInt(el?.getAttribute(attr) || "0", 10) || 0;
+      const doctosEl = pagoEl.getElementsByTagNameNS(nsPago, "DoctoRelacionado");
+      const documentos = Array.from({ length: doctosEl.length }, (_, i) => {
+        const d = doctosEl[i];
+        return {
+          id_documento: getAttr(d, "IdDocumento"),
+          serie: getAttr(d, "Serie"),
+          folio: getAttr(d, "Folio"),
+          moneda_dr: getAttr(d, "MonedaDR"),
+          tipo_cambio_dr: getFloat(d, "TipoCambioDR"),
+          metodo_pago_dr: getAttr(d, "MetodoDePagoDR"),
+          num_parcialidad: getInt(d, "NumParcialidad"),
+          imp_saldo_anterior: getFloat(d, "ImpSaldoAnterior"),
+          imp_pagado: getFloat(d, "ImpPagado"),
+          imp_saldo_insoluto: getFloat(d, "ImpSaldoInsoluto")
+        };
+      });
+      return {
+        fecha_pago: getAttr(pagoEl, "FechaPago"),
+        forma_pago_p: getAttr(pagoEl, "FormaDePagoP"),
+        moneda_p: getAttr(pagoEl, "MonedaP"),
+        tipo_cambio_p: getFloat(pagoEl, "TipoCambioP"),
+        monto: getFloat(pagoEl, "Monto"),
+        documentos
+      };
+    } catch (err) {
+      console.error("Error extrayendo complemento de pago:", err);
+      return null;
+    }
+  }
+  extraerComplementoNomina(doc) {
+    try {
+      const nsNomina = "http://www.sat.gob.mx/nomina12";
+      const nominaEl = doc.getElementsByTagNameNS(nsNomina, "Nomina")[0] || null;
+      if (!nominaEl) return null;
+      const getAttr = (el, attr) => el?.getAttribute(attr) || "";
+      const getFloat = (el, attr) => parseFloat(el?.getAttribute(attr) || "0") || 0;
+      const getInt = (el, attr) => parseInt(el?.getAttribute(attr) || "0", 10) || 0;
+      const receptorEl = nominaEl.getElementsByTagNameNS(nsNomina, "Receptor")[0] || null;
+      const percepcionesEls = nominaEl.getElementsByTagNameNS(nsNomina, "Percepcion");
+      const percepciones = Array.from({ length: percepcionesEls.length }, (_, i) => {
+        const p = percepcionesEls[i];
+        return {
+          tipo: getAttr(p, "TipoPercepcion"),
+          clave: getAttr(p, "Clave"),
+          concepto: getAttr(p, "Concepto"),
+          importe_gravado: getFloat(p, "ImporteGravado"),
+          importe_exento: getFloat(p, "ImporteExento")
+        };
+      });
+      const deduccionesEls = nominaEl.getElementsByTagNameNS(nsNomina, "Deduccion");
+      const deducciones = Array.from({ length: deduccionesEls.length }, (_, i) => {
+        const d = deduccionesEls[i];
+        return {
+          tipo: getAttr(d, "TipoDeduccion"),
+          clave: getAttr(d, "Clave"),
+          concepto: getAttr(d, "Concepto"),
+          importe: getFloat(d, "Importe")
+        };
+      });
+      const otrosPagosEls = nominaEl.getElementsByTagNameNS(nsNomina, "OtroPago");
+      const otros_pagos = Array.from({ length: otrosPagosEls.length }, (_, i) => {
+        const o = otrosPagosEls[i];
+        return {
+          tipo: getAttr(o, "TipoOtroPago"),
+          clave: getAttr(o, "Clave"),
+          concepto: getAttr(o, "Concepto"),
+          importe: getFloat(o, "Importe")
+        };
+      });
+      const incapacidadesEls = nominaEl.getElementsByTagNameNS(nsNomina, "Incapacidad");
+      const incapacidades = Array.from({ length: incapacidadesEls.length }, (_, i) => {
+        const inc = incapacidadesEls[i];
+        return {
+          dias: getInt(inc, "DiasIncapacidad"),
+          tipo: getAttr(inc, "TipoIncapacidad"),
+          importe: getFloat(inc, "ImporteMonetario")
+        };
+      });
+      return {
+        tipo_nomina: getAttr(nominaEl, "TipoNomina"),
+        fecha_pago: getAttr(nominaEl, "FechaPago"),
+        fecha_inicial_pago: getAttr(nominaEl, "FechaInicialPago"),
+        fecha_final_pago: getAttr(nominaEl, "FechaFinalPago"),
+        num_dias_pagados: getFloat(nominaEl, "NumDiasPagados"),
+        total_percepciones: getFloat(nominaEl, "TotalPercepciones"),
+        total_deducciones: getFloat(nominaEl, "TotalDeducciones"),
+        total_otros_pagos: getFloat(nominaEl, "TotalOtrosPagos"),
+        curp: getAttr(receptorEl, "Curp"),
+        num_empleado: getAttr(receptorEl, "NumEmpleado"),
+        departamento: getAttr(receptorEl, "Departamento"),
+        puesto: getAttr(receptorEl, "Puesto"),
+        tipo_regimen: getAttr(receptorEl, "TipoRegimen"),
+        tipo_contrato: getAttr(receptorEl, "TipoContrato"),
+        periodicidad_pago: getAttr(receptorEl, "PeriodicidadPago"),
+        salario_diario_integrado: getFloat(receptorEl, "SalarioDiarioIntegrado"),
+        percepciones,
+        deducciones,
+        otros_pagos,
+        incapacidades
+      };
+    } catch (err) {
+      console.error("Error extrayendo complemento de nómina:", err);
+      return null;
     }
   }
 }
@@ -2130,11 +2571,14 @@ class CfdiGuardadoService {
     this.facturaRepository = facturaRepository;
     this.pendienteRepository = pendienteRepository;
     this.catalogoRepository = new CatalogoRepository(db);
+    this.pagoComplementoRepository = new PagoComplementoRepository(db);
+    this.nominaComplementoRepository = new NominaComplementoRepository(db);
   }
   xmlParser = new XmlParserService();
   rutaService = new RutaArchivoService();
   catalogoRepository;
-  // Descarga / conciliación — el XML ya está en rutaTemp
+  pagoComplementoRepository;
+  nominaComplementoRepository;
   guardarDesdeRuta(rutaTemp, meta) {
     const rutaDestino = this.rutaService.construirRutaXml({
       uuid: meta.uuid,
@@ -2145,6 +2589,7 @@ class CfdiGuardadoService {
     });
     fs__namespace.copyFileSync(rutaTemp, rutaDestino);
     const camposXml = this.xmlParser.extraerCampos(rutaDestino);
+    const { complementoPago, complementoNomina, ...camposSinComplemento } = camposXml;
     const yaExiste = this.facturaRepository.obtenerPorUuid(meta.uuid);
     if (!yaExiste) {
       this.facturaRepository.insertar({
@@ -2161,14 +2606,49 @@ class CfdiGuardadoService {
         xml: rutaDestino,
         tipo_descarga: meta.tipo_descarga,
         fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
-        ...camposXml
+        ...camposSinComplemento
       });
     } else {
-      this.facturaRepository.actualizar(meta.uuid, { xml: rutaDestino, ...camposXml });
+      this.facturaRepository.actualizar(meta.uuid, { xml: rutaDestino, ...camposSinComplemento });
+    }
+    if (meta.tipo_comprobante === "P" && complementoPago) {
+      this.pagoComplementoRepository.insertar({
+        uuid_rep: meta.uuid,
+        fecha_pago: complementoPago.fecha_pago,
+        forma_pago_p: complementoPago.forma_pago_p,
+        moneda_p: complementoPago.moneda_p,
+        tipo_cambio_p: complementoPago.tipo_cambio_p,
+        monto: complementoPago.monto,
+        documentos: JSON.stringify(complementoPago.documentos)
+      });
+    }
+    if (meta.tipo_comprobante === "N" && complementoNomina) {
+      this.nominaComplementoRepository.insertar({
+        uuid_cfdi: meta.uuid,
+        tipo_nomina: complementoNomina.tipo_nomina,
+        fecha_pago: complementoNomina.fecha_pago,
+        fecha_inicial_pago: complementoNomina.fecha_inicial_pago,
+        fecha_final_pago: complementoNomina.fecha_final_pago,
+        num_dias_pagados: complementoNomina.num_dias_pagados,
+        total_percepciones: complementoNomina.total_percepciones,
+        total_deducciones: complementoNomina.total_deducciones,
+        total_otros_pagos: complementoNomina.total_otros_pagos,
+        curp: complementoNomina.curp,
+        num_empleado: complementoNomina.num_empleado,
+        departamento: complementoNomina.departamento,
+        puesto: complementoNomina.puesto,
+        tipo_regimen: complementoNomina.tipo_regimen,
+        tipo_contrato: complementoNomina.tipo_contrato,
+        periodicidad_pago: complementoNomina.periodicidad_pago,
+        salario_diario_integrado: complementoNomina.salario_diario_integrado,
+        percepciones: JSON.stringify(complementoNomina.percepciones),
+        deducciones: JSON.stringify(complementoNomina.deducciones),
+        otros_pagos: JSON.stringify(complementoNomina.otros_pagos),
+        incapacidades: JSON.stringify(complementoNomina.incapacidades)
+      });
     }
     this.pendienteRepository.eliminar(meta.uuid);
   }
-  // Importación manual — el XML ya está en ruta local del usuario
   importarDesdeRutaLocal(rutaOrigen) {
     const perfil = ProfileManager.getPerfilActivo();
     if (!perfil) throw new Error("No hay perfil activo");
@@ -2189,6 +2669,7 @@ class CfdiGuardadoService {
       tipo_descarga: tipoDes
     });
     fs__namespace.copyFileSync(rutaOrigen, rutaDestino);
+    const { complementoPago, complementoNomina, ...camposSinComplemento } = camposXml;
     this.facturaRepository.insertar({
       uuid: camposXml.uuid,
       fecha_emision: camposXml.fecha_emision || "",
@@ -2203,15 +2684,49 @@ class CfdiGuardadoService {
       xml: rutaDestino,
       tipo_descarga: tipoDes,
       fecha_descarga: (/* @__PURE__ */ new Date()).toISOString(),
-      ...camposXml
+      ...camposSinComplemento
     });
+    if (camposXml.tipo_comprobante === "P" && complementoPago) {
+      this.pagoComplementoRepository.insertar({
+        uuid_rep: camposXml.uuid,
+        fecha_pago: complementoPago.fecha_pago,
+        forma_pago_p: complementoPago.forma_pago_p,
+        moneda_p: complementoPago.moneda_p,
+        tipo_cambio_p: complementoPago.tipo_cambio_p,
+        monto: complementoPago.monto,
+        documentos: JSON.stringify(complementoPago.documentos)
+      });
+    }
+    if (camposXml.tipo_comprobante === "N" && complementoNomina) {
+      this.nominaComplementoRepository.insertar({
+        uuid_cfdi: camposXml.uuid,
+        tipo_nomina: complementoNomina.tipo_nomina,
+        fecha_pago: complementoNomina.fecha_pago,
+        fecha_inicial_pago: complementoNomina.fecha_inicial_pago,
+        fecha_final_pago: complementoNomina.fecha_final_pago,
+        num_dias_pagados: complementoNomina.num_dias_pagados,
+        total_percepciones: complementoNomina.total_percepciones,
+        total_deducciones: complementoNomina.total_deducciones,
+        total_otros_pagos: complementoNomina.total_otros_pagos,
+        curp: complementoNomina.curp,
+        num_empleado: complementoNomina.num_empleado,
+        departamento: complementoNomina.departamento,
+        puesto: complementoNomina.puesto,
+        tipo_regimen: complementoNomina.tipo_regimen,
+        tipo_contrato: complementoNomina.tipo_contrato,
+        periodicidad_pago: complementoNomina.periodicidad_pago,
+        salario_diario_integrado: complementoNomina.salario_diario_integrado,
+        percepciones: JSON.stringify(complementoNomina.percepciones),
+        deducciones: JSON.stringify(complementoNomina.deducciones),
+        otros_pagos: JSON.stringify(complementoNomina.otros_pagos),
+        incapacidades: JSON.stringify(complementoNomina.incapacidades)
+      });
+    }
     return "importada";
   }
-  // Conciliación — actualiza estado de vigente a cancelado
   actualizarEstado(uuid, estado) {
     this.facturaRepository.actualizar(uuid, { estado });
   }
-  // Pendientes — registra fallo de descarga para reintentar después
   guardarPendiente(meta, error) {
     this.pendienteRepository.insertar({
       uuid: meta.uuid,
@@ -2312,6 +2827,12 @@ class DescargaService {
   }
   limpiarPendientes() {
     return this.pendienteRepository.limpiar();
+  }
+  obtenerFacturasPorTipo(tipoDescarga, filtros) {
+    return this.facturaRepository.obtenerPorTipoDescarga(tipoDescarga, filtros);
+  }
+  obtenerConteos() {
+    return this.facturaRepository.contarPorTipoDescarga();
   }
 }
 class PendientesService {
@@ -2523,8 +3044,7 @@ electron.app.whenReady().then(async () => {
   });
   initDatabase();
   const db = Database.getInstance();
-  const browserContext = await BrowserManager.newContext();
-  const authService = new SatAuthService(browserContext);
+  const authService = new SatAuthService();
   const busquedaService = new SatBusquedaService();
   const satDescargaService = new SatDescargaService();
   const facturaRepository = new FacturaRepository(db);
@@ -2537,7 +3057,7 @@ electron.app.whenReady().then(async () => {
   const conciliacionService = new ConciliacionService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, conciliacionRepository);
   const profileManager = new ProfileManager(db);
   new PerfilHandler(profileManager).registrar();
-  new FacturaHandler(descargaService, pendientesService, configuracionService, authService).registrar();
+  new FacturaHandler(descargaService, pendientesService, configuracionService, authService, db).registrar();
   new ConciliacionHandler(conciliacionService, configuracionService, authService).registrar();
   new ImportacionHandler(guardadoService).registrar();
   new ConfiguracionHandler(db).registrar();

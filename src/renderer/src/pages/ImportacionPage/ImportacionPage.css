@@ -1,0 +1,41 @@
+.importacion-container {
+  padding: 24px;
+}
+
+.importacion-acciones {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.importacion-alert {
+  margin-bottom: 16px;
+}
+
+.importacion-errores-count {
+  color: #ff4d4f;
+}
+
+.importacion-nombre-archivo {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.importacion-empty {
+  text-align: center;
+  padding: 60px;
+  background: #fff;
+  border-radius: 8px;
+  border: 2px dashed #e8ecf0;
+  color: #8c9db5;
+}
+
+.importacion-empty-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.importacion-empty-text {
+  font-size: 14px;
+}

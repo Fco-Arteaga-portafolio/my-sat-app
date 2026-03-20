@@ -7,6 +7,8 @@ import { migration005 } from './migrations/005_perfiles'
 import { migration006 } from './migrations/006_catalogos'
 import { migration007 } from './migrations/007_config_pdf'
 import { migration008 } from './migrations/008_conciliaciones'
+import { migration009 } from './migrations/009_pagos_complemento'
+import { migration010 } from './migrations/010_nomina_complemento'
 
 export class MigrationRunner {
   constructor(private readonly db: BetterSqlite3.Database) { }
@@ -35,19 +37,21 @@ export class MigrationRunner {
       { nombre: '005_perfiles', fn: migration005 },
       { nombre: '006_catalogos', fn: migration006 },
       { nombre: '007_config_pdf', fn: migration007 },
-      { nombre: '008_conciliaciones', fn: migration008 }
+      { nombre: '008_conciliaciones', fn: migration008 },
+      { nombre: '009_pagos_complemento', fn: migration009 },
+      { nombre: '010_nomina_complemento', fn: migration010 }
     ]
 
     for (const migration of migrations) {
-      const yaEjecutada = this.db.prepare(
-        'SELECT id FROM migrations WHERE nombre = ?'
-      ).get(migration.nombre)
+      const yaEjecutada = this.db
+        .prepare('SELECT id FROM migrations WHERE nombre = ?')
+        .get(migration.nombre)
 
       if (!yaEjecutada) {
         migration.fn(this.db)
-        this.db.prepare(
-          'INSERT INTO migrations (nombre) VALUES (?)'
-        ).run(migration.nombre)
+        this.db
+          .prepare('INSERT INTO migrations (nombre) VALUES (?)')
+          .run(migration.nombre)
         console.log(`Migración ejecutada: ${migration.nombre}`)
       }
     }

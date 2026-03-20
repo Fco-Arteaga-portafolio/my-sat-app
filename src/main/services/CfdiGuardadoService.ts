@@ -2,6 +2,8 @@ import * as fs from 'fs'
 import { FacturaRepository } from '../database/repositories/FacturaRepository'
 import { DescargaPendienteRepository } from '../database/repositories/DescargaPendienteRepository'
 import { CatalogoRepository } from '../database/repositories/CatalogoRepository'
+import { PagoComplementoRepository } from '../database/repositories/PagoComplementoRepository'
+import { NominaComplementoRepository } from '../database/repositories/NominaComplementoRepository'
 import { XmlParserService } from './XmlParserService'
 import { RutaArchivoService } from './RutaArchivoService'
 import { ProfileManager } from '../database/ProfileManager'
@@ -12,6 +14,8 @@ export class CfdiGuardadoService {
     private readonly xmlParser = new XmlParserService()
     private readonly rutaService = new RutaArchivoService()
     private readonly catalogoRepository: CatalogoRepository
+    private readonly pagoComplementoRepository: PagoComplementoRepository
+    private readonly nominaComplementoRepository: NominaComplementoRepository
 
     constructor(
         private readonly facturaRepository: FacturaRepository,
@@ -19,9 +23,10 @@ export class CfdiGuardadoService {
         db: BetterSqlite3.Database
     ) {
         this.catalogoRepository = new CatalogoRepository(db)
+        this.pagoComplementoRepository = new PagoComplementoRepository(db)
+        this.nominaComplementoRepository = new NominaComplementoRepository(db)
     }
 
-    // Descarga / conciliación — el XML ya está en rutaTemp
     guardarDesdeRuta(rutaTemp: string, meta: MetaCfdi): void {
         const rutaDestino = this.rutaService.construirRutaXml({
             uuid: meta.uuid,
@@ -34,6 +39,7 @@ export class CfdiGuardadoService {
         fs.copyFileSync(rutaTemp, rutaDestino)
 
         const camposXml = this.xmlParser.extraerCampos(rutaDestino)
+        const { complementoPago, complementoNomina, ...camposSinComplemento } = camposXml
         const yaExiste = this.facturaRepository.obtenerPorUuid(meta.uuid)
 
         if (!yaExiste) {
@@ -51,16 +57,53 @@ export class CfdiGuardadoService {
                 xml: rutaDestino,
                 tipo_descarga: meta.tipo_descarga,
                 fecha_descarga: new Date().toISOString(),
-                ...camposXml
+                ...camposSinComplemento
             })
         } else {
-            this.facturaRepository.actualizar(meta.uuid, { xml: rutaDestino, ...camposXml })
+            this.facturaRepository.actualizar(meta.uuid, { xml: rutaDestino, ...camposSinComplemento })
+        }
+
+        if (meta.tipo_comprobante === 'P' && complementoPago) {
+            this.pagoComplementoRepository.insertar({
+                uuid_rep: meta.uuid,
+                fecha_pago: complementoPago.fecha_pago,
+                forma_pago_p: complementoPago.forma_pago_p,
+                moneda_p: complementoPago.moneda_p,
+                tipo_cambio_p: complementoPago.tipo_cambio_p,
+                monto: complementoPago.monto,
+                documentos: JSON.stringify(complementoPago.documentos)
+            })
+        }
+
+        if (meta.tipo_comprobante === 'N' && complementoNomina) {
+            this.nominaComplementoRepository.insertar({
+                uuid_cfdi: meta.uuid,
+                tipo_nomina: complementoNomina.tipo_nomina,
+                fecha_pago: complementoNomina.fecha_pago,
+                fecha_inicial_pago: complementoNomina.fecha_inicial_pago,
+                fecha_final_pago: complementoNomina.fecha_final_pago,
+                num_dias_pagados: complementoNomina.num_dias_pagados,
+                total_percepciones: complementoNomina.total_percepciones,
+                total_deducciones: complementoNomina.total_deducciones,
+                total_otros_pagos: complementoNomina.total_otros_pagos,
+                curp: complementoNomina.curp,
+                num_empleado: complementoNomina.num_empleado,
+                departamento: complementoNomina.departamento,
+                puesto: complementoNomina.puesto,
+                tipo_regimen: complementoNomina.tipo_regimen,
+                tipo_contrato: complementoNomina.tipo_contrato,
+                periodicidad_pago: complementoNomina.periodicidad_pago,
+                salario_diario_integrado: complementoNomina.salario_diario_integrado,
+                percepciones: JSON.stringify(complementoNomina.percepciones),
+                deducciones: JSON.stringify(complementoNomina.deducciones),
+                otros_pagos: JSON.stringify(complementoNomina.otros_pagos),
+                incapacidades: JSON.stringify(complementoNomina.incapacidades)
+            })
         }
 
         this.pendienteRepository.eliminar(meta.uuid)
     }
 
-    // Importación manual — el XML ya está en ruta local del usuario
     importarDesdeRutaLocal(rutaOrigen: string): 'importada' | 'omitida' {
         const perfil = ProfileManager.getPerfilActivo()
         if (!perfil) throw new Error('No hay perfil activo')
@@ -78,7 +121,6 @@ export class CfdiGuardadoService {
         if (yaExiste) return 'omitida'
 
         const tipoDes = camposXml.rfc_receptor === perfil.rfc ? 'recibida' : 'emitida'
-
         const rutaDestino = this.rutaService.construirRutaXml({
             uuid: camposXml.uuid,
             fecha_emision: camposXml.fecha_emision || '',
@@ -88,6 +130,8 @@ export class CfdiGuardadoService {
         })
 
         fs.copyFileSync(rutaOrigen, rutaDestino)
+
+        const { complementoPago, complementoNomina, ...camposSinComplemento } = camposXml
 
         this.facturaRepository.insertar({
             uuid: camposXml.uuid,
@@ -103,18 +147,54 @@ export class CfdiGuardadoService {
             xml: rutaDestino,
             tipo_descarga: tipoDes,
             fecha_descarga: new Date().toISOString(),
-            ...camposXml
+            ...camposSinComplemento
         })
+
+        if (camposXml.tipo_comprobante === 'P' && complementoPago) {
+            this.pagoComplementoRepository.insertar({
+                uuid_rep: camposXml.uuid,
+                fecha_pago: complementoPago.fecha_pago,
+                forma_pago_p: complementoPago.forma_pago_p,
+                moneda_p: complementoPago.moneda_p,
+                tipo_cambio_p: complementoPago.tipo_cambio_p,
+                monto: complementoPago.monto,
+                documentos: JSON.stringify(complementoPago.documentos)
+            })
+        }
+
+        if (camposXml.tipo_comprobante === 'N' && complementoNomina) {
+            this.nominaComplementoRepository.insertar({
+                uuid_cfdi: camposXml.uuid,
+                tipo_nomina: complementoNomina.tipo_nomina,
+                fecha_pago: complementoNomina.fecha_pago,
+                fecha_inicial_pago: complementoNomina.fecha_inicial_pago,
+                fecha_final_pago: complementoNomina.fecha_final_pago,
+                num_dias_pagados: complementoNomina.num_dias_pagados,
+                total_percepciones: complementoNomina.total_percepciones,
+                total_deducciones: complementoNomina.total_deducciones,
+                total_otros_pagos: complementoNomina.total_otros_pagos,
+                curp: complementoNomina.curp,
+                num_empleado: complementoNomina.num_empleado,
+                departamento: complementoNomina.departamento,
+                puesto: complementoNomina.puesto,
+                tipo_regimen: complementoNomina.tipo_regimen,
+                tipo_contrato: complementoNomina.tipo_contrato,
+                periodicidad_pago: complementoNomina.periodicidad_pago,
+                salario_diario_integrado: complementoNomina.salario_diario_integrado,
+                percepciones: JSON.stringify(complementoNomina.percepciones),
+                deducciones: JSON.stringify(complementoNomina.deducciones),
+                otros_pagos: JSON.stringify(complementoNomina.otros_pagos),
+                incapacidades: JSON.stringify(complementoNomina.incapacidades)
+            })
+        }
 
         return 'importada'
     }
 
-    // Conciliación — actualiza estado de vigente a cancelado
     actualizarEstado(uuid: string, estado: 'vigente' | 'cancelado'): void {
         this.facturaRepository.actualizar(uuid, { estado })
     }
 
-    // Pendientes — registra fallo de descarga para reintentar después
     guardarPendiente(meta: MetaCfdi, error: string): void {
         this.pendienteRepository.insertar({
             uuid: meta.uuid,

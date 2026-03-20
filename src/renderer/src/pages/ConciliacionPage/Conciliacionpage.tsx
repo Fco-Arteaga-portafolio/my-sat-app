@@ -4,26 +4,40 @@ import { SyncOutlined } from '@ant-design/icons'
 import { useConciliacionPage } from './ConciliacionPage.hook'
 import CaptchaInput, { CaptchaInputRef } from '../../components/CaptchaInput/CaptchaInput'
 import './ConciliacionPage.css'
+import PageHeader from '@renderer/components/PageHeader/PageHeader'
 
 const ConciliacionPage = () => {
   const captchaRef = useRef<CaptchaInputRef>(null)
 
   const {
-    form, captchaListo, configuracion, loading,
-    etapa, etapaLabel, progreso, resumen, error,
-    ejercicios, periodos,
-    setCaptcha, setCaptchaListo,
-    cambiarForm, iniciar
+    form,
+    captchaListo,
+    configuracion,
+    loading,
+    etapa,
+    etapaLabel,
+    progreso,
+    resumen,
+    error,
+    ejercicios,
+    periodos,
+    setCaptcha,
+    setCaptchaListo,
+    cambiarForm,
+    iniciar
   } = useConciliacionPage()
 
   return (
     <div className="conciliacion-container">
-      <div className="conciliacion-header">
-        <h2 className="conciliacion-titulo">Conciliación SAT</h2>
-        <p className="conciliacion-subtitulo">Verifica que tu información local esté sincronizada con el SAT</p>
-      </div>
+      <PageHeader
+        title="Conciliación SAT"
+        subtitle="Verifica que tu información local esté sincronizada con el SAT"
+        backTo="/cfdi"
+      />
 
-      {error && <Alert message={error} type="error" showIcon className="conciliacion-alert" closable />}
+      {error && (
+        <Alert message={error} type="error" showIcon className="conciliacion-alert" closable />
+      )}
 
       <div className="conciliacion-form">
         <div className="conciliacion-row">
@@ -47,7 +61,7 @@ const ConciliacionPage = () => {
               onChange={(v) => cambiarForm('ejercicio', v)}
               disabled={loading}
               className="conciliacion-select"
-              options={ejercicios.map(e => ({ value: e, label: e }))}
+              options={ejercicios.map((e) => ({ value: e, label: e }))}
             />
           </div>
           <div className="conciliacion-field">
@@ -57,7 +71,7 @@ const ConciliacionPage = () => {
               onChange={(v) => cambiarForm('periodo', v)}
               disabled={loading}
               className="conciliacion-select"
-              options={periodos.map(p => ({ value: p.value, label: p.label }))}
+              options={periodos.map((p) => ({ value: p.value, label: p.label }))}
             />
           </div>
         </div>
@@ -103,10 +117,14 @@ const ConciliacionPage = () => {
           <h3 className="conciliacion-resumen-titulo">Resultado de la conciliación</h3>
           <Row gutter={16}>
             <Col span={6}>
-              <Card><Statistic title="Total en SAT" value={resumen.totalSat} /></Card>
+              <Card>
+                <Statistic title="Total en SAT" value={resumen.totalSat} />
+              </Card>
             </Col>
             <Col span={6}>
-              <Card><Statistic title="Total local (antes)" value={resumen.totalLocal} /></Card>
+              <Card>
+                <Statistic title="Total local (antes)" value={resumen.totalLocal} />
+              </Card>
             </Col>
             <Col span={6}>
               <Card>
@@ -140,15 +158,17 @@ const ConciliacionPage = () => {
             </div>
           )}
 
-          {resumen.descargadas === 0 && resumen.actualizadas === 0 && resumen.errores.length === 0 && (
-            <Alert
-              message="Todo en orden"
-              description="Tu información local está sincronizada con el SAT para este periodo."
-              type="success"
-              showIcon
-              className="conciliacion-ok"
-            />
-          )}
+          {resumen.descargadas === 0 &&
+            resumen.actualizadas === 0 &&
+            resumen.errores.length === 0 && (
+              <Alert
+                message="Todo en orden"
+                description="Tu información local está sincronizada con el SAT para este periodo."
+                type="success"
+                showIcon
+                className="conciliacion-ok"
+              />
+            )}
         </div>
       )}
     </div>

@@ -1,0 +1,19 @@
+.filtros-bar {
+  margin-bottom: 12px;
+}
+
+.filtros-busqueda {
+  width: 280px;
+}
+
+.filtros-rango-fecha {
+  width: 240px;
+}
+
+.filtros-rfc {
+  width: 160px;
+}
+
+.filtros-select {
+  width: 160px;
+}

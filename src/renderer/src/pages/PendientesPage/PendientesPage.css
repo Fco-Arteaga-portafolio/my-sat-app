@@ -1,0 +1,53 @@
+.pendientes-container {
+  padding: 24px;
+}
+
+.pendientes-acciones {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.pendientes-badge {
+  font-size: 14px;
+}
+
+.pendientes-alert {
+  margin-bottom: 16px;
+}
+
+.pendientes-empty {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+}
+
+.pendientes-empty-icon {
+  font-size: 40px;
+  color: #d9d9d9;
+}
+
+.pendientes-empty-text {
+  margin-top: 8px;
+}
+
+.pendientes-reintentar-card {
+  margin-bottom: 16px;
+}
+
+.pendientes-reintentar-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.pendientes-progreso {
+  margin-top: 12px;
+}
+
+.pendientes-progreso-texto {
+  font-size: 12px;
+  color: #8c9db5;
+  margin-bottom: 6px;
+}

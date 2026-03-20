@@ -12,7 +12,6 @@ export interface Perfil {
   carpeta_descarga?: string
   activo?: number
   fecha_creacion?: string
-  // Configuración PDF
   plantilla_default?: string
   carpeta_emitidos?: string
   carpeta_recibidos?: string
@@ -26,7 +25,6 @@ export class ProfileManager {
 
   constructor(private readonly db: BetterSqlite3.Database) { }
 
-  // ── Perfiles ──────────────────────────────────────────
   obtenerTodos(): Perfil[] {
     return this.db.prepare('SELECT * FROM perfiles ORDER BY nombre ASC').all() as Perfil[]
   }
@@ -56,7 +54,6 @@ export class ProfileManager {
     this.db.prepare('DELETE FROM perfiles WHERE rfc = ?').run(rfc)
   }
 
-  // ── Perfil activo ─────────────────────────────────────
   static getPerfilActivo(): Perfil | null {
     return this.perfilActivo
   }
@@ -69,7 +66,6 @@ export class ProfileManager {
     this.perfilActivo = null
   }
 
-  // ── Nombres de tablas dinámicos ───────────────────────
   static getTablaFacturas(rfc?: string): string {
     const r = rfc || this.perfilActivo?.rfc
     if (!r) throw new Error('No hay perfil activo')
@@ -88,45 +84,55 @@ export class ProfileManager {
     return `conciliaciones_${r.replace(/[^a-zA-Z0-9]/g, '_')}`
   }
 
+  static getTablaPagosComplemento(rfc?: string): string {
+    const r = rfc || this.perfilActivo?.rfc
+    if (!r) throw new Error('No hay perfil activo')
+    return `pagos_complemento_${r.replace(/[^a-zA-Z0-9]/g, '_')}`
+  }
+
+  static getTablaNominaComplemento(rfc?: string): string {
+    const r = rfc || this.perfilActivo?.rfc
+    if (!r) throw new Error('No hay perfil activo')
+    return `nomina_complemento_${r.replace(/[^a-zA-Z0-9]/g, '_')}`
+  }
+
   static getRfcActivo(): string {
     return ProfileManager.perfilActivo?.rfc || ''
   }
 
-  // ── Crear tablas para un RFC nuevo ────────────────────
   crearTablasPerfil(rfc: string): void {
     const r = rfc.replace(/[^A-Z0-9]/gi, '')
 
     this.db.prepare(`CREATE TABLE IF NOT EXISTS facturas_${r} (
-    uuid TEXT PRIMARY KEY,
-    version TEXT, serie TEXT, folio TEXT,
-    fecha_emision TEXT, fecha_timbrado TEXT,
-    rfc_emisor TEXT, nombre_emisor TEXT,
-    rfc_receptor TEXT, nombre_receptor TEXT,
-    subtotal REAL, descuento REAL,
-    total_impuestos_trasladados REAL,
-    total_impuestos_retenidos REAL,
-    total REAL, tipo_comprobante TEXT,
-    forma_pago TEXT, metodo_pago TEXT,
-    moneda TEXT, tipo_cambio REAL,
-    estado TEXT, estado_cancelacion TEXT,
-    estado_proceso_cancelacion TEXT,
-    fecha_cancelacion TEXT, rfc_pac TEXT,
-    folio_sustitucion TEXT, xml TEXT,
-    tipo_descarga TEXT, fecha_descarga TEXT
-)`).run()
+      uuid TEXT PRIMARY KEY,
+      version TEXT, serie TEXT, folio TEXT,
+      fecha_emision TEXT, fecha_timbrado TEXT,
+      rfc_emisor TEXT, nombre_emisor TEXT,
+      rfc_receptor TEXT, nombre_receptor TEXT,
+      subtotal REAL, descuento REAL,
+      total_impuestos_trasladados REAL,
+      total_impuestos_retenidos REAL,
+      total REAL, tipo_comprobante TEXT,
+      forma_pago TEXT, metodo_pago TEXT,
+      moneda TEXT, tipo_cambio REAL,
+      estado TEXT, estado_cancelacion TEXT,
+      estado_proceso_cancelacion TEXT,
+      fecha_cancelacion TEXT, rfc_pac TEXT,
+      folio_sustitucion TEXT, xml TEXT,
+      tipo_descarga TEXT, fecha_descarga TEXT
+    )`).run()
 
     this.db.prepare(`CREATE TABLE IF NOT EXISTS descargas_pendientes_${r} (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    uuid TEXT UNIQUE, rfc_emisor TEXT, nombre_emisor TEXT,
-    rfc_receptor TEXT, nombre_receptor TEXT,
-    fecha_emision TEXT, total REAL,
-    tipo_comprobante TEXT, estado TEXT,
-    url_descarga TEXT, tipo_descarga TEXT,
-    error TEXT, intentos INTEGER, fecha_fallo TEXT
-)`).run()
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT UNIQUE, rfc_emisor TEXT, nombre_emisor TEXT,
+      rfc_receptor TEXT, nombre_receptor TEXT,
+      fecha_emision TEXT, total REAL,
+      tipo_comprobante TEXT, estado TEXT,
+      url_descarga TEXT, tipo_descarga TEXT,
+      error TEXT, intentos INTEGER, fecha_fallo TEXT
+    )`).run()
 
-    this.db.prepare(`
-    CREATE TABLE IF NOT EXISTS clientes_${r} (
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS clientes_${r} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       rfc TEXT UNIQUE NOT NULL, nombre TEXT,
       telefono TEXT, email TEXT, direccion TEXT,
@@ -134,11 +140,9 @@ export class ProfileManager {
       limite_credito REAL, dias_credito INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `).run()
+    )`).run()
 
-    this.db.prepare(`
-    CREATE TABLE IF NOT EXISTS proveedores_${r} (
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS proveedores_${r} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       rfc TEXT UNIQUE NOT NULL, nombre TEXT,
       telefono TEXT, email TEXT, direccion TEXT,
@@ -146,33 +150,27 @@ export class ProfileManager {
       limite_credito REAL, dias_credito INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `).run()
+    )`).run()
 
-    this.db.prepare(`
-    CREATE TABLE IF NOT EXISTS empleados_${r} (
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS empleados_${r} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       rfc TEXT UNIQUE NOT NULL, nombre TEXT,
       telefono TEXT, email TEXT, direccion TEXT,
       notas TEXT, puesto TEXT, fecha_ingreso DATE,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `).run()
+    )`).run()
 
-    this.db.prepare(`
-    CREATE TABLE IF NOT EXISTS patrones_${r} (
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS patrones_${r} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       rfc TEXT UNIQUE NOT NULL, nombre TEXT,
       telefono TEXT, email TEXT, direccion TEXT,
       contacto TEXT, notas TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `).run()
+    )`).run()
 
-    this.db.prepare(`
-    CREATE TABLE IF NOT EXISTS conciliaciones_${r} (
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS conciliaciones_${r} (
       id                 INTEGER PRIMARY KEY AUTOINCREMENT,
       tipo               TEXT    NOT NULL CHECK(tipo IN ('emitidas','recibidas')),
       ejercicio          TEXT    NOT NULL,
@@ -183,7 +181,44 @@ export class ProfileManager {
       descargadas        INTEGER NOT NULL DEFAULT 0,
       actualizadas       INTEGER NOT NULL DEFAULT 0,
       errores            INTEGER NOT NULL DEFAULT 0
-    )
-  `).run()
+    )`).run()
+
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS pagos_complemento_${r} (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid_rep      TEXT NOT NULL,
+      fecha_pago    TEXT,
+      forma_pago_p  TEXT,
+      moneda_p      TEXT,
+      tipo_cambio_p REAL,
+      monto         REAL,
+      documentos    TEXT,
+      FOREIGN KEY (uuid_rep) REFERENCES facturas_${r}(uuid)
+    )`).run()
+
+    this.db.prepare(`CREATE TABLE IF NOT EXISTS nomina_complemento_${r} (
+      id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid_cfdi               TEXT NOT NULL UNIQUE,
+      tipo_nomina             TEXT,
+      fecha_pago              TEXT,
+      fecha_inicial_pago      TEXT,
+      fecha_final_pago        TEXT,
+      num_dias_pagados        REAL,
+      total_percepciones      REAL,
+      total_deducciones       REAL,
+      total_otros_pagos       REAL,
+      curp                    TEXT,
+      num_empleado            TEXT,
+      departamento            TEXT,
+      puesto                  TEXT,
+      tipo_regimen            TEXT,
+      tipo_contrato           TEXT,
+      periodicidad_pago       TEXT,
+      salario_diario_integrado REAL,
+      percepciones            TEXT,
+      deducciones             TEXT,
+      otros_pagos             TEXT,
+      incapacidades           TEXT,
+      FOREIGN KEY (uuid_cfdi) REFERENCES facturas_${r}(uuid)
+    )`).run()
   }
 }

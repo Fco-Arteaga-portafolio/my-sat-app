@@ -14,7 +14,7 @@ const FacturasHubPage = () => {
 
   const cargar = async () => {
     const res = await window.api.obtenerConteos()
-    if (res.success) setConteos(res.data)
+    if (res.success && res.data) setConteos(res.data)
   }
 
   return (
@@ -22,10 +22,32 @@ const FacturasHubPage = () => {
       title="Facturas"
       subtitle="Consulta tus CFDIs por tipo de comprobante"
       cards={[
-        { icon: '📥', label: 'Recibidas', count: conteos.recibidas, onClick: () => navigate('/facturas?tipo=recibida') },
-        { icon: '📤', label: 'Emitidas', count: conteos.emitidas, onClick: () => navigate('/facturas?tipo=emitida') },
-        { icon: '💰', label: 'Nómina', count: conteos.nomina, onClick: () => navigate('/facturas?tipo=nomina') },
-        { icon: '🔄', label: 'Pagos (REP)', count: conteos.pagos, onClick: () => navigate('/facturas?tipo=pagos') }
+        {
+          icon: '📥',
+          label: 'Recibidas',
+          count: conteos.recibidas,
+          onClick: () => navigate('/facturas/recibidas')
+        },
+        {
+          icon: '📤',
+          label: 'Emitidas',
+          count: conteos.emitidas,
+          onClick: () => navigate('/facturas/emitidas')
+        },
+        {
+          icon: '💰',
+          label: 'Nómina',
+          count: conteos.nomina,
+          onClick: () => navigate('/facturas/nomina'),
+          comingSoon: true
+        },
+        {
+          icon: '🔄',
+          label: 'Pagos (REP)',
+          count: conteos.pagos,
+          onClick: () => navigate('/facturas/pagos'),
+          comingSoon: true
+        }
       ]}
     />
   )

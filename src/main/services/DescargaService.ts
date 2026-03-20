@@ -88,4 +88,15 @@ export class DescargaService {
   obtenerPendientes() { return this.pendienteRepository.obtenerTodas() }
   contarPendientes() { return this.pendienteRepository.contar() }
   limpiarPendientes() { return this.pendienteRepository.limpiar() }
+
+  obtenerFacturasPorTipo(
+    tipoDescarga: 'recibida' | 'emitida',
+    filtros: Parameters<FacturaRepository['obtenerPorTipoDescarga']>[1]
+  ) {
+    return this.facturaRepository.obtenerPorTipoDescarga(tipoDescarga, filtros)
+  }
+
+  obtenerConteos() {
+    return this.facturaRepository.contarPorTipoDescarga()
+  }
 }

@@ -1,11 +1,12 @@
 import { useRef } from 'react'
-import { Form, Input, Button, Card, Radio, Alert, Divider, DatePicker, Select, Progress } from 'antd'
+import { Form, Input, Button, Card, Radio, Alert, DatePicker, Select, Progress } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import { useDescargaPage } from './DescargaPage.hook'
 import CaptchaInput, { CaptchaInputRef } from '../../components/CaptchaInput/CaptchaInput'
 import ErroresDescargaTable from '../../components/ErroresDescargaTable/ErroresDescargaTable'
 import './DescargaPage.css'
 import dayjs from 'dayjs'
+import PageHeader from '@renderer/components/PageHeader/PageHeader'
 
 const { Option } = Select
 
@@ -13,30 +14,45 @@ const DescargaPage = () => {
   const captchaRef = useRef<CaptchaInputRef>(null)
 
   const {
-    form, loading, captchaListo, error, resultado,
-    configuracion, progreso, erroresDescarga,
-    setCaptcha, setCaptchaListo,
-    descargar, cambiarForm
+    form,
+    loading,
+    captchaListo,
+    error,
+    resultado,
+    configuracion,
+    progreso,
+    erroresDescarga,
+    setCaptcha,
+    setCaptchaListo,
+    descargar,
+    cambiarForm
   } = useDescargaPage()
 
   const mensajeProgreso = () => {
     if (!progreso) return ''
-    if (progreso.etapa === 'buscando') return `Buscando: mes ${progreso.mesActual} de ${progreso.totalMeses}...`
-    if (progreso.etapa === 'descargando') return `Descargando: ${progreso.descargadas} de ${progreso.totalFacturas}...`
+    if (progreso.etapa === 'buscando')
+      return `Buscando: mes ${progreso.mesActual} de ${progreso.totalMeses}...`
+    if (progreso.etapa === 'descargando')
+      return `Descargando: ${progreso.descargadas} de ${progreso.totalFacturas}...`
     return 'Completado'
   }
 
   const porcentajeProgreso = () => {
     if (!progreso) return 0
-    if (progreso.etapa === 'buscando') return Math.round(((progreso.mesActual || 0) / (progreso.totalMeses || 1)) * 30)
-    if (progreso.etapa === 'descargando') return 30 + Math.round(((progreso.descargadas || 0) / (progreso.totalFacturas || 1)) * 70)
+    if (progreso.etapa === 'buscando')
+      return Math.round(((progreso.mesActual || 0) / (progreso.totalMeses || 1)) * 30)
+    if (progreso.etapa === 'descargando')
+      return 30 + Math.round(((progreso.descargadas || 0) / (progreso.totalFacturas || 1)) * 70)
     return 100
   }
 
   return (
     <div className="descarga-container">
-      <div className="descarga-titulo">Descargar Facturas</div>
-      <Divider style={{ margin: '0 0 16px 0' }} />
+      <PageHeader
+        title="Descargar Facturas"
+        subtitle="Descarga por rango de fechas o folio fiscal"
+        backTo="/cfdi"
+      />
 
       <div className="descarga-layout">
         <div className="descarga-columna">
@@ -50,7 +66,10 @@ const DescargaPage = () => {
           <Card title="Criterio de búsqueda" size="small" className="descarga-card">
             <Form layout="vertical" size="small">
               <Form.Item style={{ marginBottom: 12 }}>
-                <Radio.Group value={form.buscarPor} onChange={(e) => cambiarForm('buscarPor', e.target.value)}>
+                <Radio.Group
+                  value={form.buscarPor}
+                  onChange={(e) => cambiarForm('buscarPor', e.target.value)}
+                >
                   <Radio value="fecha">Por rango de fechas</Radio>
                   <Radio value="folio">Por folio fiscal</Radio>
                 </Radio.Group>
@@ -97,7 +116,10 @@ const DescargaPage = () => {
 
           <Card title="Filtros adicionales" size="small" className="descarga-card">
             <Form layout="vertical" size="small">
-              <Form.Item label={form.tipo === 'recibidas' ? 'RFC Emisor' : 'RFC Receptor'} style={{ marginBottom: 10 }}>
+              <Form.Item
+                label={form.tipo === 'recibidas' ? 'RFC Emisor' : 'RFC Receptor'}
+                style={{ marginBottom: 10 }}
+              >
                 <Input
                   value={form.rfcTercero}
                   onChange={(e) => cambiarForm('rfcTercero', e.target.value.toUpperCase())}
@@ -106,14 +128,22 @@ const DescargaPage = () => {
                 />
               </Form.Item>
               <Form.Item label="Estado" style={{ marginBottom: 10 }}>
-                <Select value={form.estadoComprobante} onChange={(val) => cambiarForm('estadoComprobante', val)} style={{ width: '100%' }}>
+                <Select
+                  value={form.estadoComprobante}
+                  onChange={(val) => cambiarForm('estadoComprobante', val)}
+                  style={{ width: '100%' }}
+                >
                   <Option value="">Todos</Option>
                   <Option value="vigente">Vigente</Option>
                   <Option value="cancelado">Cancelado</Option>
                 </Select>
               </Form.Item>
               <Form.Item label="Tipo de comprobante" style={{ marginBottom: 0 }}>
-                <Select value={form.tipoComprobante} onChange={(val) => cambiarForm('tipoComprobante', val)} style={{ width: '100%' }}>
+                <Select
+                  value={form.tipoComprobante}
+                  onChange={(val) => cambiarForm('tipoComprobante', val)}
+                  style={{ width: '100%' }}
+                >
                   <Option value="">Todos</Option>
                   <Option value="I">I - Ingreso</Option>
                   <Option value="E">E - Egreso</Option>

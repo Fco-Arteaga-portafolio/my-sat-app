@@ -1,0 +1,35 @@
+.pago-doc-container {
+  padding: 12px 24px 12px 48px;
+  background: #f6f8fa;
+  border-top: 1px solid #e8ecf0;
+}
+
+.pago-doc-titulo {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5a6a85;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pago-doc-uuid {
+  font-family: monospace;
+  font-size: 11px;
+  cursor: default;
+}
+
+.pago-doc-pagado {
+  color: #389e0d;
+}
+
+.pago-doc-pendiente {
+  color: #cf1322;
+}
+
+.pago-doc-empty {
+  padding: 12px 24px;
+  color: #bbb;
+  font-size: 13px;
+}

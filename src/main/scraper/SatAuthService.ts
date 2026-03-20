@@ -9,17 +9,24 @@ const MAX_REINTENTOS = 3
 const ESPERA_ENTRE_REINTENTOS_MS = 5000
 
 export class SatAuthService {
+  private context: BrowserContext | null = null
   private paginaLogin: Page | null = null
 
-  constructor(private readonly context: BrowserContext) { }
+  private async getContext(): Promise<BrowserContext> {
+    if (!this.context) {
+      this.context = await BrowserManager.newContext()
+    }
+    return this.context
+  }
 
   async obtenerCaptcha(): Promise<DatosCaptcha> {
     if (this.paginaLogin) {
-      await this.paginaLogin.close()
+      await this.paginaLogin.close().catch(() => null)
       this.paginaLogin = null
     }
 
-    this.paginaLogin = await this.context.newPage()
+    const context = await this.getContext()
+    this.paginaLogin = await context.newPage()
     await this.paginaLogin.goto('https://portalcfdi.facturaelectronica.sat.gob.mx/')
     await this.paginaLogin.waitForSelector('#divCaptcha', { timeout: 15000 })
 
@@ -48,7 +55,8 @@ export class SatAuthService {
   }
 
   async loginConEfirma(rutaCer: string, rutaKey: string, contrasenaFiel: string): Promise<Page> {
-    const page = this.paginaLogin ?? await this.context.newPage()
+    const context = await this.getContext()
+    const page = this.paginaLogin ?? await context.newPage()
     this.paginaLogin = null
 
     if (!page.url().includes('portalcfdi')) {
@@ -67,7 +75,18 @@ export class SatAuthService {
     return page
   }
 
-  // Orquesta reintentos — no sabe de SAT, solo reintenta si es timeout
+  async cerrarSesion(): Promise<void> {
+    if (this.paginaLogin) {
+      await this.paginaLogin.close().catch(() => null)
+      this.paginaLogin = null
+    }
+    if (this.context) {
+      await this.context.close().catch(() => null)
+      this.context = null
+    }
+    await BrowserManager.cerrar()
+  }
+
   private async intentarLogin(
     page: Page,
     accion: () => Promise<void>,
@@ -83,12 +102,10 @@ export class SatAuthService {
 
       if (esCaptchaInvalido || esSaturado) throw error
 
-      // Con contraseña el captcha ya no sirve — falla inmediato
       if (esTimeout && metodoAuth === 'contrasena') {
         throw new Error('SAT_TIMEOUT')
       }
 
-      // Con e.firma se puede reintentar
       if (esTimeout && intento < MAX_REINTENTOS) {
         console.log(`Login timeout (intento ${intento}/${MAX_REINTENTOS}), reintentando en ${ESPERA_ENTRE_REINTENTOS_MS / 1000}s...`)
         await page.waitForTimeout(ESPERA_ENTRE_REINTENTOS_MS)
@@ -101,7 +118,7 @@ export class SatAuthService {
       throw error
     }
   }
-  // Hace una sola cosa: esperar que el login complete y verificar resultado
+
   private async esperarLoginExitoso(page: Page, accion: () => Promise<void>): Promise<void> {
     await Promise.all([
       page.waitForNavigation({ timeout: 90000 }).catch(() => null),
@@ -144,13 +161,5 @@ export class SatAuthService {
     } finally {
       await page.close()
     }
-  }
-
-  async cerrarSesion(): Promise<void> {
-    if (this.paginaLogin) {
-      await this.paginaLogin.close().catch(() => null)
-      this.paginaLogin = null
-    }
-    await BrowserManager.cerrar()
   }
 }
