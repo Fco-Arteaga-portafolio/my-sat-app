@@ -82,7 +82,6 @@ export interface FacturaParseada {
   regimenFiscalReceptor?: string
   usoCFDI: string
   conceptos: Concepto[]
-  impuestos: Impuesto[]
   totalImpuestosTrasladados?: number
   totalImpuestosRetenidos?: number
   complementoNomina?: ComplementoNomina
@@ -164,39 +163,11 @@ export function parsearXml(xmlString: string): FacturaParseada {
     }
   })
 
-  const impuestosEl = doc.getElementsByTagNameNS(ns, 'Impuestos')[0]
-    || doc.querySelector('Impuestos')
+  const todosLosImpuestos = doc.getElementsByTagNameNS(ns, 'Impuestos')
+  const impuestosEl = todosLosImpuestos.length > 0
+    ? todosLosImpuestos[todosLosImpuestos.length - 1]
+    : null
 
-  const impuestos: Impuesto[] = []
-
-  if (impuestosEl) {
-    const traslados = Array.from(
-      impuestosEl.getElementsByTagNameNS(ns, 'Traslado').length > 0
-        ? impuestosEl.getElementsByTagNameNS(ns, 'Traslado')
-        : impuestosEl.querySelectorAll('Traslado')
-    )
-    traslados.forEach((t) => {
-      impuestos.push({
-        tipo: 'traslado',
-        impuesto: getAttr(t, 'Impuesto'),
-        importe: getFloat(t, 'Importe'),
-        tasa: getFloat(t, 'TasaOCuota')
-      })
-    })
-
-    const retenciones = Array.from(
-      impuestosEl.getElementsByTagNameNS(ns, 'Retencion').length > 0
-        ? impuestosEl.getElementsByTagNameNS(ns, 'Retencion')
-        : impuestosEl.querySelectorAll('Retencion')
-    )
-    retenciones.forEach((r) => {
-      impuestos.push({
-        tipo: 'retencion',
-        impuesto: getAttr(r, 'Impuesto'),
-        importe: getFloat(r, 'Importe')
-      })
-    })
-  }
 
   let complementoNomina: ComplementoNomina | undefined
   const nominaEl = doc.getElementsByTagNameNS(nsNomina, 'Nomina')[0]
@@ -302,7 +273,6 @@ export function parsearXml(xmlString: string): FacturaParseada {
     regimenFiscalReceptor: getAttr(receptor, 'RegimenFiscalReceptor'),
     usoCFDI: getAttr(receptor, 'UsoCFDI'),
     conceptos,
-    impuestos,
     totalImpuestosTrasladados: getFloat(impuestosEl, 'TotalImpuestosTrasladados'),
     totalImpuestosRetenidos: getFloat(impuestosEl, 'TotalImpuestosRetenidos'),
     complementoNomina,

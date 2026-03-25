@@ -46,6 +46,7 @@ const api = {
   obtenerUltimaConciliacion: (params: any) => ipcRenderer.invoke('obtener-ultima-conciliacion', params),
   obtenerHistorialConciliaciones: () => ipcRenderer.invoke('obtener-historial-conciliaciones'),
   reportesIvaAnual: (año: number) => ipcRenderer.invoke('reportes-iva-anual', año),
+  imprimirPdf: () => ipcRenderer.invoke('imprimir-pdf'),
   obtenerFacturasPorTipo: (datos: {
     tipoDescarga: 'recibida' | 'emitida'
     filtros?: {

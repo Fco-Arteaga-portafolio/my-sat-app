@@ -553,16 +553,6 @@ class PdfService {
             ${impuestosHtml}`;
     }).join("");
     html = this.reemplazar(html, "CONCEPTOS_ROWS", conceptosRows);
-    const tieneImpuestos = parseada.impuestos.length > 0;
-    const impuestosRows = parseada.impuestos.map((i) => `
-      <tr>
-        <td>${i.tipo === "traslado" ? "Traslado" : "Retención"}</td>
-        <td>${cat(impuesto, i.impuesto)}</td>
-        <td class="text-right">${i.tasa ? (i.tasa * 100).toFixed(0) + "%" : "-"}</td>
-        <td class="text-right">${fmt(i.importe)}</td>
-      </tr>`).join("");
-    html = this.bloqueContenido(html, "TIENE_IMPUESTOS", tieneImpuestos);
-    html = this.reemplazar(html, "IMPUESTOS_ROWS", impuestosRows);
     html = this.reemplazar(html, "SUBTOTAL", fmt(parseada.subtotal));
     html = this.reemplazar(html, "TOTAL", fmt(parseada.total));
     html = this.bloque(html, "DESCUENTO", !!parseada.descuento, fmt(parseada.descuento || 0));
@@ -1064,6 +1054,17 @@ class FacturaHandler {
         }
         const base64 = fs2.readFileSync(rutaPdf).toString("base64");
         return { success: true, base64, rutaPdf };
+      } catch (error) {
+        console.error("Error al obtener PDF de factura:", error);
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("imprimir-pdf", async (event) => {
+      try {
+        event.sender.print({}, (success, reason) => {
+          if (!success) console.error("Error al imprimir:", reason);
+        });
+        return { success: true };
       } catch (error) {
         return { success: false, error: String(error) };
       }

@@ -14,7 +14,7 @@ const InteligenciaHubPage = () => {
 
   const cargar = async () => {
     const res = await window.api.obtenerConteos()
-    if (res.success) setConteos(res.data)
+    if (res.success && res.data) setConteos(res.data as any)
   }
 
   return (

@@ -1,0 +1,13 @@
+.xml-viewer {
+  font-size: 11px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  background: #1e1e1e;
+  color: #9cdcfe;
+  padding: 16px;
+  border-radius: 6px;
+  margin: 0;
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
+  line-height: 1.6;
+}

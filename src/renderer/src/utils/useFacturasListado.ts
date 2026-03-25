@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { FacturaDto } from '../renderer/src/types/FacturaDto'
+import type { FacturaDto } from '../types/FacturaDto'
 import { useContribuyente } from '../context/ContribuyenteContext'
 
 export interface FiltrosFacturas {

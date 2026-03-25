@@ -218,6 +218,18 @@ export class FacturaHandler {
         const base64 = fs.readFileSync(rutaPdf).toString('base64')
         return { success: true, base64, rutaPdf }
       } catch (error) {
+        console.error('Error al obtener PDF de factura:', error)
+        return { success: false, error: String(error) }
+      }
+    })
+
+    ipcMain.handle('imprimir-pdf', async (event) => {
+      try {
+        event.sender.print({}, (success, reason) => {
+          if (!success) console.error('Error al imprimir:', reason)
+        })
+        return { success: true }
+      } catch (error) {
         return { success: false, error: String(error) }
       }
     })
