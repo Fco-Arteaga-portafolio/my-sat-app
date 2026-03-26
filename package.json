@@ -1,8 +1,8 @@
 {
-  "name": "my-sat-app",
+  "name": "ifrat",
   "version": "1.0.0",
   "description": "An Electron application with React and TypeScript",
-  "main": "./out/main/index.js",
+  "main": "out/main/index.js",
   "author": "example.com",
   "homepage": "https://electron-vite.org",
   "scripts": {
@@ -14,6 +14,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
+    "release": "npm run build && electron-builder --publish always",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
@@ -28,6 +29,7 @@
     "axios": "^1.13.6",
     "better-sqlite3": "^12.6.2",
     "dayjs": "^1.11.19",
+    "electron-updater": "^6.8.3",
     "pdfjs-dist": "^5.5.207",
     "playwright": "^1.58.2",
     "qrcode": "^1.5.4",
@@ -48,7 +50,7 @@
     "@types/xmldom": "^0.1.34",
     "@vitejs/plugin-react": "^5.1.1",
     "electron": "^39.2.6",
-    "electron-builder": "^26.0.12",
+    "electron-builder": "^26.8.1",
     "electron-rebuild": "^3.2.9",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
@@ -61,5 +63,41 @@
     "typescript": "^5.9.3",
     "vite": "^7.2.6",
     "vite-plugin-static-copy": "^3.2.0"
+  },
+  "build": {
+    "appId": "com.ifrat.app",
+    "productName": "IFRAT",
+    "generateUpdatesFilesForAllChannels": true,
+    "directories": {
+      "output": "C:/Users/pako_/source/repos/infrat-releases"
+    },
+    "files": [
+      {
+        "from": "dist",
+        "to": "dist"
+      },
+      {
+        "from": "out",
+        "to": "out"
+      },
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Fco-Arteaga-portafolio",
+        "repo": "ifrat-releases",
+        "releaseType": "release"
+      }
+    ]
   }
 }

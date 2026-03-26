@@ -1,4 +1,5 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { autoUpdater } from "electron-updater";
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -25,6 +26,8 @@ import { DescargaService } from './services/DescargaService'
 import { PendientesService } from './services/PendientesService'
 import { ConciliacionService } from './services/ConciliacionService'
 
+let mainWindow: BrowserWindow;
+
 function initDatabase(): void {
   const db = Database.getInstance()
   const migrationRunner = new MigrationRunner(db)
@@ -36,7 +39,7 @@ function initDatabase(): void {
 }
 
 function createWindow(): void {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
     show: false,
@@ -120,3 +123,36 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
+
+// ----------------------
+// EVENTOS IMPORTANTES
+// ----------------------
+
+autoUpdater.on("checking-for-update", () => {
+  mainWindow.webContents.send("update-status", "checking");
+});
+
+autoUpdater.on("update-available", () => {
+  mainWindow.webContents.send("update-status", "available");
+});
+
+autoUpdater.on("update-not-available", () => {
+  mainWindow.webContents.send("update-status", "not-available");
+});
+
+autoUpdater.on("error", (err) => {
+  mainWindow.webContents.send("update-status", "error", err);
+});
+
+autoUpdater.on("download-progress", (progressObj) => {
+  mainWindow.webContents.send("update-progress", progressObj.percent);
+});
+
+autoUpdater.on("update-downloaded", () => {
+  mainWindow.webContents.send("update-status", "downloaded");
+});
+
+// 🔘 Cuando el usuario acepta actualizar
+ipcMain.on("install-update", () => {
+  autoUpdater.quitAndInstall();
+});

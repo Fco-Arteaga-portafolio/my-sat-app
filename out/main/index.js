@@ -1,5 +1,6 @@
 "use strict";
 const electron = require("electron");
+const electronUpdater = require("electron-updater");
 const path = require("path");
 const utils = require("@electron-toolkit/utils");
 const BetterSqlite3 = require("better-sqlite3");
@@ -3002,6 +3003,7 @@ class ConciliacionService {
     return this.conciliacionRepository.obtenerHistorial();
   }
 }
+let mainWindow;
 function initDatabase() {
   const db = Database.getInstance();
   const migrationRunner = new MigrationRunner(db);
@@ -3012,7 +3014,7 @@ function initDatabase() {
   }
 }
 function createWindow() {
-  const mainWindow = new electron.BrowserWindow({
+  mainWindow = new electron.BrowserWindow({
     width: 900,
     height: 670,
     show: false,
@@ -3075,4 +3077,25 @@ electron.app.on("window-all-closed", () => {
     Database.close();
     electron.app.quit();
   }
+});
+electronUpdater.autoUpdater.on("checking-for-update", () => {
+  mainWindow.webContents.send("update-status", "checking");
+});
+electronUpdater.autoUpdater.on("update-available", () => {
+  mainWindow.webContents.send("update-status", "available");
+});
+electronUpdater.autoUpdater.on("update-not-available", () => {
+  mainWindow.webContents.send("update-status", "not-available");
+});
+electronUpdater.autoUpdater.on("error", (err) => {
+  mainWindow.webContents.send("update-status", "error", err);
+});
+electronUpdater.autoUpdater.on("download-progress", (progressObj) => {
+  mainWindow.webContents.send("update-progress", progressObj.percent);
+});
+electronUpdater.autoUpdater.on("update-downloaded", () => {
+  mainWindow.webContents.send("update-status", "downloaded");
+});
+electron.ipcMain.on("install-update", () => {
+  electronUpdater.autoUpdater.quitAndInstall();
 });

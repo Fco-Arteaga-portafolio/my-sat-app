@@ -41,7 +41,7 @@ const HubCardItem = ({ card }: { card: HubCard }) => {
       <div className="hub-card-label">{card.label}</div>
 
       {card.count !== undefined && (
-        <div className="hub-card-count">{card.count.toLocaleString()} docs</div>
+        <div className="hub-card-count">{card.count?.toLocaleString()} docs</div>
       )}
 
       {card.description && <div className="hub-card-description">{card.description}</div>}
