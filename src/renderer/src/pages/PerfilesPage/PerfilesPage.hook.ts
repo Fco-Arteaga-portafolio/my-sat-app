@@ -96,6 +96,20 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
     setLoading(true)
     const res = await window.api.crearPerfil(form)
     if (res.success) {
+      await window.api.guardarConfiguracion({
+        rfc: form.rfc,
+        metodoAuth: form.metodo_auth,
+        contrasena: form.contrasena,
+        rutaCer: form.ruta_cer,
+        rutaKey: form.ruta_key,
+        contrasenaFiel: form.contrasena_fiel,
+        carpetaEmitidos: form.carpeta_emitidos,
+        carpetaRecibidos: form.carpeta_recibidos,
+        estructuraEmitidos: form.estructura_emitidos,
+        estructuraRecibidos: form.estructura_recibidos,
+        plantillaDefault: form.plantilla_default,
+        configNombreArchivo: form.config_nombre_archivo
+      })
       setModalVisible(false)
       setForm(formVacio())
       await cargarPerfiles()

@@ -7,6 +7,11 @@ export { }
 declare global {
   interface Window {
     electron: ElectronAPI
+    electronUpdater: {
+      onStatus: (callback: (status: string) => void) => void
+      onProgress: (callback: (percent: number) => void) => void
+      install: () => void
+    }
     api: {
       descargarFacturas(datos: { captcha?: string; params: ParametrosBusqueda }): Promise<{ success: boolean; total?: number; errores?: { uuid: string; error: string }[]; error?: string }>
       obtenerFacturas(): Promise<{ success: boolean; facturas?: import('../renderer/src/types/FacturaDto').FacturaDto[]; error?: string }>

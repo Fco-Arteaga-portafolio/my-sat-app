@@ -110,6 +110,11 @@ app.whenReady().then(async () => {
   new CatalogoHandler(db).registrar()
 
   createWindow()
+  if (!is.dev) {
+    autoUpdater.autoDownload = true
+    autoUpdater.autoInstallOnAppQuit = false
+    autoUpdater.checkForUpdates()
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

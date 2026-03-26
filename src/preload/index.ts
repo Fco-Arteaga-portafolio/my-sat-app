@@ -75,6 +75,17 @@ if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld('electronUpdater', {
+      onStatus: (callback: (status: string) => void) => {
+        ipcRenderer.on('update-status', (_, status) => callback(status))
+      },
+      onProgress: (callback: (percent: number) => void) => {
+        ipcRenderer.on('update-progress', (_, percent) => callback(percent))
+      },
+      install: () => {
+        ipcRenderer.send('install-update')
+      }
+    })
   } catch (error) {
     console.error(error)
   }

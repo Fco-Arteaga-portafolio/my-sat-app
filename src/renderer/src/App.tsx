@@ -17,6 +17,7 @@ import ConciliacionPage from './pages/ConciliacionPage/Conciliacionpage'
 import ReportesIvaPage from './pages/ReportesIvaPage/ReportesIvaPage'
 import CfdiRecibidasPage from './pages/CfdiRecibidasPage/CfdiRecibidasPage'
 import CfdiEmitidasPage from './pages/CfdiEmitidasPage/CfdiEmitidasPage'
+import UpdateModal from './components/UpdateModal/UpdateModal'
 
 const RutaProtegida = ({ children }: { children: React.ReactNode }) => {
   const { perfil } = useContribuyente()
@@ -107,6 +108,7 @@ const AppRoutes = () => {
 const App = () => {
   return (
     <ContribuyenteProvider>
+      <UpdateModal />
       <HashRouter>
         <AppRoutes />
       </HashRouter>

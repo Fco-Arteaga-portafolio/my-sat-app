@@ -56,6 +56,17 @@ if (process.contextIsolated) {
   try {
     electron.contextBridge.exposeInMainWorld("electron", preload.electronAPI);
     electron.contextBridge.exposeInMainWorld("api", api);
+    electron.contextBridge.exposeInMainWorld("electronUpdater", {
+      onStatus: (callback) => {
+        electron.ipcRenderer.on("update-status", (_, status) => callback(status));
+      },
+      onProgress: (callback) => {
+        electron.ipcRenderer.on("update-progress", (_, percent) => callback(percent));
+      },
+      install: () => {
+        electron.ipcRenderer.send("install-update");
+      }
+    });
   } catch (error) {
     console.error(error);
   }

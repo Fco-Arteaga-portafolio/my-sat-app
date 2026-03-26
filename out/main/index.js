@@ -3067,6 +3067,7 @@ electron.app.whenReady().then(async () => {
   new DashboardHandler(db).registrar();
   new CatalogoHandler(db).registrar();
   createWindow();
+  electronUpdater.autoUpdater.checkForUpdates();
   electron.app.on("activate", () => {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
   });
