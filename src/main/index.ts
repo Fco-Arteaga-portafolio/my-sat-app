@@ -1,5 +1,4 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { autoUpdater } from "electron-updater";
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -25,6 +24,7 @@ import { CfdiGuardadoService } from './services/CfdiGuardadoService'
 import { DescargaService } from './services/DescargaService'
 import { PendientesService } from './services/PendientesService'
 import { ConciliacionService } from './services/ConciliacionService'
+import { UpdaterService } from './window/UpdaterService'
 
 let mainWindow: BrowserWindow;
 
@@ -111,9 +111,7 @@ app.whenReady().then(async () => {
 
   createWindow()
   if (!is.dev) {
-    autoUpdater.autoDownload = true
-    autoUpdater.autoInstallOnAppQuit = false
-    autoUpdater.checkForUpdates()
+    new UpdaterService(mainWindow).iniciar()
   }
 
   app.on('activate', () => {
@@ -129,35 +127,7 @@ app.on('window-all-closed', () => {
   }
 })
 
-// ----------------------
-// EVENTOS IMPORTANTES
-// ----------------------
 
-autoUpdater.on("checking-for-update", () => {
-  mainWindow.webContents.send("update-status", "checking");
-});
-
-autoUpdater.on("update-available", () => {
-  mainWindow.webContents.send("update-status", "available");
-});
-
-autoUpdater.on("update-not-available", () => {
-  mainWindow.webContents.send("update-status", "not-available");
-});
-
-autoUpdater.on("error", (err) => {
-  mainWindow.webContents.send("update-status", "error", err);
-});
-
-autoUpdater.on("download-progress", (progressObj) => {
-  mainWindow.webContents.send("update-progress", progressObj.percent);
-});
-
-autoUpdater.on("update-downloaded", () => {
-  mainWindow.webContents.send("update-status", "downloaded");
-});
-
-// 🔘 Cuando el usuario acepta actualizar
-ipcMain.on("install-update", () => {
-  autoUpdater.quitAndInstall();
-});
+ipcMain.handle('app-version', () => {
+  return app.getVersion()
+})

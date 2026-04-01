@@ -65,7 +65,14 @@ if (process.contextIsolated) {
       },
       install: () => {
         electron.ipcRenderer.send("install-update");
-      }
+      },
+      postpone: () => {
+        electron.ipcRenderer.send("postpone-update");
+      },
+      download: () => electron.ipcRenderer.send("download-update")
+    });
+    electron.contextBridge.exposeInMainWorld("appInfo", {
+      getVersion: () => electron.ipcRenderer.invoke("app-version")
     });
   } catch (error) {
     console.error(error);

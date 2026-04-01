@@ -3,6 +3,7 @@ import { PlusOutlined, UserOutlined, DeleteOutlined, LoginOutlined } from '@ant-
 import { usePerfilesPage } from './PerfilesPage.hook'
 import ContribuyenteForm from '../../components/ContribuyenteForm/ContribuyenteForm'
 import logoIcon from '../../assets/icon.png'
+import { useEffect, useState } from 'react'
 import './PerfilesPage.css'
 
 const PerfilesPage = ({
@@ -29,12 +30,19 @@ const PerfilesPage = ({
     toggleSlot
   } = usePerfilesPage(onPerfilSeleccionado)
 
+  const [version, setVersion] = useState('')
+
+  useEffect(() => {
+    window.appInfo.getVersion().then(setVersion)
+  }, [])
+
   return (
     <div className="perfiles-container">
       {/* Logo y título */}
       <div className="perfiles-header">
         <img src={logoIcon} alt="IFRAT" className="perfiles-logo" />
         <h1 className="perfiles-titulo">IFRAT</h1>
+        <h4>Versión {version} (BETA)</h4>
         <p className="perfiles-subtitulo">Selecciona un contribuyente para continuar</p>
       </div>
 

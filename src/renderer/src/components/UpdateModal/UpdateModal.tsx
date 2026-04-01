@@ -10,31 +10,27 @@ const UpdateModal = () => {
   useEffect(() => {
     window.electronUpdater.onStatus((s) => {
       setStatus(s)
-
-      if (s === 'available') {
-        setVisible(true)
-      }
-
-      if (s === 'downloaded') {
+      if (s === 'available' || s === 'downloading' || s === 'downloaded') {
         setVisible(true)
       }
     })
 
     window.electronUpdater.onProgress((p) => {
       setProgress(p)
+      setStatus('downloading')
     })
   }, [])
 
-  const handleDownload = () => {
-    // No hace nada porque autoDownload ya está activo
+  const handleDescargar = () => {
+    window.electronUpdater.download() // ← ver nota abajo
+  }
+
+  const handleLater = () => {
+    window.electronUpdater.postpone()
   }
 
   const handleInstall = () => {
     window.electronUpdater.install()
-  }
-
-  const handleLater = () => {
-    window.close()
   }
 
   return (
@@ -43,18 +39,22 @@ const UpdateModal = () => {
         <>
           <h3>Nueva versión disponible</h3>
           <p>Es necesario actualizar IFRAT para continuar.</p>
-
           <div className="update-buttons">
-            <Button type="primary" onClick={handleDownload}>
+            <Button type="primary" onClick={handleDescargar}>
               Descargar actualización
             </Button>
-
             <Button danger onClick={handleLater}>
               Actualizar más tarde
             </Button>
           </div>
+        </>
+      )}
 
-          {progress > 0 && <Progress percent={Math.round(progress)} />}
+      {status === 'downloading' && (
+        <>
+          <h3>Descargando actualización</h3>
+          <p>Por favor espera, no cierres la aplicación.</p>
+          <Progress percent={Math.round(progress)} status="active" />
         </>
       )}
 
@@ -62,7 +62,6 @@ const UpdateModal = () => {
         <>
           <h3>Actualización lista</h3>
           <p>La nueva versión ya se descargó.</p>
-
           <Button type="primary" onClick={handleInstall}>
             Reiniciar y actualizar
           </Button>

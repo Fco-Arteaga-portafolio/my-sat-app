@@ -11,6 +11,11 @@ declare global {
       onStatus: (callback: (status: string) => void) => void
       onProgress: (callback: (percent: number) => void) => void
       install: () => void
+      postpone: () => void
+      download: () => void  // ← agregar esto
+    }
+    appInfo: {
+      getVersion(): Promise<string>
     }
     api: {
       descargarFacturas(datos: { captcha?: string; params: ParametrosBusqueda }): Promise<{ success: boolean; total?: number; errores?: { uuid: string; error: string }[]; error?: string }>

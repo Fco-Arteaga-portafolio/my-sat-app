@@ -84,7 +84,14 @@ if (process.contextIsolated) {
       },
       install: () => {
         ipcRenderer.send('install-update')
-      }
+      },
+      postpone: () => {                        // ← agregar esto
+        ipcRenderer.send('postpone-update')
+      },
+      download: () => ipcRenderer.send('download-update')
+    })
+    contextBridge.exposeInMainWorld('appInfo', {
+      getVersion: () => ipcRenderer.invoke('app-version')
     })
   } catch (error) {
     console.error(error)

@@ -1,6 +1,5 @@
 "use strict";
 const electron = require("electron");
-const electronUpdater = require("electron-updater");
 const path = require("path");
 const utils = require("@electron-toolkit/utils");
 const BetterSqlite3 = require("better-sqlite3");
@@ -8,6 +7,7 @@ const fs = require("fs");
 const playwright = require("playwright");
 const axios = require("axios");
 const xmldom = require("@xmldom/xmldom");
+const electronUpdater = require("electron-updater");
 function _interopNamespaceDefault(e) {
   const n = Object.create(null, { [Symbol.toStringTag]: { value: "Module" } });
   if (e) {
@@ -3003,6 +3003,63 @@ class ConciliacionService {
     return this.conciliacionRepository.obtenerHistorial();
   }
 }
+class UpdaterService {
+  win;
+  constructor(win) {
+    this.win = win;
+    electronUpdater.autoUpdater.autoDownload = false;
+    electronUpdater.autoUpdater.autoInstallOnAppQuit = false;
+  }
+  iniciar() {
+    this.registrarEventos();
+    this.registrarHandlers();
+    setTimeout(() => {
+      electronUpdater.autoUpdater.checkForUpdates().catch((err) => {
+        console.error("[UpdaterService] checkForUpdates falló:", err);
+      });
+    }, 3e3);
+  }
+  send(canal, payload) {
+    if (!this.win.isDestroyed()) {
+      this.win.webContents.send(canal, payload);
+    }
+  }
+  registrarEventos() {
+    electronUpdater.autoUpdater.on("checking-for-update", () => {
+      this.send("update-status", "checking");
+    });
+    electronUpdater.autoUpdater.on("update-available", () => {
+      this.send("update-status", "available");
+    });
+    electronUpdater.autoUpdater.on("update-not-available", () => {
+      this.send("update-status", "not-available");
+    });
+    electronUpdater.autoUpdater.on("download-progress", (p) => {
+      this.send("update-progress", p.percent);
+    });
+    electronUpdater.autoUpdater.on("update-downloaded", () => {
+      this.send("update-status", "downloaded");
+    });
+    electronUpdater.autoUpdater.on("error", (err) => {
+      console.error("[UpdaterService] error:", err);
+      this.send("update-status", "error");
+    });
+  }
+  registrarHandlers() {
+    electron.ipcMain.on("install-update", () => {
+      electronUpdater.autoUpdater.quitAndInstall(false, true);
+    });
+    electron.ipcMain.on("postpone-update", () => {
+      electron.app.quit();
+    });
+    electron.ipcMain.on("download-update", () => {
+      electronUpdater.autoUpdater.downloadUpdate().catch((err) => {
+        console.error("[UpdaterService] downloadUpdate falló:", err);
+        this.send("update-status", "error");
+      });
+    });
+  }
+}
 let mainWindow;
 function initDatabase() {
   const db = Database.getInstance();
@@ -3067,7 +3124,9 @@ electron.app.whenReady().then(async () => {
   new DashboardHandler(db).registrar();
   new CatalogoHandler(db).registrar();
   createWindow();
-  electronUpdater.autoUpdater.checkForUpdates();
+  if (!utils.is.dev) {
+    new UpdaterService(mainWindow).iniciar();
+  }
   electron.app.on("activate", () => {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -3079,24 +3138,6 @@ electron.app.on("window-all-closed", () => {
     electron.app.quit();
   }
 });
-electronUpdater.autoUpdater.on("checking-for-update", () => {
-  mainWindow.webContents.send("update-status", "checking");
-});
-electronUpdater.autoUpdater.on("update-available", () => {
-  mainWindow.webContents.send("update-status", "available");
-});
-electronUpdater.autoUpdater.on("update-not-available", () => {
-  mainWindow.webContents.send("update-status", "not-available");
-});
-electronUpdater.autoUpdater.on("error", (err) => {
-  mainWindow.webContents.send("update-status", "error", err);
-});
-electronUpdater.autoUpdater.on("download-progress", (progressObj) => {
-  mainWindow.webContents.send("update-progress", progressObj.percent);
-});
-electronUpdater.autoUpdater.on("update-downloaded", () => {
-  mainWindow.webContents.send("update-status", "downloaded");
-});
-electron.ipcMain.on("install-update", () => {
-  electronUpdater.autoUpdater.quitAndInstall();
+electron.ipcMain.handle("app-version", () => {
+  return electron.app.getVersion();
 });
