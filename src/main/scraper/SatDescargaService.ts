@@ -99,7 +99,8 @@ export class SatDescargaService {
                     Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
                 },
                 timeout: 15000,
-                responseType: 'text'
+                responseType: 'text',
+                httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false })
             })
 
             if (!response.data.includes('<?xml')) return null

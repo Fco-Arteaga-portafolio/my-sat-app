@@ -9,6 +9,7 @@ import { migration007 } from './migrations/007_config_pdf'
 import { migration008 } from './migrations/008_conciliaciones'
 import { migration009 } from './migrations/009_pagos_complemento'
 import { migration010 } from './migrations/010_nomina_complemento'
+import { migration011 } from './migrations/011_isr_tarifas'
 
 export class MigrationRunner {
   constructor(private readonly db: BetterSqlite3.Database) { }
@@ -39,7 +40,8 @@ export class MigrationRunner {
       { nombre: '007_config_pdf', fn: migration007 },
       { nombre: '008_conciliaciones', fn: migration008 },
       { nombre: '009_pagos_complemento', fn: migration009 },
-      { nombre: '010_nomina_complemento', fn: migration010 }
+      { nombre: '010_nomina_complemento', fn: migration010 },
+      { nombre: '011_isr_tarifas', fn: migration011 },
     ]
 
     for (const migration of migrations) {

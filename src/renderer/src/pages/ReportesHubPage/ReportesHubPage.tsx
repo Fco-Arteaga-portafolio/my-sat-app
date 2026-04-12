@@ -19,7 +19,7 @@ const ReportesHubPage = () => {
           icon: '📋',
           label: 'ISR',
           description: 'Estimado de ISR',
-          comingSoon: true
+          onClick: () => navigate('/reportes/isr')
         },
         {
           icon: '📊',

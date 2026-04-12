@@ -123,4 +123,32 @@ export class DashboardRepository {
       ORDER BY mes ASC
     `).all() as any[]
   }
+
+  isrAnual(año: number, rfcActivo: string): { mes: string; ingresos: number; gastos: number; isr_retenido: number }[] {
+    return this.db.prepare(`
+      SELECT
+        strftime('%m', fecha_emision) AS mes,
+        COALESCE(SUM(CASE
+          WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente'
+          THEN subtotal
+          WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'N' AND estado = 'vigente'
+            AND rfc_receptor = '${rfcActivo}'
+          THEN subtotal
+          ELSE 0
+        END), 0) AS ingresos,
+        COALESCE(SUM(CASE
+          WHEN tipo_descarga = 'recibida' AND tipo_comprobante IN ('I','E') AND estado = 'vigente'
+          THEN subtotal ELSE 0
+        END), 0) AS gastos,
+        COALESCE(SUM(CASE
+          WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente'
+            AND rfc_emisor = '${rfcActivo}'
+          THEN total_impuestos_retenidos ELSE 0
+        END), 0) AS isr_retenido
+      FROM ${this.tabla}
+      WHERE strftime('%Y', fecha_emision) = '${año}'
+      GROUP BY mes
+      ORDER BY mes ASC
+    `).all() as any[]
+  }
 }

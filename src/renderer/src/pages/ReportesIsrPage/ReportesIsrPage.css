@@ -1,0 +1,124 @@
+.isr-container {
+  padding: 24px;
+  max-width: 1100px;
+}
+
+.isr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.isr-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.isr-back-btn {
+  color: #595959;
+}
+
+.isr-title {
+  margin: 0 !important;
+  line-height: 1.2 !important;
+}
+
+.isr-subtitle {
+  color: #8c9db5;
+  font-size: 13px;
+}
+
+/* KPIs */
+.isr-kpis {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.isr-kpi {
+  flex: 1;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid #e8ecf0;
+  border-radius: 8px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.isr-kpi-destacado {
+  border-color: #ffd591;
+  background: #fffbe6;
+}
+
+.isr-kpi-label {
+  font-size: 12px;
+  color: #8c9db5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.isr-kpi-valor {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* Colores */
+.isr-ingreso {
+  color: #389e0d;
+}
+.isr-gasto {
+  color: #1677ff;
+}
+.isr-base {
+  color: #531dab;
+}
+.isr-causado {
+  color: #d46b08;
+}
+.isr-retenido {
+  color: #08979c;
+}
+.isr-pagar {
+  color: #cf1322;
+}
+.isr-favor {
+  color: #389e0d;
+}
+.isr-cero {
+  color: #bfbfbf;
+}
+
+.isr-info-icon {
+  color: #8c9db5;
+  font-size: 12px;
+  cursor: help;
+}
+
+/* Alert */
+.isr-alert {
+  margin-bottom: 16px;
+}
+.isr-disclaimer {
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+
+/* Tabla */
+.isr-tabla {
+  background: #fff;
+  border-radius: 8px;
+}
+
+.isr-row-total td {
+  background: #fafafa !important;
+  font-weight: 600;
+  border-top: 2px solid #e8ecf0;
+}

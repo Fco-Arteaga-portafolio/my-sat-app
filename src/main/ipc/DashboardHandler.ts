@@ -6,7 +6,7 @@ import BetterSqlite3 from 'better-sqlite3'
 export class DashboardHandler {
   private repository: DashboardRepository
 
-  constructor(db: BetterSqlite3.Database) {
+  constructor(private readonly db: BetterSqlite3.Database) {
     this.repository = new DashboardRepository(db)
   }
 
@@ -56,6 +56,22 @@ export class DashboardHandler {
     ipcMain.handle('reportes-iva-anual', async (_, año: number) => {
       try {
         return { success: true, data: this.repository.ivaAnual(año) }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
+
+    ipcMain.handle('reportes-isr-anual', async (_, año: number, regimen: string) => {
+      try {
+        const perfil = ProfileManager.getPerfilActivo()
+        if (!perfil) throw new Error('No hay perfil activo')
+
+        const { IsrCalculadorService } = await import('../services/IsrCalculadorService')
+        const calculador = new IsrCalculadorService(this.db)
+        const tabla = ProfileManager.getTablaFacturas()
+
+        const data = calculador.calcularAnual(tabla, año, regimen as any, perfil.rfc)
+        return { success: true, data }
       } catch (error) {
         return { success: false, error: String(error) }
       }

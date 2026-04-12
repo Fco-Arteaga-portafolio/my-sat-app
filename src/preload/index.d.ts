@@ -61,6 +61,7 @@ declare global {
       obtenerUltimaConciliacion(params: { tipo: string; ejercicio: string; periodo: string }): Promise<{ success: boolean; ultima?: any; error?: string }>
       obtenerHistorialConciliaciones(): Promise<{ success: boolean; historial?: any[]; error?: string }>
       reportesIvaAnual(año: number): Promise<{ success: boolean; data?: any[]; error?: string }>
+      reportesIsrAnual(año: number, regimen: string): Promise<{ success: boolean; data?: any; error?: string }>
       obtenerFacturasPorTipo(datos: {
         tipoDescarga: 'recibida' | 'emitida'
         filtros?: {
