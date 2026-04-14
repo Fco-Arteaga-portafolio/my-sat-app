@@ -143,6 +143,13 @@ const ReportesIvaPage = () => {
         size="small"
         rowClassName={(record) => (record.mes === 'total' ? 'iva-row-total' : '')}
         className="iva-tabla"
+        onRow={(record) => ({
+          onDoubleClick: () => {
+            if (record.mes === 'total') return
+            navigate(`/reportes/iva/${año}/${record.mes}`)
+          },
+          style: { cursor: record.mes === 'total' ? 'default' : 'pointer' }
+        })}
       />
     </div>
   )

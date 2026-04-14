@@ -151,4 +151,54 @@ export class DashboardRepository {
       ORDER BY mes ASC
     `).all() as any[]
   }
+
+  detalleMes(año: number, mes: number): any[] {
+    const mesStr = String(mes).padStart(2, '0')
+    return this.db.prepare(`
+      SELECT
+        f.uuid,
+        f.tipo_descarga,
+        f.tipo_comprobante,
+        f.rfc_emisor,
+        f.nombre_emisor,
+        f.rfc_receptor,
+        f.nombre_receptor,
+        f.metodo_pago,
+        f.subtotal,
+        f.descuento,
+        f.total_impuestos_retenidos,
+        f.total_impuestos_trasladados,
+        f.total,
+        f.estado,
+        COALESCE(p.pagado, CASE WHEN f.metodo_pago = 'PUE' THEN 1 ELSE 0 END) AS pagado
+      FROM ${this.tabla} f
+      LEFT JOIN cfdi_estado_pago p ON p.uuid = f.uuid
+      WHERE f.estado = 'vigente'
+        AND f.tipo_comprobante IN ('I', 'E', 'N', 'P', 'T')
+        AND strftime('%Y', f.fecha_emision) = '${año}'
+        AND strftime('%m', f.fecha_emision) = '${mesStr}'
+      ORDER BY f.fecha_emision ASC
+    `).all() as any[]
+  }
+
+  togglePagado(uuid: string, pagado: boolean): void {
+    this.db.prepare(`
+      INSERT INTO cfdi_estado_pago (uuid, pagado, fecha_actualizacion)
+      VALUES (?, ?, datetime('now'))
+      ON CONFLICT(uuid) DO UPDATE SET
+        pagado = excluded.pagado,
+        fecha_actualizacion = excluded.fecha_actualizacion
+    `).run(uuid, pagado ? 1 : 0)
+  }
+
+  obtenerRutaXmlMuestra(): string | null {
+    const row = this.db.prepare(`
+      SELECT xml FROM ${this.tabla}
+      WHERE tipo_descarga = 'emitida'
+        AND xml IS NOT NULL
+        AND xml != ''
+      LIMIT 1
+    `).get() as { xml: string } | undefined
+    return row?.xml ?? null
+  }
 }

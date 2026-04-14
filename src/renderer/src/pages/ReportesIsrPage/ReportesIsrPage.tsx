@@ -74,7 +74,8 @@ const ReportesIsrPage = () => {
     año,
     setAño,
     regimen,
-    setRegimen,
+    regimenDetectado,
+    loadingRegimen,
     datos,
     totales,
     loading,
@@ -84,6 +85,8 @@ const ReportesIsrPage = () => {
     fmt,
     opcionesAño
   } = useReportesIsrPage()
+
+  const regimenLabel = REGIMENES.find((r) => r.value === regimen)?.label ?? 'Detectando...'
 
   const filaTotal: FilaIsrMes = {
     mes: 0,
@@ -109,13 +112,17 @@ const ReportesIsrPage = () => {
           </div>
         </div>
         <Space>
-          <Select value={regimen} onChange={setRegimen} style={{ width: 280 }}>
-            {REGIMENES.map((r) => (
-              <Option key={r.value} value={r.value}>
-                {r.label}
-              </Option>
-            ))}
-          </Select>
+          <Tooltip
+            title={
+              regimenDetectado
+                ? `Régimen detectado automáticamente desde tus XMLs. Clave SAT: ${regimenDetectado}`
+                : 'No se encontró clave de régimen en los XMLs descargados'
+            }
+          >
+            <span className="isr-regimen-badge">
+              {loadingRegimen ? 'Detectando régimen...' : regimenLabel}
+            </span>
+          </Tooltip>
           <Select value={año} onChange={setAño} style={{ width: 100 }}>
             {opcionesAño.map((a) => (
               <Option key={a} value={a}>
@@ -155,24 +162,31 @@ const ReportesIsrPage = () => {
         </div>
       </div>
 
-      {error && <Alert message={error} type="error" showIcon className="isr-alert" />}
+      {error && <Alert type="error" showIcon className="isr-alert" description={error} />}
 
       <Alert
         type="info"
         showIcon
         className="isr-disclaimer"
-        message="Este reporte es referencial. Los gastos mostrados son todos los CFDI recibidos — excluye manualmente los no deducibles desde el detalle. La determinación definitiva del ISR corresponde a tu contador."
+        description="Este reporte es referencial. Los gastos mostrados son todos los CFDI recibidos — excluye manualmente los no deducibles desde el detalle. La determinación definitiva del ISR corresponde a tu contador."
       />
 
       <Table
         dataSource={[...datos, filaTotal]}
         columns={columnas(fmt)}
         rowKey="mes"
-        loading={loading}
+        loading={loading || loadingRegimen}
         pagination={false}
         size="small"
         rowClassName={(record) => (record.mes === 0 ? 'isr-row-total' : '')}
         className="isr-tabla"
+        onRow={(record) => ({
+          onDoubleClick: () => {
+            if (record.mes === 0) return
+            navigate(`/reportes/isr/${año}/${record.mes}`)
+          },
+          style: { cursor: record.mes === 0 ? 'default' : 'pointer' }
+        })}
       />
     </div>
   )

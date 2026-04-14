@@ -48,6 +48,9 @@ const api = {
   reportesIvaAnual: (año: number) => ipcRenderer.invoke('reportes-iva-anual', año),
   reportesIsrAnual: (año: number, regimen: string) => ipcRenderer.invoke('reportes-isr-anual', año, regimen),
   imprimirPdf: () => ipcRenderer.invoke('imprimir-pdf'),
+  reportesDetalleMes: (año: number, mes: number) => ipcRenderer.invoke('reportes-detalle-mes', año, mes),
+  cfdiTogglePagado: (uuid: string, pagado: boolean) => ipcRenderer.invoke('cfdi-toggle-pagado', uuid, pagado),
+  reportesDetectarRegimen: () => ipcRenderer.invoke('reportes-detectar-regimen'),
   obtenerFacturasPorTipo: (datos: {
     tipoDescarga: 'recibida' | 'emitida'
     filtros?: {

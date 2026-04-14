@@ -19,6 +19,7 @@ import CfdiRecibidasPage from './pages/CfdiRecibidasPage/CfdiRecibidasPage'
 import CfdiEmitidasPage from './pages/CfdiEmitidasPage/CfdiEmitidasPage'
 import UpdateModal from './components/UpdateModal/UpdateModal'
 import ReportesIsrPage from './pages/ReportesIsrPage/ReportesIsrPage'
+import ReporteDetalleMesPage from './pages/ReporteDetalleMesPage/ReporteDetalleMesPage'
 
 const RutaProtegida = ({ children }: { children: React.ReactNode }) => {
   const { perfil } = useContribuyente()
@@ -102,6 +103,7 @@ const AppRoutes = () => {
         <Route path="/conciliacion" element={<ConciliacionPage />} />
         <Route path="/reportes/iva" element={<ReportesIvaPage />} />
         <Route path="/reportes/isr" element={<ReportesIsrPage />} />
+        <Route path="/reportes/:origen/:anio/:mes" element={<ReporteDetalleMesPage />} />
       </Route>
     </Routes>
   )

@@ -18,6 +18,18 @@ export const REGIMENES: { value: RegimenIsr; label: string }[] = [
     { value: 'resico_pm', label: 'RESICO Persona Moral (1%)' },
 ]
 
+const REGIMEN_SAT_MAP: Record<string, RegimenIsr> = {
+    '612': 'actividad_empresarial',
+    '606': 'arrendamiento',
+    '601': 'pm_general',
+    '626': 'resico_pf',
+    '625': 'resico_pm',
+    '614': 'honorarios',
+    '608': 'actividad_empresarial',
+    '611': 'actividad_empresarial',
+    '615': 'honorarios',
+}
+
 export interface FilaIsrMes {
     mes: number
     mes_nombre: string
@@ -36,17 +48,42 @@ const MESES = [
 
 const añoActual = new Date().getFullYear()
 
-const fmt = (n: number) =>
+export const fmt = (n: number) =>
     (n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
 
 export const useReportesIsrPage = () => {
     const [año, setAño] = useState<number>(añoActual)
-    const [regimen, setRegimen] = useState<RegimenIsr>('actividad_empresarial')
+    const [regimen, setRegimen] = useState<RegimenIsr | null>(null)
+    const [regimenDetectado, setRegimenDetectado] = useState<string | null>(null)
+    const [loadingRegimen, setLoadingRegimen] = useState(true)
     const [datos, setDatos] = useState<FilaIsrMes[]>([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
+    // Detectar régimen automáticamente al montar
+    useEffect(() => {
+        const detectar = async () => {
+            setLoadingRegimen(true)
+            try {
+                const res = await window.api.reportesDetectarRegimen()
+                if (res.success && res.data) {
+                    setRegimenDetectado(res.data)
+                    const mapped = REGIMEN_SAT_MAP[res.data] ?? 'actividad_empresarial'
+                    setRegimen(mapped)
+                } else {
+                    setRegimen('actividad_empresarial')
+                }
+            } catch {
+                setRegimen('actividad_empresarial')
+            } finally {
+                setLoadingRegimen(false)
+            }
+        }
+        detectar()
+    }, [])
+
     const cargar = useCallback(async () => {
+        if (!regimen) return
         setLoading(true)
         setError(null)
         try {
@@ -125,7 +162,9 @@ export const useReportesIsrPage = () => {
 
     return {
         año, setAño,
-        regimen, setRegimen,
+        regimen,
+        regimenDetectado,
+        loadingRegimen,
         datos, totales,
         loading, error,
         exportarExcel, sinDatos,

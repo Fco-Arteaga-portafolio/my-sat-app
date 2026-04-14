@@ -62,6 +62,9 @@ declare global {
       obtenerHistorialConciliaciones(): Promise<{ success: boolean; historial?: any[]; error?: string }>
       reportesIvaAnual(año: number): Promise<{ success: boolean; data?: any[]; error?: string }>
       reportesIsrAnual(año: number, regimen: string): Promise<{ success: boolean; data?: any; error?: string }>
+      reportesDetalleMes(año: number, mes: number): Promise<{ success: boolean; data?: any[]; error?: string }>
+      cfdiTogglePagado(uuid: string, pagado: boolean): Promise<{ success: boolean; error?: string }>
+      reportesDetectarRegimen(): Promise<{ success: boolean; data?: string | null; error?: string }>
       obtenerFacturasPorTipo(datos: {
         tipoDescarga: 'recibida' | 'emitida'
         filtros?: {

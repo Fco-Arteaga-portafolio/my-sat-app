@@ -113,7 +113,10 @@ export class XmlParserService {
         rfc_pac: getAttr(tfd, 'RfcProvCertif'),
         folio_sustitucion: getAttr(cfdiRelacionado, 'UUID'),
         total_impuestos_trasladados: getFloat(impuestosEl, 'TotalImpuestosTrasladados'),
-        total_impuestos_retenidos: getFloat(impuestosEl, 'TotalImpuestosRetenidos')
+        total_impuestos_retenidos: getFloat(impuestosEl, 'TotalImpuestosRetenidos'),
+        regimen_fiscal_emisor: getAttr(emisor, 'RegimenFiscal'),
+        regimen_fiscal_receptor: getAttr(receptor, 'RegimenFiscal'),
+        uso_cfdi: getAttr(receptor, 'UsoCFDI')
       }
 
       if (tipoTexto === 'P') {

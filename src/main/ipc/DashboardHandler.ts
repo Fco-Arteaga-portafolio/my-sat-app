@@ -76,5 +76,38 @@ export class DashboardHandler {
         return { success: false, error: String(error) }
       }
     })
+
+    ipcMain.handle('reportes-detalle-mes', async (_, año: number, mes: number) => {
+      try {
+        return { success: true, data: this.repository.detalleMes(año, mes) }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
+
+    ipcMain.handle('cfdi-toggle-pagado', async (_, uuid: string, pagado: boolean) => {
+      try {
+        this.repository.togglePagado(uuid, pagado)
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
+
+    ipcMain.handle('reportes-detectar-regimen', async () => {
+      try {
+        const rutaXml = this.repository.obtenerRutaXmlMuestra()
+        if (!rutaXml) return { success: true, data: null }
+
+        const { XmlParserService } = await import('../services/XmlParserService')
+        const parser = new XmlParserService()
+        const campos = parser.extraerCampos(rutaXml)
+
+        const regimen = campos.regimen_fiscal_emisor ?? null
+        return { success: true, data: regimen }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
   }
 }

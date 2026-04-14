@@ -35,6 +35,7 @@ export const useDescargaPage = () => {
 
   useEffect(() => {
     cargarConfiguracion()
+    window.electron.ipcRenderer.removeAllListeners('progreso-descarga')
     window.api.onProgresoDescarga((p: ProgresoDescarga) => setProgreso(p))
   }, [])
 
@@ -56,7 +57,7 @@ export const useDescargaPage = () => {
       const inicio = new Date(aI, mI - 1, dI)
       const fin = new Date(aF, mF - 1, dF)
       const diffMeses = (fin.getFullYear() - inicio.getFullYear()) * 12 + (fin.getMonth() - inicio.getMonth())
-      if (diffMeses > 3) { setError('El rango máximo de búsqueda es 3 meses.'); return false }
+      if (diffMeses > 6) { setError('El rango máximo de búsqueda es 6 meses.'); return false }
     } else {
       if (!form.folioFiscal.trim()) { setError('El folio fiscal es obligatorio'); return false }
     }

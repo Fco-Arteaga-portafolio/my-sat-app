@@ -98,7 +98,7 @@ const DescargaPage = () => {
                     }}
                   />
                   <p style={{ fontSize: 11, color: '#8c9db5', marginTop: 6, marginBottom: 0 }}>
-                    Puedes consultar hasta 3 meses por solicitud.
+                    Puedes consultar hasta 6 meses por solicitud.
                   </p>
                 </Form.Item>
               ) : (

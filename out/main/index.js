@@ -688,6 +688,38 @@ function migration011(db) {
     insertTasa.run(t);
   }
 }
+function migration012(db) {
+  const perfiles = db.prepare("SELECT rfc FROM perfiles").all();
+  const tablas = perfiles.map((p) => `facturas_${p.rfc.replace(/[^A-Z0-9]/gi, "")}`);
+  tablas.push("facturas");
+  const columnas = [
+    "regimen_fiscal_emisor TEXT",
+    "regimen_fiscal_receptor TEXT",
+    "uso_cfdi TEXT"
+  ];
+  for (const tabla of tablas) {
+    const existe = db.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
+    ).get(tabla);
+    if (!existe) continue;
+    for (const col of columnas) {
+      const nombre = col.split(" ")[0];
+      try {
+        db.exec(`ALTER TABLE ${tabla} ADD COLUMN ${col}`);
+        console.log(`Columna ${nombre} agregada a ${tabla}`);
+      } catch {
+        console.log(`Columna ${nombre} ya existe en ${tabla}`);
+      }
+    }
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cfdi_estado_pago (
+      uuid                TEXT PRIMARY KEY,
+      pagado              INTEGER NOT NULL DEFAULT 0,
+      fecha_actualizacion TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+}
 class MigrationRunner {
   constructor(db) {
     this.db = db;
@@ -717,7 +749,8 @@ class MigrationRunner {
       { nombre: "008_conciliaciones", fn: migration008 },
       { nombre: "009_pagos_complemento", fn: migration009 },
       { nombre: "010_nomina_complemento", fn: migration010 },
-      { nombre: "011_isr_tarifas", fn: migration011 }
+      { nombre: "011_isr_tarifas", fn: migration011 },
+      { nombre: "012_nuevos_campos_cfdi", fn: migration012 }
     ];
     for (const migration of migrations) {
       const yaEjecutada = this.db.prepare("SELECT id FROM migrations WHERE nombre = ?").get(migration.nombre);
@@ -1885,6 +1918,80 @@ class DashboardRepository {
       ORDER BY mes ASC
     `).all();
   }
+  isrAnual(año, rfcActivo) {
+    return this.db.prepare(`
+      SELECT
+        strftime('%m', fecha_emision) AS mes,
+        COALESCE(SUM(CASE
+          WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente'
+          THEN subtotal
+          WHEN tipo_descarga = 'recibida' AND tipo_comprobante = 'N' AND estado = 'vigente'
+            AND rfc_receptor = '${rfcActivo}'
+          THEN subtotal
+          ELSE 0
+        END), 0) AS ingresos,
+        COALESCE(SUM(CASE
+          WHEN tipo_descarga = 'recibida' AND tipo_comprobante IN ('I','E') AND estado = 'vigente'
+          THEN subtotal ELSE 0
+        END), 0) AS gastos,
+        COALESCE(SUM(CASE
+          WHEN tipo_descarga = 'emitida' AND tipo_comprobante = 'I' AND estado = 'vigente'
+            AND rfc_emisor = '${rfcActivo}'
+          THEN total_impuestos_retenidos ELSE 0
+        END), 0) AS isr_retenido
+      FROM ${this.tabla}
+      WHERE strftime('%Y', fecha_emision) = '${año}'
+      GROUP BY mes
+      ORDER BY mes ASC
+    `).all();
+  }
+  detalleMes(año, mes) {
+    const mesStr = String(mes).padStart(2, "0");
+    return this.db.prepare(`
+      SELECT
+        f.uuid,
+        f.tipo_descarga,
+        f.tipo_comprobante,
+        f.rfc_emisor,
+        f.nombre_emisor,
+        f.rfc_receptor,
+        f.nombre_receptor,
+        f.metodo_pago,
+        f.subtotal,
+        f.descuento,
+        f.total_impuestos_retenidos,
+        f.total_impuestos_trasladados,
+        f.total,
+        f.estado,
+        COALESCE(p.pagado, CASE WHEN f.metodo_pago = 'PUE' THEN 1 ELSE 0 END) AS pagado
+      FROM ${this.tabla} f
+      LEFT JOIN cfdi_estado_pago p ON p.uuid = f.uuid
+      WHERE f.estado = 'vigente'
+        AND f.tipo_comprobante IN ('I', 'E', 'N', 'P', 'T')
+        AND strftime('%Y', f.fecha_emision) = '${año}'
+        AND strftime('%m', f.fecha_emision) = '${mesStr}'
+      ORDER BY f.fecha_emision ASC
+    `).all();
+  }
+  togglePagado(uuid, pagado) {
+    this.db.prepare(`
+      INSERT INTO cfdi_estado_pago (uuid, pagado, fecha_actualizacion)
+      VALUES (?, ?, datetime('now'))
+      ON CONFLICT(uuid) DO UPDATE SET
+        pagado = excluded.pagado,
+        fecha_actualizacion = excluded.fecha_actualizacion
+    `).run(uuid, pagado ? 1 : 0);
+  }
+  obtenerRutaXmlMuestra() {
+    const row = this.db.prepare(`
+      SELECT xml FROM ${this.tabla}
+      WHERE tipo_descarga = 'emitida'
+        AND xml IS NOT NULL
+        AND xml != ''
+      LIMIT 1
+    `).get();
+    return row?.xml ?? null;
+  }
 }
 class DashboardHandler {
   constructor(db) {
@@ -1946,6 +2053,34 @@ class DashboardHandler {
         const tabla = ProfileManager.getTablaFacturas();
         const data = calculador.calcularAnual(tabla, año, regimen, perfil.rfc);
         return { success: true, data };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("reportes-detalle-mes", async (_, año, mes) => {
+      try {
+        return { success: true, data: this.repository.detalleMes(año, mes) };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("cfdi-toggle-pagado", async (_, uuid, pagado) => {
+      try {
+        this.repository.togglePagado(uuid, pagado);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("reportes-detectar-regimen", async () => {
+      try {
+        const rutaXml = this.repository.obtenerRutaXmlMuestra();
+        if (!rutaXml) return { success: true, data: null };
+        const { XmlParserService: XmlParserService2 } = await Promise.resolve().then(() => XmlParserService$1);
+        const parser = new XmlParserService2();
+        const campos = parser.extraerCampos(rutaXml);
+        const regimen = campos.regimen_fiscal_emisor ?? null;
+        return { success: true, data: regimen };
       } catch (error) {
         return { success: false, error: String(error) };
       }
@@ -2662,7 +2797,8 @@ class SatDescargaService {
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
         },
         timeout: 15e3,
-        responseType: "text"
+        responseType: "text",
+        httpsAgent: new (require("https")).Agent({ rejectUnauthorized: false })
       });
       if (!response.data.includes("<?xml")) return null;
       fs__namespace.writeFileSync(rutaTemp, response.data);
@@ -2779,7 +2915,10 @@ class XmlParserService {
         rfc_pac: getAttr(tfd, "RfcProvCertif"),
         folio_sustitucion: getAttr(cfdiRelacionado, "UUID"),
         total_impuestos_trasladados: getFloat(impuestosEl, "TotalImpuestosTrasladados"),
-        total_impuestos_retenidos: getFloat(impuestosEl, "TotalImpuestosRetenidos")
+        total_impuestos_retenidos: getFloat(impuestosEl, "TotalImpuestosRetenidos"),
+        regimen_fiscal_emisor: getAttr(emisor, "RegimenFiscal"),
+        regimen_fiscal_receptor: getAttr(receptor, "RegimenFiscal"),
+        uso_cfdi: getAttr(receptor, "UsoCFDI")
       };
       if (tipoTexto === "P") {
         return { ...base, complementoPago: this.extraerComplementoPago(doc) };
@@ -2907,6 +3046,10 @@ class XmlParserService {
     }
   }
 }
+const XmlParserService$1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  XmlParserService
+}, Symbol.toStringTag, { value: "Module" }));
 const ESTRUCTURA_DEFAULT = [
   { id: "contribuyente", label: "Contribuyente", activo: true },
   { id: "ejercicio", label: "Ejercicio", activo: true },

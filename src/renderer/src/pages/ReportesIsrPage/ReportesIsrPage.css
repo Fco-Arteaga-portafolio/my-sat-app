@@ -122,3 +122,15 @@
   font-weight: 600;
   border-top: 2px solid #e8ecf0;
 }
+
+.isr-regimen-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  background: #f0f5ff;
+  border: 1px solid #adc6ff;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #2f54eb;
+  cursor: default;
+}
