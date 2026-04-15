@@ -1963,6 +1963,7 @@ class DashboardRepository {
         f.total_impuestos_trasladados,
         f.total,
         f.estado,
+        f.xml,
         COALESCE(p.pagado, CASE WHEN f.metodo_pago = 'PUE' THEN 1 ELSE 0 END) AS pagado
       FROM ${this.tabla} f
       LEFT JOIN cfdi_estado_pago p ON p.uuid = f.uuid

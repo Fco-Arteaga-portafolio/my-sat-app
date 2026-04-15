@@ -230,7 +230,7 @@ const ReporteDetalleMesPage = () => {
     scroll: { x: 1150, y: 'calc(100vh - 440px)' },
     sticky: true,
     onRow: (record: FilaDetalle) => ({
-      onClick: () => abrirModal(record),
+      onDoubleClick: () => abrirModal(record),
       style: { cursor: 'pointer' }
     })
   })
