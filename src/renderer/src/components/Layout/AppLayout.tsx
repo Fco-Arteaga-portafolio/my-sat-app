@@ -2,6 +2,7 @@ import { Layout, Menu } from 'antd'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useContribuyente } from '../../context/ContribuyenteContext'
 import logoIcon from '../../assets/icon.png'
+import LicenseFooter from '../LicenseFooter/LicenseFooter'
 import { useState, useEffect } from 'react'
 import {
   HomeOutlined,
@@ -20,18 +21,31 @@ const { Sider, Content, Header } = Layout
 const AppLayout = () => {
   const location = useLocation()
   const [_totalPendientes, setTotalPendientes] = useState(0)
+  const [rfcCount, setRfcCount] = useState(1)
   const [collapsed, setCollapsed] = useState(false)
   const { perfil, setPerfil } = useContribuyente()
   const navigate = useNavigate()
 
   useEffect(() => {
     cargarContador()
+    cargarRFCCount()
   }, [location.pathname])
 
   const cargarContador = async () => {
     const res = await window.api.contarPendientes()
     if (res.success && res.total !== undefined) {
       setTotalPendientes(res.total)
+    }
+  }
+
+  const cargarRFCCount = async () => {
+    try {
+      const res = await window.api.obtenerPerfiles()
+      if (res.success && res.perfiles) {
+        setRfcCount(res.perfiles.length)
+      }
+    } catch (error) {
+      console.error('Error cargando RFCs:', error)
     }
   }
 
@@ -111,6 +125,7 @@ const AppLayout = () => {
         <Content className="app-content">
           <Outlet />
         </Content>
+        <LicenseFooter licenseStatus="Demo" rfcCount={rfcCount} machineCount={1} />
       </Layout>
     </Layout>
   )

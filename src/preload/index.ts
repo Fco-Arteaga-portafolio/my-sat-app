@@ -1,102 +1,31 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { ParametrosBusqueda } from '../main/scraper/SatTypes'
-import { Configuracion } from '../main/services/ConfiguracionService'
-
-const api = {
-  descargarFacturas: (datos: { captcha?: string; params: ParametrosBusqueda }) =>
-    ipcRenderer.invoke('descargar-facturas', datos),
-  obtenerFacturas: () => ipcRenderer.invoke('obtener-facturas'),
-  eliminarFactura: (uuid: string) => ipcRenderer.invoke('eliminar-factura', uuid),
-  guardarConfiguracion: (config: Configuracion) => ipcRenderer.invoke('guardar-configuracion', config),
-  obtenerConfiguracion: () => ipcRenderer.invoke('obtener-configuracion'),
-  limpiarConfiguracion: () => ipcRenderer.invoke('limpiar-configuracion'),
-  seleccionarArchivo: (filtros: Electron.FileFilter[]) => ipcRenderer.invoke('seleccionar-archivo', filtros),
-  obtenerCaptcha: () => ipcRenderer.invoke('obtener-captcha'),
-  seleccionarCarpeta: () => ipcRenderer.invoke('seleccionar-carpeta'),
-  abrirArchivo: (ruta: string) => ipcRenderer.invoke('abrir-archivo', ruta),
-  leerXml: (ruta: string) => ipcRenderer.invoke('leer-xml', ruta),
-  obtenerPendientes: () => ipcRenderer.invoke('obtener-pendientes'),
-  contarPendientes: () => ipcRenderer.invoke('contar-pendientes'),
-  limpiarPendientes: () => ipcRenderer.invoke('limpiar-pendientes'),
-  obtenerPerfiles: () => ipcRenderer.invoke('obtener-perfiles'),
-  crearPerfil: (perfil: any) => ipcRenderer.invoke('crear-perfil', perfil),
-  eliminarPerfil: (rfc: string) => ipcRenderer.invoke('eliminar-perfil', rfc),
-  seleccionarPerfil: (rfc: string) => ipcRenderer.invoke('seleccionar-perfil', rfc),
-  obtenerPerfilActivo: () => ipcRenderer.invoke('obtener-perfil-activo'),
-  cerrarPerfil: () => ipcRenderer.invoke('cerrar-perfil'),
-  seleccionarXmls: () => ipcRenderer.invoke('seleccionar-xmls'),
-  obtenerPdfFactura: (datos: any) => ipcRenderer.invoke('obtener-pdf-factura', datos),
-  seleccionarCarpetaXml: () => ipcRenderer.invoke('seleccionar-carpeta-xml'),
-  importarXmls: (rutas: string[]) => ipcRenderer.invoke('importar-xmls', rutas),
-  dashboardKpis: (año: number, mes: number) => ipcRenderer.invoke('dashboard-kpis', año, mes),
-  dashboardFlujoAnual: (año: number) => ipcRenderer.invoke('dashboard-flujo-anual', año),
-  dashboardTopProveedores: (año: number, mes: number) => ipcRenderer.invoke('dashboard-top-proveedores', año, mes),
-  dashboardTopClientes: (año: number, mes: number) => ipcRenderer.invoke('dashboard-top-clientes', año, mes),
-  reintentarPendientes: (datos: { captcha?: string }) => ipcRenderer.invoke('reintentar-pendientes', datos),
-  obtenerConteos: () => ipcRenderer.invoke('dashboard-obtener-conteos'),
-  generarPdf: (datos: { xmlContenido: string; parseada: any; uuid: string; plantilla: string; rutaDestino: string }) =>
-    ipcRenderer.invoke('generar-pdf', datos),
-  catalogoObtener: (tipo: string) => ipcRenderer.invoke('catalogo-obtener', tipo),
-  catalogoObtenerPorRfc: (tipo: string, rfc: string) => ipcRenderer.invoke('catalogo-obtener-por-rfc', tipo, rfc),
-  catalogoActualizar: (tipo: string, rfc: string, datos: any) => ipcRenderer.invoke('catalogo-actualizar', tipo, rfc, datos),
-  catalogoSincronizar: () => ipcRenderer.invoke('catalogo-sincronizar'),
-  facturasDrillDown: (rfc: string) => ipcRenderer.invoke('facturas-drill-down', rfc),
-  iniciarConciliacion: (params: any) => ipcRenderer.invoke('iniciar-conciliacion', params),
-  obtenerUltimaConciliacion: (params: any) => ipcRenderer.invoke('obtener-ultima-conciliacion', params),
-  obtenerHistorialConciliaciones: () => ipcRenderer.invoke('obtener-historial-conciliaciones'),
-  reportesIvaAnual: (año: number) => ipcRenderer.invoke('reportes-iva-anual', año),
-  reportesIsrAnual: (año: number, regimen: string) => ipcRenderer.invoke('reportes-isr-anual', año, regimen),
-  imprimirPdf: () => ipcRenderer.invoke('imprimir-pdf'),
-  reportesDetalleMes: (año: number, mes: number) => ipcRenderer.invoke('reportes-detalle-mes', año, mes),
-  cfdiTogglePagado: (uuid: string, pagado: boolean) => ipcRenderer.invoke('cfdi-toggle-pagado', uuid, pagado),
-  reportesDetectarRegimen: () => ipcRenderer.invoke('reportes-detectar-regimen'),
-  obtenerFacturasPorTipo: (datos: {
-    tipoDescarga: 'recibida' | 'emitida'
-    filtros?: {
-      busqueda?: string
-      fechaDesde?: string
-      fechaHasta?: string
-      rfcContraparte?: string
-      tipoComprobante?: string
-      tiposComprobante?: string[]
-      formaPago?: string
-      metodoPago?: string
-      estado?: string
-    }
-  }) => ipcRenderer.invoke('obtener-facturas-por-tipo', datos),
-  obtenerPagoComplemento: (uuid_rep: string) =>
-    ipcRenderer.invoke('obtener-pago-complemento', uuid_rep),
-  onProgresoConciliacion: (callback: (progreso: any) => void) => {
-    ipcRenderer.on('progreso-conciliacion', (_, progreso) => callback(progreso))
-  },
-  onProgresoDescarga: (callback: (progreso: any) => void) => {
-    ipcRenderer.on('progreso-descarga', (_, progreso) => callback(progreso))
-  },
-}
+import { createCatalogoApi } from './catalogo'
+import { createConciliacionApi } from './conciliacion'
+import { createConfiguracionApi } from './configuracion'
+import { createDashboardApi } from './dashboard'
+import { createFacturaApi } from './factura'
+import { createImportacionApi } from './importacion'
+import { createPerfilApi } from './perfil'
+import { createLicenseApi } from './license'
+import { createMiscApi, createElectronUpdater, createAppInfo } from './misc'
 
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-    contextBridge.exposeInMainWorld('electronUpdater', {
-      onStatus: (callback: (status: string) => void) => {
-        ipcRenderer.on('update-status', (_, status) => callback(status))
-      },
-      onProgress: (callback: (percent: number) => void) => {
-        ipcRenderer.on('update-progress', (_, percent) => callback(percent))
-      },
-      install: () => {
-        ipcRenderer.send('install-update')
-      },
-      postpone: () => {                        // ← agregar esto
-        ipcRenderer.send('postpone-update')
-      },
-      download: () => ipcRenderer.send('download-update')
+    contextBridge.exposeInMainWorld('api', {
+      ...createCatalogoApi(),
+      ...createConciliacionApi(),
+      ...createConfiguracionApi(),
+      ...createDashboardApi(),
+      ...createFacturaApi(),
+      ...createImportacionApi(),
+      ...createPerfilApi(),
+      ...createLicenseApi(),
+      ...createMiscApi(),
     })
-    contextBridge.exposeInMainWorld('appInfo', {
-      getVersion: () => ipcRenderer.invoke('app-version')
-    })
+    contextBridge.exposeInMainWorld('electronUpdater', createElectronUpdater())
+    contextBridge.exposeInMainWorld('appInfo', createAppInfo())
   } catch (error) {
     console.error(error)
   }
@@ -104,5 +33,19 @@ if (process.contextIsolated) {
   // @ts-ignore (define in dts)
   window.electron = electronAPI
   // @ts-ignore (define in dts)
-  window.api = api
+  window.api = {
+    ...createCatalogoApi(),
+    ...createConciliacionApi(),
+    ...createConfiguracionApi(),
+    ...createDashboardApi(),
+    ...createFacturaApi(),
+    ...createImportacionApi(),
+    ...createPerfilApi(),
+    ...createLicenseApi(),
+    ...createMiscApi(),
+  }
+  // @ts-ignore (define in dts)
+  window.electronUpdater = createElectronUpdater()
+  // @ts-ignore (define in dts)
+  window.appInfo = createAppInfo()
 }

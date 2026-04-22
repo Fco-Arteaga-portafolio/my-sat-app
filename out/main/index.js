@@ -720,6 +720,53 @@ function migration012(db) {
     )
   `);
 }
+function migration013(db) {
+  db.exec(`
+    -- Tabla de licencias (una sola por instalación)
+    CREATE TABLE IF NOT EXISTS licencias (
+      id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+      estado                    TEXT CHECK(estado IN ('Demo', 'Vigente', 'Vencido')) DEFAULT 'Demo' NOT NULL,
+      fecha_inicio              TEXT,
+      fecha_vencimiento         TEXT,
+      rfc_maximo                INTEGER DEFAULT 1,
+      maquinas_maximo           INTEGER DEFAULT 1,
+      rfc_usado                 INTEGER DEFAULT 0,
+      maquinas_usado            INTEGER DEFAULT 0,
+      fecha_creacion            TEXT DEFAULT (datetime('now')),
+      fecha_actualizacion       TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Tabla de máquinas registradas (para validar licencia por PC)
+    CREATE TABLE IF NOT EXISTS maquinas_registradas (
+      id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+      identificador_maquina     TEXT UNIQUE NOT NULL,
+      nombre_maquina            TEXT,
+      so                        TEXT,
+      fecha_registro            TEXT DEFAULT (datetime('now')),
+      fecha_ultimo_acceso       TEXT DEFAULT (datetime('now')),
+      activa                    INTEGER DEFAULT 1
+    );
+
+    -- Tabla de auditoría de licencias
+    CREATE TABLE IF NOT EXISTS licencia_auditoria (
+      id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+      evento                    TEXT NOT NULL,
+      descripcion               TEXT,
+      fecha_evento              TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Índices
+    CREATE INDEX IF NOT EXISTS idx_maquinas_identificador ON maquinas_registradas(identificador_maquina);
+    CREATE INDEX IF NOT EXISTS idx_auditoria_fecha ON licencia_auditoria(fecha_evento);
+
+    -- Insertar registro inicial de licencia en Demo
+    INSERT OR IGNORE INTO licencias (
+      id, estado, rfc_maximo, maquinas_maximo, rfc_usado, maquinas_usado
+    ) VALUES (
+      1, 'Demo', 10, 1, 0, 0
+    );
+  `);
+}
 class MigrationRunner {
   constructor(db) {
     this.db = db;
@@ -750,7 +797,8 @@ class MigrationRunner {
       { nombre: "009_pagos_complemento", fn: migration009 },
       { nombre: "010_nomina_complemento", fn: migration010 },
       { nombre: "011_isr_tarifas", fn: migration011 },
-      { nombre: "012_nuevos_campos_cfdi", fn: migration012 }
+      { nombre: "012_nuevos_campos_cfdi", fn: migration012 },
+      { nombre: "013_licencias", fn: migration013 }
     ];
     for (const migration of migrations) {
       const yaEjecutada = this.db.prepare("SELECT id FROM migrations WHERE nombre = ?").get(migration.nombre);
@@ -3618,6 +3666,303 @@ class UpdaterService {
     });
   }
 }
+class LicenseService {
+  repository;
+  constructor(repository) {
+    this.repository = repository;
+  }
+  /**
+   * Obtiene información completa de la licencia
+   */
+  obtenerLicencia() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return {
+        estado: "Demo",
+        dias_restantes: null,
+        rfc_disponible: true,
+        maquina_disponible: true,
+        vigente: true
+      };
+    }
+    const diasRestantes = this.calcularDiasRestantes(licencia.fecha_vencimiento);
+    return {
+      estado: licencia.estado,
+      fecha_inicio: licencia.fecha_inicio,
+      fecha_vencimiento: licencia.fecha_vencimiento,
+      dias_restantes: diasRestantes,
+      rfc_maximo: licencia.rfc_maximo,
+      rfc_usado: licencia.rfc_usado,
+      maquinas_maximo: licencia.maquinas_maximo,
+      maquinas_usado: licencia.maquinas_usado,
+      rfc_disponible: this.repository.validarRfcDisponible(),
+      maquina_disponible: this.repository.validarMaquinaDisponible(),
+      vigente: this.repository.validarVigencia()
+    };
+  }
+  /**
+   * Obtiene solo el estado actual
+   */
+  obtenerEstado() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) return "Demo";
+    return licencia.estado;
+  }
+  /**
+   * Calcula días restantes
+   */
+  calcularDiasRestantes(fechaVencimiento) {
+    if (!fechaVencimiento) return null;
+    const hoy = /* @__PURE__ */ new Date();
+    const vencimiento = new Date(fechaVencimiento);
+    const diferencia = vencimiento.getTime() - hoy.getTime();
+    const dias = Math.ceil(diferencia / (1e3 * 60 * 60 * 24));
+    return dias > 0 ? dias : 0;
+  }
+  /**
+   * Valida si puede agregar un nuevo RFC
+   */
+  validarAgregarRfc() {
+    if (!this.repository.validarVigencia()) {
+      return { valido: false, motivo: "Licencia vencida" };
+    }
+    if (!this.repository.validarRfcDisponible()) {
+      return { valido: false, motivo: "Límite de RFCs alcanzado" };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede registrar una nueva máquina
+   */
+  validarRegistrarMaquina() {
+    if (!this.repository.validarVigencia()) {
+      return { valido: false, motivo: "Licencia vencida" };
+    }
+    if (!this.repository.validarMaquinaDisponible()) {
+      return { valido: false, motivo: "Límite de máquinas alcanzado" };
+    }
+    return { valido: true };
+  }
+}
+class LicenseRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  /**
+   * Obtiene la licencia actual (siempre es la ID 1)
+   */
+  obtenerLicencia() {
+    const stmt = this.db.prepare("SELECT * FROM licencias WHERE id = 1");
+    return stmt.get() || null;
+  }
+  /**
+   * Actualiza el estado de la licencia
+   */
+  actualizarEstado(estado) {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET estado = ?, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run(estado);
+    this.registrarAuditoria("ACTUALIZAR_ESTADO", `Estado: ${estado}`);
+  }
+  /**
+   * Actualiza los límites de la licencia
+   */
+  actualizarLimites(rfcMaximo, maquinasMaximo, fechaInicio, fechaVencimiento) {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET 
+        rfc_maximo = ?,
+        maquinas_maximo = ?,
+        fecha_inicio = COALESCE(?, fecha_inicio),
+        fecha_vencimiento = COALESCE(?, fecha_vencimiento),
+        fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run(rfcMaximo, maquinasMaximo, fechaInicio, fechaVencimiento);
+    this.registrarAuditoria(
+      "ACTUALIZAR_LIMITES",
+      `RFC máximo: ${rfcMaximo}, Máquinas máximo: ${maquinasMaximo}`
+    );
+  }
+  /**
+   * Incrementa el contador de RFCs usados
+   */
+  incrementarRfcUsado() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET rfc_usado = rfc_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+  }
+  /**
+   * Decrementa el contador de RFCs usados
+   */
+  decrementarRfcUsado() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET rfc_usado = MAX(0, rfc_usado - 1), fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+  }
+  /**
+   * Registra una nueva máquina
+   */
+  registrarMaquina(identificador, nombre, so) {
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO maquinas_registradas (identificador_maquina, nombre_maquina, so)
+        VALUES (?, ?, ?)
+      `);
+      stmt.run(identificador, nombre, so);
+      const updateStmt = this.db.prepare(`
+        UPDATE licencias 
+        SET maquinas_usado = maquinas_usado + 1, fecha_actualizacion = datetime('now')
+        WHERE id = 1
+      `);
+      updateStmt.run();
+      this.registrarAuditoria("REGISTRAR_MAQUINA", `${nombre} (${so})`);
+    } catch (error) {
+      if (error.message.includes("UNIQUE constraint failed")) {
+        this.actualizarUltimoAcceso(identificador);
+      }
+    }
+  }
+  /**
+   * Obtiene todas las máquinas registradas
+   */
+  obtenerMaquinas() {
+    const stmt = this.db.prepare(`
+      SELECT * FROM maquinas_registradas WHERE activa = 1
+      ORDER BY fecha_registro DESC
+    `);
+    return stmt.all();
+  }
+  /**
+   * Actualiza el último acceso de una máquina
+   */
+  actualizarUltimoAcceso(identificador) {
+    const stmt = this.db.prepare(`
+      UPDATE maquinas_registradas 
+      SET fecha_ultimo_acceso = datetime('now')
+      WHERE identificador_maquina = ?
+    `);
+    stmt.run(identificador);
+  }
+  /**
+   * Desactiva una máquina
+   */
+  desactivarMaquina(identificador) {
+    const stmt = this.db.prepare(`
+      UPDATE maquinas_registradas 
+      SET activa = 0
+      WHERE identificador_maquina = ?
+    `);
+    stmt.run(identificador);
+    const updateStmt = this.db.prepare(`
+      UPDATE licencias 
+      SET maquinas_usado = MAX(0, maquinas_usado - 1), fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    updateStmt.run();
+    this.registrarAuditoria("DESACTIVAR_MAQUINA", `Identificador: ${identificador}`);
+  }
+  /**
+   * Valida si la licencia es válida por cantidad de RFCs
+   */
+  validarRfcDisponible() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    return licencia.rfc_usado < licencia.rfc_maximo;
+  }
+  /**
+   * Valida si la licencia es válida por cantidad de máquinas
+   */
+  validarMaquinaDisponible() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    return licencia.maquinas_usado < licencia.maquinas_maximo;
+  }
+  /**
+   * Valida si la licencia está vigente
+   */
+  validarVigencia() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Demo") return true;
+    if (licencia.estado === "Vencido") return false;
+    if (licencia.fecha_vencimiento) {
+      return new Date(licencia.fecha_vencimiento) > /* @__PURE__ */ new Date();
+    }
+    return true;
+  }
+  /**
+   * Registra un evento en auditoría
+   */
+  registrarAuditoria(evento, descripcion) {
+    const stmt = this.db.prepare(`
+      INSERT INTO licencia_auditoria (evento, descripcion)
+      VALUES (?, ?)
+    `);
+    stmt.run(evento, descripcion);
+  }
+  /**
+   * Obtiene el historial de auditoría
+   */
+  obtenerAuditoria(limite = 50) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM licencia_auditoria
+      ORDER BY fecha_evento DESC
+      LIMIT ?
+    `);
+    return stmt.all(limite);
+  }
+}
+class LicenseHandler {
+  service;
+  constructor(db) {
+    const repository = new LicenseRepository(db);
+    this.service = new LicenseService(repository);
+  }
+  registrar() {
+    electron.ipcMain.handle("obtener-licencia", async () => {
+      try {
+        const licencia = this.service.obtenerLicencia();
+        return { success: true, licencia };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("obtener-estado-licencia", async () => {
+      try {
+        const estado = this.service.obtenerEstado();
+        return { success: true, estado };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("validar-agregar-rfc", async () => {
+      try {
+        const validacion = this.service.validarAgregarRfc();
+        return { success: true, ...validacion };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("validar-registrar-maquina", async () => {
+      try {
+        const validacion = this.service.validarRegistrarMaquina();
+        return { success: true, ...validacion };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
 let mainWindow;
 function initDatabase() {
   const db = Database.getInstance();
@@ -3681,6 +4026,7 @@ electron.app.whenReady().then(async () => {
   new ConfiguracionHandler(db).registrar();
   new DashboardHandler(db).registrar();
   new CatalogoHandler(db).registrar();
+  new LicenseHandler(db).registrar();
   createWindow();
   if (!utils.is.dev) {
     new UpdaterService(mainWindow).iniciar();

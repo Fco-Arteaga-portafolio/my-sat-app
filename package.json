@@ -1,9 +1,9 @@
 {
   "name": "ifrat",
   "version": "1.0.2",
-  "description": "An Electron application with React and TypeScript",
+  "description": "IFRAT Desktop - Plataforma fiscal y facturación para México",
   "main": "out/main/index.js",
-  "author": "example.com",
+  "author": "Francisco Emmanuel Arteaga Ayala",
   "homepage": "https://electron-vite.org",
   "scripts": {
     "format": "prettier --write .",

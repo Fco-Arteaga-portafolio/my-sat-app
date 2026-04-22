@@ -25,6 +25,8 @@ import { DescargaService } from './services/DescargaService'
 import { PendientesService } from './services/PendientesService'
 import { ConciliacionService } from './services/ConciliacionService'
 import { UpdaterService } from './window/UpdaterService'
+import { LicenseHandler } from './ipc/LicenseHandler'
+
 
 let mainWindow: BrowserWindow;
 
@@ -108,6 +110,7 @@ app.whenReady().then(async () => {
   new ConfiguracionHandler(db).registrar()
   new DashboardHandler(db).registrar()
   new CatalogoHandler(db).registrar()
+  new LicenseHandler(db).registrar()
 
   createWindow()
   if (!is.dev) {
