@@ -86,7 +86,36 @@ const createLicenseApi = () => {
     obtenerLicencia: () => electron.ipcRenderer.invoke("obtener-licencia"),
     obtenerEstadoLicencia: () => electron.ipcRenderer.invoke("obtener-estado-licencia"),
     validarAgregarRfc: () => electron.ipcRenderer.invoke("validar-agregar-rfc"),
-    validarRegistrarMaquina: () => electron.ipcRenderer.invoke("validar-registrar-maquina")
+    validarRegistrarMaquina: () => electron.ipcRenderer.invoke("validar-registrar-maquina"),
+    validarDescargaCfdi: () => electron.ipcRenderer.invoke("validar-descarga-cfdi"),
+    incrementarDescargaCfdi: () => electron.ipcRenderer.invoke("incrementar-descarga-cfdi"),
+    validarImportacionCfdi: () => electron.ipcRenderer.invoke("validar-importacion-cfdi"),
+    incrementarImportacionCfdi: () => electron.ipcRenderer.invoke("incrementar-importacion-cfdi"),
+    validarConsolidacion: () => electron.ipcRenderer.invoke("validar-consolidacion"),
+    incrementarConsolidacion: () => electron.ipcRenderer.invoke("incrementar-consolidacion")
+  };
+};
+const createExportacionApi = () => {
+  return {
+    obtenerPreview: (filtros) => electron.ipcRenderer.invoke("exportacion-obtener-preview", filtros),
+    generarExcel: (filtros, rutaDestino) => electron.ipcRenderer.invoke("exportacion-generar-excel", { filtros, rutaDestino }),
+    obtenerTiposCfdi: () => electron.ipcRenderer.invoke("exportacion-obtener-tipos-cfdi")
+  };
+};
+const createCumplimientoApi = () => {
+  return {
+    obtenerCaptcha: async () => electron.ipcRenderer.invoke("cumplimiento-obtener-captcha"),
+    obtenerOpinion: async (data) => electron.ipcRenderer.invoke("cumplimiento-obtener-opinion", data),
+    cerrarSesion: async () => electron.ipcRenderer.invoke("cumplimiento-cerrar-sesion"),
+    onProgresoCumplimiento: (callback) => {
+      electron.ipcRenderer.on("progreso-cumplimiento", (_, mensaje) => callback(mensaje));
+    },
+    constanciaObtenerCaptcha: async () => electron.ipcRenderer.invoke("constancia-obtener-captcha"),
+    constanciaObtenerConstancia: async (data) => electron.ipcRenderer.invoke("constancia-obtener-constancia", data),
+    constanciaCerrarSesion: async () => electron.ipcRenderer.invoke("constancia-cerrar-sesion"),
+    onProgresoConstancia: (callback) => {
+      electron.ipcRenderer.on("progreso-constancia", (_, mensaje) => callback(mensaje));
+    }
   };
 };
 const createMiscApi = () => {
@@ -116,6 +145,16 @@ const createAppInfo = () => {
     getVersion: () => electron.ipcRenderer.invoke("app-version")
   };
 };
+const createConstanciaApi = () => {
+  return {
+    constanciaObtenerCaptcha: async () => electron.ipcRenderer.invoke("constancia-obtener-captcha"),
+    constanciaObtenerConstancia: async (data) => electron.ipcRenderer.invoke("constancia-obtener-constancia", data),
+    constanciaCerrarSesion: async () => electron.ipcRenderer.invoke("constancia-cerrar-sesion"),
+    onProgresoConstancia: (callback) => {
+      electron.ipcRenderer.on("progreso-constancia", (_, mensaje) => callback(mensaje));
+    }
+  };
+};
 if (process.contextIsolated) {
   try {
     electron.contextBridge.exposeInMainWorld("electron", preload.electronAPI);
@@ -128,6 +167,9 @@ if (process.contextIsolated) {
       ...createImportacionApi(),
       ...createPerfilApi(),
       ...createLicenseApi(),
+      ...createExportacionApi(),
+      ...createCumplimientoApi(),
+      ...createConstanciaApi(),
       ...createMiscApi()
     });
     electron.contextBridge.exposeInMainWorld("electronUpdater", createElectronUpdater());
@@ -146,6 +188,9 @@ if (process.contextIsolated) {
     ...createImportacionApi(),
     ...createPerfilApi(),
     ...createLicenseApi(),
+    ...createExportacionApi(),
+    ...createCumplimientoApi(),
+    ...createConstanciaApi(),
     ...createMiscApi()
   };
   window.electronUpdater = createElectronUpdater();

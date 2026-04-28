@@ -91,4 +91,88 @@ export class LicenseService {
 
         return { valido: true }
     }
+
+    /**
+     * Valida si puede descargar CFDIs
+     */
+    validarDescargaCfdi(): { valido: boolean; motivo?: string; usos_restantes?: number } {
+        const licencia = this.repository.obtenerLicencia()
+        if (!licencia) {
+            return { valido: false, motivo: 'No hay licencia' }
+        }
+
+        if (licencia.estado === 'Vencido') {
+            return { valido: false, motivo: 'Licencia vencida - Debe renovar' }
+        }
+
+        if (licencia.estado === 'Demo') {
+            if (!this.repository.validarDescargasCfdiDisponibles()) {
+                return {
+                    valido: false,
+                    motivo: 'Ha alcanzado el límite de 3 descargas en la versión Demo',
+                    usos_restantes: 0
+                }
+            }
+            const restantes = licencia.descargas_cfdi_maximo - licencia.descargas_cfdi_usado
+            return { valido: true, usos_restantes: restantes - 1 }
+        }
+
+        return { valido: true }
+    }
+
+    /**
+     * Valida si puede importar CFDIs
+     */
+    validarImportacionCfdi(): { valido: boolean; motivo?: string; usos_restantes?: number } {
+        const licencia = this.repository.obtenerLicencia()
+        if (!licencia) {
+            return { valido: false, motivo: 'No hay licencia' }
+        }
+
+        if (licencia.estado === 'Vencido') {
+            return { valido: false, motivo: 'Licencia vencida - Debe renovar' }
+        }
+
+        if (licencia.estado === 'Demo') {
+            if (!this.repository.validarImportacionesCfdiDisponibles()) {
+                return {
+                    valido: false,
+                    motivo: 'Ha alcanzado el límite de 3 importaciones en la versión Demo',
+                    usos_restantes: 0
+                }
+            }
+            const restantes = licencia.importaciones_cfdi_maximo - licencia.importaciones_cfdi_usado
+            return { valido: true, usos_restantes: restantes - 1 }
+        }
+
+        return { valido: true }
+    }
+
+    /**
+     * Valida si puede hacer consolidaciones (conciliaciones)
+     */
+    validarConsolidacion(): { valido: boolean; motivo?: string; usos_restantes?: number } {
+        const licencia = this.repository.obtenerLicencia()
+        if (!licencia) {
+            return { valido: false, motivo: 'No hay licencia' }
+        }
+
+        if (licencia.estado === 'Vencido') {
+            return { valido: false, motivo: 'Licencia vencida - Debe renovar' }
+        }
+
+        if (licencia.estado === 'Demo') {
+            if (!this.repository.validarConsolidacionesDisponibles()) {
+                return {
+                    valido: false,
+                    motivo: 'Ha alcanzado el límite de 1 consolidación en la versión Demo',
+                    usos_restantes: 0
+                }
+            }
+            const restantes = licencia.consolidaciones_maximo - licencia.consolidaciones_usado
+            return { valido: true, usos_restantes: restantes - 1 }
+        }
+
+        return { valido: true }
+    }
 }

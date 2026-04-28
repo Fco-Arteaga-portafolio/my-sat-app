@@ -12,6 +12,12 @@ export function migration013(db: BetterSqlite3.Database): void {
       maquinas_maximo           INTEGER DEFAULT 1,
       rfc_usado                 INTEGER DEFAULT 0,
       maquinas_usado            INTEGER DEFAULT 0,
+      descargas_cfdi_maximo     INTEGER DEFAULT 3,
+      descargas_cfdi_usado      INTEGER DEFAULT 0,
+      importaciones_cfdi_maximo INTEGER DEFAULT 3,
+      importaciones_cfdi_usado  INTEGER DEFAULT 0,
+      consolidaciones_maximo    INTEGER DEFAULT 1,
+      consolidaciones_usado     INTEGER DEFAULT 0,
       fecha_creacion            TEXT DEFAULT (datetime('now')),
       fecha_actualizacion       TEXT DEFAULT (datetime('now'))
     );
@@ -41,9 +47,10 @@ export function migration013(db: BetterSqlite3.Database): void {
 
     -- Insertar registro inicial de licencia en Demo
     INSERT OR IGNORE INTO licencias (
-      id, estado, rfc_maximo, maquinas_maximo, rfc_usado, maquinas_usado
+      id, estado, rfc_maximo, maquinas_maximo, 
+      descargas_cfdi_maximo, importaciones_cfdi_maximo, consolidaciones_maximo
     ) VALUES (
-      1, 'Demo', 10, 1, 0, 0
+      1, 'Demo', 1, 1, 3, 3, 1
     );
   `)
 }

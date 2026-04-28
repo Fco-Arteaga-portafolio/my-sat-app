@@ -3,17 +3,38 @@ import { ConciliacionService, ParametrosConciliacion } from '../services/Concili
 import { ConfiguracionService } from '../services/ConfiguracionService'
 import { SatAuthService } from '../scraper/SatAuthService'
 import { manejarErrorSat } from './satErrores'
+import BetterSqlite3 from 'better-sqlite3'
+import { LicenseService } from '../services/LicenseService'
+import { LicenseRepository } from '../database/repositories/LicenseRepository'
 
 export class ConciliacionHandler {
+  private licenseService: LicenseService
+
   constructor(
     private readonly conciliacionService: ConciliacionService,
     private readonly configuracionService: ConfiguracionService,
-    private readonly authService: SatAuthService
-  ) { }
+    private readonly authService: SatAuthService,
+    db?: BetterSqlite3.Database
+  ) {
+    if (db) {
+      const licenseRepository = new LicenseRepository(db)
+      this.licenseService = new LicenseService(licenseRepository)
+    } else {
+      this.licenseService = null as any
+    }
+  }
 
   registrar(): void {
     ipcMain.handle('iniciar-conciliacion', async (event, params: ParametrosConciliacion) => {
       try {
+        // Validar acceso a consolidaciones según licencia
+        if (this.licenseService) {
+          const validacion = this.licenseService.validarConsolidacion()
+          if (!validacion.valido) {
+            return { success: false, error: validacion.motivo }
+          }
+        }
+
         const config = this.configuracionService.obtener()
         if (!config) return { success: false, error: 'No hay configuración guardada' }
 
@@ -22,6 +43,13 @@ export class ConciliacionHandler {
           params,
           (progreso) => event.sender.send('progreso-conciliacion', progreso)
         )
+
+        // Incrementar contador solo si fue 100% exitoso (sin errores en el resumen)
+        if (this.licenseService && resumen && resumen.errores === 0) {
+          const licenseRepo = new LicenseRepository((this.licenseService as any).repository.db)
+          licenseRepo.incrementarConsolidaciones()
+        }
+
         return { success: true, resumen }
       } catch (error) {
         return { success: false, error: manejarErrorSat(error) }

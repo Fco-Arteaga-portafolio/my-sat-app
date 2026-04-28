@@ -20,6 +20,9 @@ import CfdiEmitidasPage from './pages/CfdiEmitidasPage/CfdiEmitidasPage'
 import UpdateModal from './components/UpdateModal/UpdateModal'
 import ReportesIsrPage from './pages/ReportesIsrPage/ReportesIsrPage'
 import ReporteDetalleMesPage from './pages/ReporteDetalleMesPage/ReporteDetalleMesPage'
+import ExportacionPage from './pages/ExportacionPage/ExportacionPage'
+import CumplimientoPage from './pages/CumplimientoPage/CumplimientoPage'
+import ConstanciaPage from './pages/ConstanciaPage/ConstanciaPage'
 
 const RutaProtegida = ({ children }: { children: React.ReactNode }) => {
   const { perfil } = useContribuyente()
@@ -56,6 +59,7 @@ const AppRoutes = () => {
         <Route path="/pendientes" element={<PendientesPage />} />
         <Route path="/importacion" element={<ImportacionPage />} />
         <Route path="/configuracion" element={<ConfiguracionPage />} />
+        <Route path="/cumplimiento/constancia" element={<ConstanciaPage />} />
         <Route
           path="/clientes"
           element={
@@ -104,6 +108,8 @@ const AppRoutes = () => {
         <Route path="/reportes/iva" element={<ReportesIvaPage />} />
         <Route path="/reportes/isr" element={<ReportesIsrPage />} />
         <Route path="/reportes/:origen/:anio/:mes" element={<ReporteDetalleMesPage />} />
+        <Route path="/exportacion" element={<ExportacionPage />} />
+        <Route path="/cumplimiento/opinion" element={<CumplimientoPage />} />
       </Route>
     </Routes>
   )

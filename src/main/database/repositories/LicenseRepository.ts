@@ -9,6 +9,12 @@ interface Licencia {
     maquinas_maximo: number
     rfc_usado: number
     maquinas_usado: number
+    descargas_cfdi_maximo: number
+    descargas_cfdi_usado: number
+    importaciones_cfdi_maximo: number
+    importaciones_cfdi_usado: number
+    consolidaciones_maximo: number
+    consolidaciones_usado: number
     fecha_creacion: string
     fecha_actualizacion: string
 }
@@ -161,8 +167,8 @@ export class LicenseRepository {
     }
 
     /**
-     * Valida si la licencia es válida por cantidad de RFCs
-     */
+   * Valida si puede agregar un nuevo RFC
+   */
     validarRfcDisponible(): boolean {
         const licencia = this.obtenerLicencia()
         if (!licencia) return false
@@ -170,12 +176,101 @@ export class LicenseRepository {
     }
 
     /**
-     * Valida si la licencia es válida por cantidad de máquinas
+     * Valida si puede registrar una nueva máquina
      */
     validarMaquinaDisponible(): boolean {
         const licencia = this.obtenerLicencia()
         if (!licencia) return false
         return licencia.maquinas_usado < licencia.maquinas_maximo
+    }
+
+    /**
+     * Valida si hay descargas CFDI disponibles
+     */
+    validarDescargasCfdiDisponibles(): boolean {
+        const licencia = this.obtenerLicencia()
+        if (!licencia) return false
+        if (licencia.estado === 'Vigente' || licencia.estado === 'Vencido') return licencia.estado === 'Vigente'
+        // Demo
+        return licencia.descargas_cfdi_usado < licencia.descargas_cfdi_maximo
+    }
+
+    /**
+     * Incrementa contador de descargas CFDI
+     */
+    incrementarDescargasCfdi(): void {
+        const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET descargas_cfdi_usado = descargas_cfdi_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `)
+        stmt.run()
+        this.registrarAuditoria('DESCARGA_CFDI', 'Descarga realizada')
+    }
+
+    /**
+     * Valida si hay importaciones CFDI disponibles
+     */
+    validarImportacionesCfdiDisponibles(): boolean {
+        const licencia = this.obtenerLicencia()
+        if (!licencia) return false
+        if (licencia.estado === 'Vigente' || licencia.estado === 'Vencido') return licencia.estado === 'Vigente'
+        // Demo
+        return licencia.importaciones_cfdi_usado < licencia.importaciones_cfdi_maximo
+    }
+
+    /**
+     * Incrementa contador de importaciones CFDI
+     */
+    incrementarImportacionesCfdi(): void {
+        const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET importaciones_cfdi_usado = importaciones_cfdi_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `)
+        stmt.run()
+        this.registrarAuditoria('IMPORTACION_CFDI', 'Importación realizada')
+    }
+
+    /**
+     * Valida si hay consolidaciones (conciliaciones) disponibles
+     */
+    validarConsolidacionesDisponibles(): boolean {
+        const licencia = this.obtenerLicencia()
+        if (!licencia) return false
+        if (licencia.estado === 'Vigente' || licencia.estado === 'Vencido') return licencia.estado === 'Vigente'
+        // Demo
+        return licencia.consolidaciones_usado < licencia.consolidaciones_maximo
+    }
+
+    /**
+     * Incrementa contador de consolidaciones
+     */
+    incrementarConsolidaciones(): void {
+        const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET consolidaciones_usado = consolidaciones_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `)
+        stmt.run()
+        this.registrarAuditoria('CONSOLIDACION', 'Consolidación realizada')
+    }
+
+    /**
+     * Obtiene información de usos disponibles
+     */
+    obtenerUsosDemoBloqueados() {
+        const licencia = this.obtenerLicencia()
+        if (!licencia || licencia.estado !== 'Demo') return null
+
+        return {
+            descargas_disponibles: Math.max(0, licencia.descargas_cfdi_maximo - licencia.descargas_cfdi_usado),
+            importaciones_disponibles: Math.max(0, licencia.importaciones_cfdi_maximo - licencia.importaciones_cfdi_usado),
+            consolidaciones_disponibles: Math.max(0, licencia.consolidaciones_maximo - licencia.consolidaciones_usado),
+            descargas_bloqueadas: licencia.descargas_cfdi_usado >= licencia.descargas_cfdi_maximo,
+            importaciones_bloqueadas: licencia.importaciones_cfdi_usado >= licencia.importaciones_cfdi_maximo,
+            consolidaciones_bloqueadas: licencia.consolidaciones_usado >= licencia.consolidaciones_maximo
+        }
     }
 
     /**

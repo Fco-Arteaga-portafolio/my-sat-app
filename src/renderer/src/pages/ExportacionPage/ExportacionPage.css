@@ -1,0 +1,94 @@
+.exportacion-page {
+  padding: 0;
+
+  .filters-card {
+    margin-bottom: 20px;
+  }
+
+  .filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 12px;
+  }
+
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+  }
+
+  .totales-card {
+    margin: 20px 0;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    border: 1px solid #ddd;
+
+    :deep(.ant-card-head) {
+      background: #366092;
+      border-bottom: 2px solid #1a3a52;
+
+      .ant-card-head-title {
+        color: white;
+        font-weight: bold;
+      }
+    }
+  }
+
+  .totales-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .total-item {
+    background: white;
+    padding: 12px 16px;
+    border-radius: 6px;
+    border-left: 4px solid #366092;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    &.highlight {
+      border-left-color: #52c41a;
+      background: #f6ffed;
+      font-weight: bold;
+
+      .total-value {
+        color: #52c41a;
+        font-size: 14px;
+        font-weight: 600;
+      }
+    }
+  }
+
+  .total-label {
+    font-size: 12px;
+    color: #666;
+    font-weight: 500;
+  }
+
+  .total-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: #366092;
+    text-align: right;
+  }
+
+  .preview-card {
+    margin-top: 20px;
+
+    :deep(.ant-table) {
+      font-size: 12px;
+    }
+  }
+}

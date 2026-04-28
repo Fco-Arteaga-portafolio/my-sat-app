@@ -11,6 +11,8 @@ import { ImportacionHandler } from './ipc/ImportacionHandler'
 import { PerfilHandler } from './ipc/PerfilHandler'
 import { DashboardHandler } from './ipc/DashboardHandler'
 import { CatalogoHandler } from './ipc/CatalogoHandler'
+import { ExportacionHandler } from './ipc/ExportacionHandler'
+import { CumplimientoHandler } from './ipc/CumplimientoHandler'
 import { FacturaRepository } from './database/repositories/FacturaRepository'
 import { DescargaPendienteRepository } from './database/repositories/DescargaPendienteRepository'
 import { ConciliacionRepository } from './database/repositories/ConciliacionRepository'
@@ -26,7 +28,7 @@ import { PendientesService } from './services/PendientesService'
 import { ConciliacionService } from './services/ConciliacionService'
 import { UpdaterService } from './window/UpdaterService'
 import { LicenseHandler } from './ipc/LicenseHandler'
-
+import { ConstanciaHandler } from './ipc/ConstanciaHandler'
 
 let mainWindow: BrowserWindow;
 
@@ -103,14 +105,17 @@ app.whenReady().then(async () => {
 
   // Handlers
   const profileManager = new ProfileManager(db)
-  new PerfilHandler(profileManager).registrar()
+  new PerfilHandler(profileManager, db).registrar()
   new FacturaHandler(descargaService, pendientesService, configuracionService, authService, db).registrar()
-  new ConciliacionHandler(conciliacionService, configuracionService, authService).registrar()
-  new ImportacionHandler(guardadoService).registrar()
+  new ConciliacionHandler(conciliacionService, configuracionService, authService, db).registrar()
+  new ImportacionHandler(guardadoService, db).registrar()
   new ConfiguracionHandler(db).registrar()
   new DashboardHandler(db).registrar()
   new CatalogoHandler(db).registrar()
   new LicenseHandler(db).registrar()
+  new ExportacionHandler(db).registrar()
+  new CumplimientoHandler(configuracionService).registrar()
+  new ConstanciaHandler(configuracionService).registrar()
 
   createWindow()
   if (!is.dev) {

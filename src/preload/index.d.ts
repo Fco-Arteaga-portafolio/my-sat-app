@@ -3,7 +3,22 @@ import { Configuracion } from '../main/services/ConfiguracionService'
 import { ElectronAPI } from '@electron-toolkit/preload'
 
 export { }
+interface OpinionCumplimiento {
+  resultado: 'positivo' | 'negativo' | 'unknown'
+  fecha_emision: string
+  fecha_vigencia?: string
+  descripcion: string
+  rutaArchivo?: string
+}
 
+interface ConstanciaSituacionFiscal {
+  rfc: string
+  nombre?: string
+  regimenes?: string[]
+  fecha_emision: string
+  rutaArchivo?: string
+  descripcion: string
+}
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -124,6 +139,39 @@ declare global {
       obtenerEstadoLicencia(): Promise<{ success: boolean; estado?: 'Demo' | 'Vigente' | 'Vencido'; error?: string }>
       validarAgregarRfc(): Promise<{ success: boolean; valido?: boolean; motivo?: string; error?: string }>
       validarRegistrarMaquina(): Promise<{ success: boolean; valido?: boolean; motivo?: string; error?: string }>
+      validarDescargaCfdi(): Promise<{ success: boolean; valido?: boolean; motivo?: string; usos_restantes?: number; error?: string }>
+      incrementarDescargaCfdi(): Promise<{ success: boolean; error?: string }>
+      validarImportacionCfdi(): Promise<{ success: boolean; valido?: boolean; motivo?: string; usos_restantes?: number; error?: string }>
+      incrementarImportacionCfdi(): Promise<{ success: boolean; error?: string }>
+      validarConsolidacion(): Promise<{ success: boolean; valido?: boolean; motivo?: string; usos_restantes?: number; error?: string }>
+      incrementarConsolidacion(): Promise<{ success: boolean; error?: string }>
+
+      // Exportación
+      obtenerPreview(filtros: {
+        tipoDescarga: 'emitida' | 'recibida'
+        tiposComprobante: string[]
+        fechaDesde: string
+        fechaHasta: string
+      }): Promise<{ success: boolean; datos?: any[]; cantidad?: number; totales?: any; error?: string }>
+      generarExcel(filtros: {
+        tipoDescarga: 'emitida' | 'recibida'
+        tiposComprobante: string[]
+        fechaDesde: string
+        fechaHasta: string
+      }, rutaDestino: string): Promise<{ success: boolean; cantidad?: number; error?: string }>
+      obtenerTiposCfdi(): Promise<{ success: boolean; tipos?: any[]; error?: string }>
+      seleccionarCarpetaDestino(): Promise<{ canceled?: boolean; filePath?: string }>
+
+
+      // Cumplimiento
+      obtenerCaptcha(): Promise<{ success: boolean; data: { imagenBase64: string }; error?: string }>
+      obtenerOpinion(data: { captcha?: string }): Promise<{ success: boolean; data: OpinionCumplimiento; error?: string }>
+      cerrarSesion(): Promise<{ success: boolean }>
+      onProgresoCumplimiento(callback: (mensaje: string) => void): void
+      constanciaObtenerCaptcha(): Promise<{ success: boolean; data: { imagenBase64: string }; error?: string }>
+      constanciaObtenerConstancia(data: { captcha?: string }): Promise<{ success: boolean; data: ConstanciaSituacionFiscal; error?: string }>
+      constanciaCerrarSesion(): Promise<{ success: boolean }>
+      onProgresoConstancia(callback: (mensaje: string) => void): void
     }
   }
 }

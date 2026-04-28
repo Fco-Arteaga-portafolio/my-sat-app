@@ -5,6 +5,7 @@ const utils = require("@electron-toolkit/utils");
 const BetterSqlite3 = require("better-sqlite3");
 const fs = require("fs");
 const playwright = require("playwright");
+const pdfjsLib = require("pdfjs-dist/legacy/build/pdf");
 const axios = require("axios");
 const xmldom = require("@xmldom/xmldom");
 const electronUpdater = require("electron-updater");
@@ -26,6 +27,7 @@ function _interopNamespaceDefault(e) {
 }
 const path__namespace = /* @__PURE__ */ _interopNamespaceDefault(path);
 const fs__namespace = /* @__PURE__ */ _interopNamespaceDefault(fs);
+const pdfjsLib__namespace = /* @__PURE__ */ _interopNamespaceDefault(pdfjsLib);
 const icon = path.join(__dirname, "../../resources/icon.png");
 class Database {
   static instance = null;
@@ -732,6 +734,12 @@ function migration013(db) {
       maquinas_maximo           INTEGER DEFAULT 1,
       rfc_usado                 INTEGER DEFAULT 0,
       maquinas_usado            INTEGER DEFAULT 0,
+      descargas_cfdi_maximo     INTEGER DEFAULT 3,
+      descargas_cfdi_usado      INTEGER DEFAULT 0,
+      importaciones_cfdi_maximo INTEGER DEFAULT 3,
+      importaciones_cfdi_usado  INTEGER DEFAULT 0,
+      consolidaciones_maximo    INTEGER DEFAULT 1,
+      consolidaciones_usado     INTEGER DEFAULT 0,
       fecha_creacion            TEXT DEFAULT (datetime('now')),
       fecha_actualizacion       TEXT DEFAULT (datetime('now'))
     );
@@ -761,9 +769,10 @@ function migration013(db) {
 
     -- Insertar registro inicial de licencia en Demo
     INSERT OR IGNORE INTO licencias (
-      id, estado, rfc_maximo, maquinas_maximo, rfc_usado, maquinas_usado
+      id, estado, rfc_maximo, maquinas_maximo, 
+      descargas_cfdi_maximo, importaciones_cfdi_maximo, consolidaciones_maximo
     ) VALUES (
-      1, 'Demo', 10, 1, 0, 0
+      1, 'Demo', 1, 1, 3, 3, 1
     );
   `);
 }
@@ -968,13 +977,34 @@ class BrowserManager {
   }
   static async getBrowser() {
     if (!this.browser) {
-      this.browser = await playwright.chromium.launch({ headless: this.headless });
+      this.browser = await playwright.chromium.launch({
+        headless: this.headless,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-blink-features=AutomationControlled",
+          "--disable-web-security",
+          // Ayuda con el visor de PDF y frames
+          "--allow-running-insecure-content",
+          "--disable-features=IsolateOrigins,site-per-process"
+          // Ayuda a capturar buffers en frames
+        ]
+      });
     }
     return this.browser;
   }
   static async newContext() {
     const browser = await this.getBrowser();
-    return browser.newContext();
+    return browser.newContext({
+      // ESTO AYUDARÁ A QUE NO SEA TAN LENTO EL CARGADO DE JS
+      storageState: void 0,
+      javaScriptEnabled: true,
+      acceptDownloads: true,
+      viewport: { width: 1280, height: 720 },
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      locale: "es-MX",
+      timezoneId: "America/Mexico_City"
+    });
   }
   static async cerrar() {
     if (this.browser) {
@@ -1376,6 +1406,412 @@ function manejarErrorSat(error) {
   }
   return mensaje;
 }
+class LicenseService {
+  repository;
+  constructor(repository) {
+    this.repository = repository;
+  }
+  /**
+   * Obtiene información completa de la licencia
+   */
+  obtenerLicencia() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return {
+        estado: "Demo",
+        dias_restantes: null,
+        rfc_disponible: true,
+        maquina_disponible: true,
+        vigente: true
+      };
+    }
+    const diasRestantes = this.calcularDiasRestantes(licencia.fecha_vencimiento);
+    return {
+      estado: licencia.estado,
+      fecha_inicio: licencia.fecha_inicio,
+      fecha_vencimiento: licencia.fecha_vencimiento,
+      dias_restantes: diasRestantes,
+      rfc_maximo: licencia.rfc_maximo,
+      rfc_usado: licencia.rfc_usado,
+      maquinas_maximo: licencia.maquinas_maximo,
+      maquinas_usado: licencia.maquinas_usado,
+      rfc_disponible: this.repository.validarRfcDisponible(),
+      maquina_disponible: this.repository.validarMaquinaDisponible(),
+      vigente: this.repository.validarVigencia()
+    };
+  }
+  /**
+   * Obtiene solo el estado actual
+   */
+  obtenerEstado() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) return "Demo";
+    return licencia.estado;
+  }
+  /**
+   * Calcula días restantes
+   */
+  calcularDiasRestantes(fechaVencimiento) {
+    if (!fechaVencimiento) return null;
+    const hoy = /* @__PURE__ */ new Date();
+    const vencimiento = new Date(fechaVencimiento);
+    const diferencia = vencimiento.getTime() - hoy.getTime();
+    const dias = Math.ceil(diferencia / (1e3 * 60 * 60 * 24));
+    return dias > 0 ? dias : 0;
+  }
+  /**
+   * Valida si puede agregar un nuevo RFC
+   */
+  validarAgregarRfc() {
+    if (!this.repository.validarVigencia()) {
+      return { valido: false, motivo: "Licencia vencida" };
+    }
+    if (!this.repository.validarRfcDisponible()) {
+      return { valido: false, motivo: "Límite de RFCs alcanzado" };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede registrar una nueva máquina
+   */
+  validarRegistrarMaquina() {
+    if (!this.repository.validarVigencia()) {
+      return { valido: false, motivo: "Licencia vencida" };
+    }
+    if (!this.repository.validarMaquinaDisponible()) {
+      return { valido: false, motivo: "Límite de máquinas alcanzado" };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede descargar CFDIs
+   */
+  validarDescargaCfdi() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return { valido: false, motivo: "No hay licencia" };
+    }
+    if (licencia.estado === "Vencido") {
+      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
+    }
+    if (licencia.estado === "Demo") {
+      if (!this.repository.validarDescargasCfdiDisponibles()) {
+        return {
+          valido: false,
+          motivo: "Ha alcanzado el límite de 3 descargas en la versión Demo",
+          usos_restantes: 0
+        };
+      }
+      const restantes = licencia.descargas_cfdi_maximo - licencia.descargas_cfdi_usado;
+      return { valido: true, usos_restantes: restantes - 1 };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede importar CFDIs
+   */
+  validarImportacionCfdi() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return { valido: false, motivo: "No hay licencia" };
+    }
+    if (licencia.estado === "Vencido") {
+      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
+    }
+    if (licencia.estado === "Demo") {
+      if (!this.repository.validarImportacionesCfdiDisponibles()) {
+        return {
+          valido: false,
+          motivo: "Ha alcanzado el límite de 3 importaciones en la versión Demo",
+          usos_restantes: 0
+        };
+      }
+      const restantes = licencia.importaciones_cfdi_maximo - licencia.importaciones_cfdi_usado;
+      return { valido: true, usos_restantes: restantes - 1 };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede hacer consolidaciones (conciliaciones)
+   */
+  validarConsolidacion() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return { valido: false, motivo: "No hay licencia" };
+    }
+    if (licencia.estado === "Vencido") {
+      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
+    }
+    if (licencia.estado === "Demo") {
+      if (!this.repository.validarConsolidacionesDisponibles()) {
+        return {
+          valido: false,
+          motivo: "Ha alcanzado el límite de 1 consolidación en la versión Demo",
+          usos_restantes: 0
+        };
+      }
+      const restantes = licencia.consolidaciones_maximo - licencia.consolidaciones_usado;
+      return { valido: true, usos_restantes: restantes - 1 };
+    }
+    return { valido: true };
+  }
+}
+class LicenseRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  /**
+   * Obtiene la licencia actual (siempre es la ID 1)
+   */
+  obtenerLicencia() {
+    const stmt = this.db.prepare("SELECT * FROM licencias WHERE id = 1");
+    return stmt.get() || null;
+  }
+  /**
+   * Actualiza el estado de la licencia
+   */
+  actualizarEstado(estado) {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET estado = ?, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run(estado);
+    this.registrarAuditoria("ACTUALIZAR_ESTADO", `Estado: ${estado}`);
+  }
+  /**
+   * Actualiza los límites de la licencia
+   */
+  actualizarLimites(rfcMaximo, maquinasMaximo, fechaInicio, fechaVencimiento) {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET 
+        rfc_maximo = ?,
+        maquinas_maximo = ?,
+        fecha_inicio = COALESCE(?, fecha_inicio),
+        fecha_vencimiento = COALESCE(?, fecha_vencimiento),
+        fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run(rfcMaximo, maquinasMaximo, fechaInicio, fechaVencimiento);
+    this.registrarAuditoria(
+      "ACTUALIZAR_LIMITES",
+      `RFC máximo: ${rfcMaximo}, Máquinas máximo: ${maquinasMaximo}`
+    );
+  }
+  /**
+   * Incrementa el contador de RFCs usados
+   */
+  incrementarRfcUsado() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET rfc_usado = rfc_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+  }
+  /**
+   * Decrementa el contador de RFCs usados
+   */
+  decrementarRfcUsado() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET rfc_usado = MAX(0, rfc_usado - 1), fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+  }
+  /**
+   * Registra una nueva máquina
+   */
+  registrarMaquina(identificador, nombre, so) {
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO maquinas_registradas (identificador_maquina, nombre_maquina, so)
+        VALUES (?, ?, ?)
+      `);
+      stmt.run(identificador, nombre, so);
+      const updateStmt = this.db.prepare(`
+        UPDATE licencias 
+        SET maquinas_usado = maquinas_usado + 1, fecha_actualizacion = datetime('now')
+        WHERE id = 1
+      `);
+      updateStmt.run();
+      this.registrarAuditoria("REGISTRAR_MAQUINA", `${nombre} (${so})`);
+    } catch (error) {
+      if (error.message.includes("UNIQUE constraint failed")) {
+        this.actualizarUltimoAcceso(identificador);
+      }
+    }
+  }
+  /**
+   * Obtiene todas las máquinas registradas
+   */
+  obtenerMaquinas() {
+    const stmt = this.db.prepare(`
+      SELECT * FROM maquinas_registradas WHERE activa = 1
+      ORDER BY fecha_registro DESC
+    `);
+    return stmt.all();
+  }
+  /**
+   * Actualiza el último acceso de una máquina
+   */
+  actualizarUltimoAcceso(identificador) {
+    const stmt = this.db.prepare(`
+      UPDATE maquinas_registradas 
+      SET fecha_ultimo_acceso = datetime('now')
+      WHERE identificador_maquina = ?
+    `);
+    stmt.run(identificador);
+  }
+  /**
+   * Desactiva una máquina
+   */
+  desactivarMaquina(identificador) {
+    const stmt = this.db.prepare(`
+      UPDATE maquinas_registradas 
+      SET activa = 0
+      WHERE identificador_maquina = ?
+    `);
+    stmt.run(identificador);
+    const updateStmt = this.db.prepare(`
+      UPDATE licencias 
+      SET maquinas_usado = MAX(0, maquinas_usado - 1), fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    updateStmt.run();
+    this.registrarAuditoria("DESACTIVAR_MAQUINA", `Identificador: ${identificador}`);
+  }
+  /**
+  * Valida si puede agregar un nuevo RFC
+  */
+  validarRfcDisponible() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    return licencia.rfc_usado < licencia.rfc_maximo;
+  }
+  /**
+   * Valida si puede registrar una nueva máquina
+   */
+  validarMaquinaDisponible() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    return licencia.maquinas_usado < licencia.maquinas_maximo;
+  }
+  /**
+   * Valida si hay descargas CFDI disponibles
+   */
+  validarDescargasCfdiDisponibles() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Vigente" || licencia.estado === "Vencido") return licencia.estado === "Vigente";
+    return licencia.descargas_cfdi_usado < licencia.descargas_cfdi_maximo;
+  }
+  /**
+   * Incrementa contador de descargas CFDI
+   */
+  incrementarDescargasCfdi() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET descargas_cfdi_usado = descargas_cfdi_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+    this.registrarAuditoria("DESCARGA_CFDI", "Descarga realizada");
+  }
+  /**
+   * Valida si hay importaciones CFDI disponibles
+   */
+  validarImportacionesCfdiDisponibles() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Vigente" || licencia.estado === "Vencido") return licencia.estado === "Vigente";
+    return licencia.importaciones_cfdi_usado < licencia.importaciones_cfdi_maximo;
+  }
+  /**
+   * Incrementa contador de importaciones CFDI
+   */
+  incrementarImportacionesCfdi() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET importaciones_cfdi_usado = importaciones_cfdi_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+    this.registrarAuditoria("IMPORTACION_CFDI", "Importación realizada");
+  }
+  /**
+   * Valida si hay consolidaciones (conciliaciones) disponibles
+   */
+  validarConsolidacionesDisponibles() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Vigente" || licencia.estado === "Vencido") return licencia.estado === "Vigente";
+    return licencia.consolidaciones_usado < licencia.consolidaciones_maximo;
+  }
+  /**
+   * Incrementa contador de consolidaciones
+   */
+  incrementarConsolidaciones() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET consolidaciones_usado = consolidaciones_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+    this.registrarAuditoria("CONSOLIDACION", "Consolidación realizada");
+  }
+  /**
+   * Obtiene información de usos disponibles
+   */
+  obtenerUsosDemoBloqueados() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia || licencia.estado !== "Demo") return null;
+    return {
+      descargas_disponibles: Math.max(0, licencia.descargas_cfdi_maximo - licencia.descargas_cfdi_usado),
+      importaciones_disponibles: Math.max(0, licencia.importaciones_cfdi_maximo - licencia.importaciones_cfdi_usado),
+      consolidaciones_disponibles: Math.max(0, licencia.consolidaciones_maximo - licencia.consolidaciones_usado),
+      descargas_bloqueadas: licencia.descargas_cfdi_usado >= licencia.descargas_cfdi_maximo,
+      importaciones_bloqueadas: licencia.importaciones_cfdi_usado >= licencia.importaciones_cfdi_maximo,
+      consolidaciones_bloqueadas: licencia.consolidaciones_usado >= licencia.consolidaciones_maximo
+    };
+  }
+  /**
+   * Valida si la licencia está vigente
+   */
+  validarVigencia() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Demo") return true;
+    if (licencia.estado === "Vencido") return false;
+    if (licencia.fecha_vencimiento) {
+      return new Date(licencia.fecha_vencimiento) > /* @__PURE__ */ new Date();
+    }
+    return true;
+  }
+  /**
+   * Registra un evento en auditoría
+   */
+  registrarAuditoria(evento, descripcion) {
+    const stmt = this.db.prepare(`
+      INSERT INTO licencia_auditoria (evento, descripcion)
+      VALUES (?, ?)
+    `);
+    stmt.run(evento, descripcion);
+  }
+  /**
+   * Obtiene el historial de auditoría
+   */
+  obtenerAuditoria(limite = 50) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM licencia_auditoria
+      ORDER BY fecha_evento DESC
+      LIMIT ?
+    `);
+    return stmt.all(limite);
+  }
+}
 class FacturaHandler {
   constructor(descargaService, pendientesService, configuracionService, authService, db) {
     this.descargaService = descargaService;
@@ -1383,8 +1819,11 @@ class FacturaHandler {
     this.configuracionService = configuracionService;
     this.authService = authService;
     this.pagoComplementoRepository = new PagoComplementoRepository(db);
+    const licenseRepository = new LicenseRepository(db);
+    this.licenseService = new LicenseService(licenseRepository);
   }
   pagoComplementoRepository;
+  licenseService;
   registrar() {
     electron.ipcMain.handle("obtener-captcha", async () => {
       try {
@@ -1396,6 +1835,10 @@ class FacturaHandler {
     });
     electron.ipcMain.handle("descargar-facturas", async (event, datos) => {
       try {
+        const validacion = this.licenseService.validarDescargaCfdi();
+        if (!validacion.valido) {
+          return { success: false, error: validacion.motivo };
+        }
         const config = this.configuracionService.obtener();
         if (!config) return { success: false, error: "No hay configuración guardada" };
         const resultado = await this.descargaService.descargar(
@@ -1404,6 +1847,10 @@ class FacturaHandler {
           datos.captcha,
           (progreso) => event.sender.send("progreso-descarga", progreso)
         );
+        if (resultado.total > 0 && (!resultado.errores || resultado.errores.length === 0)) {
+          const licenseRepo = new LicenseRepository(this.licenseService.repository.db);
+          licenseRepo.incrementarDescargasCfdi();
+        }
         return { success: true, total: resultado.total, errores: resultado.errores };
       } catch (error) {
         return { success: false, error: manejarErrorSat(error) };
@@ -1413,6 +1860,10 @@ class FacturaHandler {
     });
     electron.ipcMain.handle("reintentar-pendientes", async (event, datos) => {
       try {
+        const validacion = this.licenseService.validarDescargaCfdi();
+        if (!validacion.valido) {
+          return { success: false, error: validacion.motivo };
+        }
         const config = this.configuracionService.obtener();
         if (!config) return { success: false, error: "No hay configuración guardada" };
         const resultado = await this.pendientesService.reintentar(
@@ -1420,6 +1871,10 @@ class FacturaHandler {
           datos.captcha,
           (progreso) => event.sender.send("progreso-descarga", progreso)
         );
+        if (resultado.total > 0 && (!resultado.errores || resultado.errores.length === 0)) {
+          const licenseRepo = new LicenseRepository(this.licenseService.repository.db);
+          licenseRepo.incrementarDescargasCfdi();
+        }
         return { success: true, total: resultado.total, errores: resultado.errores };
       } catch (error) {
         return { success: false, error: manejarErrorSat(error) };
@@ -1717,14 +2172,27 @@ class ConfiguracionHandler {
   }
 }
 class ConciliacionHandler {
-  constructor(conciliacionService, configuracionService, authService) {
+  constructor(conciliacionService, configuracionService, authService, db) {
     this.conciliacionService = conciliacionService;
     this.configuracionService = configuracionService;
     this.authService = authService;
+    if (db) {
+      const licenseRepository = new LicenseRepository(db);
+      this.licenseService = new LicenseService(licenseRepository);
+    } else {
+      this.licenseService = null;
+    }
   }
+  licenseService;
   registrar() {
     electron.ipcMain.handle("iniciar-conciliacion", async (event, params) => {
       try {
+        if (this.licenseService) {
+          const validacion = this.licenseService.validarConsolidacion();
+          if (!validacion.valido) {
+            return { success: false, error: validacion.motivo };
+          }
+        }
         const config = this.configuracionService.obtener();
         if (!config) return { success: false, error: "No hay configuración guardada" };
         const resumen = await this.conciliacionService.conciliar(
@@ -1732,6 +2200,10 @@ class ConciliacionHandler {
           params,
           (progreso) => event.sender.send("progreso-conciliacion", progreso)
         );
+        if (this.licenseService && resumen && resumen.errores === 0) {
+          const licenseRepo = new LicenseRepository(this.licenseService.repository.db);
+          licenseRepo.incrementarConsolidaciones();
+        }
         return { success: true, resumen };
       } catch (error) {
         return { success: false, error: manejarErrorSat(error) };
@@ -1756,9 +2228,16 @@ class ConciliacionHandler {
   }
 }
 class ImportacionHandler {
-  constructor(guardadoService) {
+  constructor(guardadoService, db) {
     this.guardadoService = guardadoService;
+    if (db) {
+      const licenseRepository = new LicenseRepository(db);
+      this.licenseService = new LicenseService(licenseRepository);
+    } else {
+      this.licenseService = null;
+    }
   }
+  licenseService;
   registrar() {
     electron.ipcMain.handle("seleccionar-xmls", async () => {
       const result = await electron.dialog.showOpenDialog({
@@ -1779,6 +2258,12 @@ class ImportacionHandler {
       return { success: true, rutas };
     });
     electron.ipcMain.handle("importar-xmls", async (_, rutas) => {
+      if (this.licenseService) {
+        const validacion = this.licenseService.validarImportacionCfdi();
+        if (!validacion.valido) {
+          return { success: false, error: validacion.motivo };
+        }
+      }
       let importadas = 0;
       let omitidas = 0;
       const errores = [];
@@ -1791,15 +2276,26 @@ class ImportacionHandler {
           errores.push({ archivo: path__namespace.basename(ruta), error: err.message });
         }
       }
+      if (importadas > 0 && errores.length === 0) {
+        const licenseRepo = new LicenseRepository(this.licenseService.repository.db);
+        licenseRepo.incrementarImportacionesCfdi();
+      }
       this.guardadoService.sincronizarCatalogos();
       return { success: true, importadas, omitidas, errores };
     });
   }
 }
 class PerfilHandler {
-  constructor(profileManager) {
+  constructor(profileManager, db) {
     this.profileManager = profileManager;
+    if (db) {
+      const licenseRepository = new LicenseRepository(db);
+      this.licenseService = new LicenseService(licenseRepository);
+    } else {
+      this.licenseService = null;
+    }
   }
+  licenseService;
   registrar() {
     electron.ipcMain.handle("obtener-perfiles", async () => {
       try {
@@ -1811,6 +2307,12 @@ class PerfilHandler {
     });
     electron.ipcMain.handle("crear-perfil", async (_, perfil) => {
       try {
+        if (this.licenseService) {
+          const validacion = this.licenseService.validarAgregarRfc();
+          if (!validacion.valido) {
+            return { success: false, error: validacion.motivo || "No puedes agregar más RFCs" };
+          }
+        }
         this.profileManager.insertar(perfil);
         return { success: true };
       } catch (error) {
@@ -2465,6 +2967,446 @@ class FacturaRepository {
       nomina: row.nomina || 0,
       pagos: row.pagos || 0
     };
+  }
+}
+class ExportacionHandler {
+  facturaRepository;
+  constructor(db) {
+    this.facturaRepository = new FacturaRepository(db);
+  }
+  registrar() {
+    electron.ipcMain.handle("exportacion-obtener-preview", async (_, filtros) => {
+      try {
+        const facturas = this.facturaRepository.obtenerPorTipoDescarga(
+          filtros.tipoDescarga,
+          {
+            tiposComprobante: filtros.tiposComprobante && filtros.tiposComprobante.length > 0 ? filtros.tiposComprobante : void 0,
+            fechaDesde: filtros.fechaDesde,
+            fechaHasta: filtros.fechaHasta
+          }
+        );
+        console.log("Facturas obtenidas:", facturas.length);
+        console.log("Primer factura:", facturas[0]);
+        const totales = {
+          cantidad_cfdis: facturas.length,
+          subtotal: facturas.reduce((s, f) => s + (parseFloat(f.subtotal) || 0), 0),
+          descuentos: facturas.reduce((s, f) => s + (parseFloat(f.descuento) || 0), 0),
+          iva_trasladado: facturas.reduce((s, f) => s + (parseFloat(f.total_impuestos_trasladados) || 0), 0),
+          total_impuestos_retenidos: facturas.reduce((s, f) => s + (parseFloat(f.total_impuestos_retenidos) || 0), 0),
+          total_general: facturas.reduce((s, f) => s + (parseFloat(f.total) || 0), 0)
+        };
+        console.log("Totales calculados:", totales);
+        return {
+          success: true,
+          datos: facturas.map((f) => ({
+            uuid: f.uuid,
+            serie: f.serie || "",
+            folio: f.folio || "",
+            fecha_emision: f.fecha_emision,
+            tipo_comprobante: this.mapearTipoComprobante(f.tipo_comprobante),
+            rfc_emisor: f.rfc_emisor,
+            nombre_emisor: f.nombre_emisor,
+            rfc_receptor: f.rfc_receptor,
+            nombre_receptor: f.nombre_receptor,
+            subtotal: parseFloat(f.subtotal) || 0,
+            descuento: parseFloat(f.descuento) || 0,
+            total_impuestos_trasladados: parseFloat(f.total_impuestos_trasladados) || 0,
+            total_impuestos_retenidos: parseFloat(f.total_impuestos_retenidos) || 0,
+            total: parseFloat(f.total) || 0,
+            moneda: f.moneda || "MXN",
+            forma_pago: f.forma_pago || "",
+            metodo_pago: f.metodo_pago || "",
+            estado: f.estado
+          })),
+          cantidad: facturas.length,
+          totales
+        };
+      } catch (error) {
+        console.error("Error en preview:", error);
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("exportacion-generar-excel", async (event, datos) => {
+      try {
+        const facturas = this.facturaRepository.obtenerPorTipoDescarga(
+          datos.filtros.tipoDescarga,
+          {
+            tiposComprobante: datos.filtros.tiposComprobante && datos.filtros.tiposComprobante.length > 0 ? datos.filtros.tiposComprobante : void 0,
+            fechaDesde: datos.filtros.fechaDesde,
+            fechaHasta: datos.filtros.fechaHasta
+          }
+        );
+        if (facturas.length === 0) {
+          return { success: false, error: "No hay facturas para exportar" };
+        }
+        const XLSX = require("xlsx");
+        const datosExcel = facturas.map((f) => ({
+          "UUID": f.uuid,
+          "Serie": f.serie || "",
+          "Folio": f.folio || "",
+          "Fecha": f.fecha_emision,
+          "Tipo": this.mapearTipoComprobante(f.tipo_comprobante),
+          "RFC Emisor": f.rfc_emisor,
+          "Nombre Emisor": f.nombre_emisor,
+          "RFC Receptor": f.rfc_receptor,
+          "Nombre Receptor": f.nombre_receptor,
+          "Subtotal": parseFloat(f.subtotal) || 0,
+          "Descuento": parseFloat(f.descuento) || 0,
+          "IVA Trasladado": parseFloat(f.total_impuestos_trasladados) || 0,
+          "ISR Retenido": parseFloat(f.total_impuestos_retenidos) || 0,
+          "Total": parseFloat(f.total) || 0,
+          "Moneda": f.moneda || "MXN",
+          "Forma Pago": f.forma_pago || "",
+          "Método Pago": f.metodo_pago || "",
+          "Estado": f.estado
+        }));
+        const ws = XLSX.utils.json_to_sheet(datosExcel);
+        ws["!cols"] = [
+          { wch: 36 },
+          // UUID
+          { wch: 8 },
+          // Serie
+          { wch: 8 },
+          // Folio
+          { wch: 12 },
+          // Fecha
+          { wch: 10 },
+          // Tipo
+          { wch: 12 },
+          // RFC Emisor
+          { wch: 20 },
+          // Nombre Emisor
+          { wch: 12 },
+          // RFC Receptor
+          { wch: 20 },
+          // Nombre Receptor
+          { wch: 12 },
+          // Subtotal
+          { wch: 12 },
+          // Descuento
+          { wch: 14 },
+          // IVA Trasladado
+          { wch: 14 },
+          // ISR Retenido
+          { wch: 12 },
+          // Total
+          { wch: 8 },
+          // Moneda
+          { wch: 12 },
+          // Forma Pago
+          { wch: 12 },
+          // Método Pago
+          { wch: 10 }
+          // Estado
+        ];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Facturas");
+        XLSX.writeFile(wb, datos.rutaDestino);
+        return { success: true, cantidad: facturas.length };
+      } catch (error) {
+        console.error("Error generando Excel:", error);
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("exportacion-obtener-tipos-cfdi", () => {
+      try {
+        return {
+          success: true,
+          tipos: [
+            { code: "I", label: "Ingreso" },
+            { code: "E", label: "Egreso" },
+            { code: "N", label: "Nómina" },
+            { code: "P", label: "Pago" },
+            { code: "T", label: "Traslado" }
+          ]
+        };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("exportacion-seleccionar-carpeta", async () => {
+      try {
+        const result = await electron.dialog.showSaveDialog({
+          title: "Guardar Excel como",
+          defaultPath: `Exportacion_${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.xlsx`,
+          filters: [{ name: "Excel", extensions: ["xlsx"] }]
+        });
+        return { success: true, ...result };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+  /**
+   * Mapea código de tipo de comprobante a descripción
+   */
+  mapearTipoComprobante(tipo) {
+    const mapeo = {
+      "I": "Ingreso",
+      "E": "Egreso",
+      "T": "Traslado",
+      "N": "Nómina",
+      "P": "Pago"
+    };
+    return mapeo[tipo] || tipo;
+  }
+}
+const CUMPLIMIENTO_PORTAL = "https://ptsc32d.clouda.sat.gob.mx";
+const LOGIN_DOMAIN$1 = "loginda.siat.sat.gob.mx";
+const RUTA_REPORTE = "https://ptsc32d.clouda.sat.gob.mx/#/reporteOpinion32DContribuyente";
+const MAX_REINTENTOS$1 = 3;
+class SatCumplimientoService {
+  async obtenerCaptcha(page) {
+    await page.goto(CUMPLIMIENTO_PORTAL, { waitUntil: "networkidle", timeout: 3e4 });
+    await page.waitForURL(`**${LOGIN_DOMAIN$1}**`, { timeout: 2e4 });
+    const captchaEl = await page.waitForSelector('img[src^="data:image"]', { timeout: 1e4 });
+    const screenshot = await captchaEl.screenshot({ type: "png" });
+    return { imagenBase64: `data:image/png;base64,${screenshot.toString("base64")}` };
+  }
+  async loginCiecYObtenerOpinion(page, carpetaTemp, rfc, password, captcha, onProgreso) {
+    const accionLogin = async () => {
+      await this.llenarFormularioCiec(page, rfc, password, captcha);
+    };
+    return this.ejecutarFlujoOpinion(page, carpetaTemp, accionLogin, "contrasena", onProgreso);
+  }
+  async loginFielYObtenerOpinion(page, carpetaTemp, rutaCer, rutaKey, password, onProgreso) {
+    const accionLogin = async () => {
+      await this.llenarFormularioFiel(page, rutaCer, rutaKey, password);
+    };
+    return this.ejecutarFlujoOpinion(page, carpetaTemp, accionLogin, "efirma", onProgreso);
+  }
+  // ---------------------------------------------------------------------------
+  async ejecutarFlujoOpinion(page, carpetaTemp, accionLogin, metodo, onProgreso) {
+    try {
+      onProgreso?.("Conectando con el SAT...");
+      const pdfPromesa = this.configurarInterceptacionPdf(page, carpetaTemp);
+      onProgreso?.("Iniciando sesión...");
+      await this.intentarLogin(page, accionLogin, metodo);
+      onProgreso?.("Generando reporte de cumplimiento...");
+      const rutaArchivo = await this.navegarYCapturarReporte(page, pdfPromesa, onProgreso);
+      onProgreso?.("Procesando resultado...");
+      return this.formatearRespuesta(rutaArchivo);
+    } catch (error) {
+      return this.manejarError(metodo === "contrasena" ? "CIEC" : "FIEL", error);
+    }
+  }
+  async intentarLogin(page, accion, metodoAuth, intento = 1) {
+    try {
+      await accion();
+      const resultado = await Promise.race([
+        page.waitForSelector(".alert-danger, #msgError, #pnlError", { timeout: 7e3 }).then(async (el) => ({ tipo: "ERROR", texto: await el?.innerText() })),
+        page.waitForSelector('a[href*="Logout"], .separador-menu, #header', { timeout: 2e4 }).then(() => ({ tipo: "EXITO", texto: null })),
+        page.waitForURL(`**/ptsc32d.clouda.sat.gob.mx/#/`, { timeout: 2e4 }).then(() => ({ tipo: "EXITO", texto: null }))
+      ]);
+      if (resultado?.tipo === "ERROR") {
+        const txt = resultado.texto?.toLowerCase() || "";
+        if (txt.includes("captcha")) throw new Error("CAPTCHA_INVALIDO");
+        if (txt.includes("rfc") || txt.includes("contraseña") || txt.includes("acceso"))
+          throw new Error("CREDENCIALES_INVALIDAS");
+        throw new Error(resultado.texto || "ERROR_DESCONOCIDO_SAT");
+      }
+      console.log("[SatCumplimientoService] Login verificado con éxito");
+    } catch (error) {
+      if (error.message === "CAPTCHA_INVALIDO" || error.message === "CREDENCIALES_INVALIDAS") {
+        throw error;
+      }
+      const esTimeout = error.message?.toLowerCase().includes("timeout");
+      if (esTimeout && intento < MAX_REINTENTOS$1) {
+        console.log(`[SatCumplimientoService] Timeout (intento ${intento}/${MAX_REINTENTOS$1}), verificando estado...`);
+        const estaAdentro = await page.evaluate(
+          () => document.body.innerText.includes("Cerrar sesión") || !!document.querySelector(".separador-menu")
+        ).catch(() => false);
+        if (estaAdentro) {
+          console.log("[SatCumplimientoService] Ya estamos adentro, continuando...");
+          return;
+        }
+        await page.goto(CUMPLIMIENTO_PORTAL, { waitUntil: "networkidle" });
+        return this.intentarLogin(page, accion, metodoAuth, intento + 1);
+      }
+      throw error;
+    }
+  }
+  async navegarYCapturarReporte(page, pdfPromesa, onProgreso) {
+    await page.waitForURL(`**ptsc32d.clouda.sat.gob.mx**`, { timeout: 2e4 });
+    await page.waitForTimeout(2e3);
+    onProgreso?.("Descargando PDF de opinión...");
+    await page.goto(RUTA_REPORTE, { waitUntil: "commit", timeout: 45e3 });
+    await page.waitForSelector("sat-mf-reporte-opinion-contribuyente-root", { timeout: 3e4 }).catch(() => null);
+    return await pdfPromesa;
+  }
+  async configurarInterceptacionPdf(page, carpetaTemp) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        page.removeListener("response", handler);
+        resolve(void 0);
+      }, 6e4);
+      const handler = async (response) => {
+        const url = response.url();
+        const contentType = (response.headers()["content-type"] || "").toLowerCase();
+        if (url.includes("GeneraOpinion") || contentType.includes("pdf")) {
+          try {
+            const buffer = await response.body();
+            if (buffer.length > 5e3) {
+              const rutaFinal = path.join(carpetaTemp, `opinion_${Date.now()}.pdf`);
+              fs.writeFileSync(rutaFinal, buffer);
+              clearTimeout(timer);
+              page.removeListener("response", handler);
+              resolve(rutaFinal);
+            }
+          } catch {
+          }
+        }
+      };
+      page.on("response", handler);
+    });
+  }
+  async formatearRespuesta(rutaArchivo) {
+    let resultado = "unknown";
+    if (rutaArchivo) {
+      resultado = await this.determinarResultadoDesdePdf(rutaArchivo);
+    }
+    return {
+      resultado,
+      fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
+      descripcion: rutaArchivo ? "Procesado con éxito." : "Error: PDF no capturado.",
+      rutaArchivo
+    };
+  }
+  manejarError(tipo, error) {
+    const msg = error.message || "Error desconocido";
+    console.error(`[SatCumplimientoService] ${tipo}: ${msg}`);
+    return {
+      resultado: "unknown",
+      fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
+      descripcion: `FALLO_${tipo}: ${msg}`
+    };
+  }
+  async determinarResultadoDesdePdf(ruta) {
+    try {
+      const buffer = fs.readFileSync(ruta);
+      const loadingTask = pdfjsLib__namespace.getDocument({ data: new Uint8Array(buffer) });
+      const pdf = await loadingTask.promise;
+      let textoCompleto = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const pagina = await pdf.getPage(i);
+        const content = await pagina.getTextContent();
+        textoCompleto += content.items.map((item) => item.str).join(" ") + "\n";
+      }
+      const texto = textoCompleto.toUpperCase();
+      if (texto.includes("POSITIVO")) return "positivo";
+      if (texto.includes("NEGATIVO")) return "negativo";
+      return "unknown";
+    } catch (error) {
+      console.error("[SatCumplimientoService] Error procesando PDF:", error);
+      return "unknown";
+    }
+  }
+  async llenarFormularioCiec(page, rfc, password, captcha) {
+    await page.waitForSelector("#rfc", { timeout: 1e4 });
+    await page.fill("#rfc", rfc);
+    await page.fill("#password", password);
+    const captchaSelector = 'input[id*="captcha" i], input[name*="captcha" i], input[placeholder*="captcha" i]';
+    await page.waitForSelector(captchaSelector, { timeout: 5e3 });
+    await page.click(captchaSelector);
+    await page.fill(captchaSelector, "");
+    await page.type(captchaSelector, captcha, { delay: 50 });
+    await page.click("#submit");
+  }
+  async llenarFormularioFiel(page, rutaCer, rutaKey, password) {
+    const tabFiel = page.locator('a:has-text("e.firma")');
+    if (await tabFiel.count() > 0) await tabFiel.first().click();
+    await page.setInputFiles('input[accept*=".cer"]', rutaCer);
+    await page.setInputFiles('input[accept*=".key"]', rutaKey);
+    await page.fill('input[type="password"]', password);
+    await page.click("#submit");
+  }
+}
+class CumplimientoHandler {
+  cumplimientoService;
+  configuracionService;
+  paginaActiva = null;
+  constructor(configuracionService) {
+    this.cumplimientoService = new SatCumplimientoService();
+    this.configuracionService = configuracionService;
+  }
+  registrar() {
+    electron.ipcMain.handle("cumplimiento-obtener-captcha", async () => {
+      try {
+        await this.cerrarPaginaActiva();
+        const contexto = await BrowserManager.newContext();
+        this.paginaActiva = await contexto.newPage();
+        const captcha = await this.cumplimientoService.obtenerCaptcha(this.paginaActiva);
+        return { success: true, data: captcha };
+      } catch (error) {
+        console.error("[CumplimientoHandler] obtener-captcha:", error);
+        await this.cerrarPaginaActiva();
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error obteniendo captcha"
+        };
+      }
+    });
+    electron.ipcMain.handle("cumplimiento-obtener-opinion", async (_, data) => {
+      try {
+        const config = this.configuracionService.obtener();
+        if (!config?.rfc) {
+          return { success: false, error: "No hay RFC configurado. Ve a Configuración primero." };
+        }
+        const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+        const tipoLogin = config.metodoAuth ?? "contrasena";
+        const onProgreso = (mensaje) => {
+          electron.BrowserWindow.getAllWindows()[0]?.webContents.send("progreso-cumplimiento", mensaje);
+        };
+        let opinion;
+        if (tipoLogin === "efirma") {
+          await this.cerrarPaginaActiva();
+          const contexto = await BrowserManager.newContext();
+          this.paginaActiva = await contexto.newPage();
+          opinion = await this.cumplimientoService.loginFielYObtenerOpinion(
+            this.paginaActiva,
+            carpetaTemp,
+            config.rutaCer ?? "",
+            config.rutaKey ?? "",
+            config.contrasenaFiel ?? "",
+            onProgreso
+          );
+        } else {
+          if (!this.paginaActiva || this.paginaActiva.isClosed()) {
+            return { success: false, error: "La sesión expiró. Recarga el captcha e intenta de nuevo." };
+          }
+          if (!data.captcha?.trim()) {
+            return { success: false, error: "El captcha es requerido." };
+          }
+          opinion = await this.cumplimientoService.loginCiecYObtenerOpinion(
+            this.paginaActiva,
+            carpetaTemp,
+            config.rfc,
+            config.contrasena ?? "",
+            data.captcha,
+            onProgreso
+          );
+        }
+        return { success: true, data: opinion };
+      } catch (error) {
+        console.error("[CumplimientoHandler] obtener-opinion:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error obteniendo opinión"
+        };
+      } finally {
+        await this.cerrarPaginaActiva();
+      }
+    });
+    electron.ipcMain.handle("cumplimiento-cerrar-sesion", async () => {
+      await this.cerrarPaginaActiva();
+      return { success: true };
+    });
+  }
+  async cerrarPaginaActiva() {
+    if (this.paginaActiva && !this.paginaActiva.isClosed()) {
+      await this.paginaActiva.close().catch(() => null);
+    }
+    this.paginaActiva = null;
   }
 }
 class DescargaPendienteRepository {
@@ -3666,262 +4608,6 @@ class UpdaterService {
     });
   }
 }
-class LicenseService {
-  repository;
-  constructor(repository) {
-    this.repository = repository;
-  }
-  /**
-   * Obtiene información completa de la licencia
-   */
-  obtenerLicencia() {
-    const licencia = this.repository.obtenerLicencia();
-    if (!licencia) {
-      return {
-        estado: "Demo",
-        dias_restantes: null,
-        rfc_disponible: true,
-        maquina_disponible: true,
-        vigente: true
-      };
-    }
-    const diasRestantes = this.calcularDiasRestantes(licencia.fecha_vencimiento);
-    return {
-      estado: licencia.estado,
-      fecha_inicio: licencia.fecha_inicio,
-      fecha_vencimiento: licencia.fecha_vencimiento,
-      dias_restantes: diasRestantes,
-      rfc_maximo: licencia.rfc_maximo,
-      rfc_usado: licencia.rfc_usado,
-      maquinas_maximo: licencia.maquinas_maximo,
-      maquinas_usado: licencia.maquinas_usado,
-      rfc_disponible: this.repository.validarRfcDisponible(),
-      maquina_disponible: this.repository.validarMaquinaDisponible(),
-      vigente: this.repository.validarVigencia()
-    };
-  }
-  /**
-   * Obtiene solo el estado actual
-   */
-  obtenerEstado() {
-    const licencia = this.repository.obtenerLicencia();
-    if (!licencia) return "Demo";
-    return licencia.estado;
-  }
-  /**
-   * Calcula días restantes
-   */
-  calcularDiasRestantes(fechaVencimiento) {
-    if (!fechaVencimiento) return null;
-    const hoy = /* @__PURE__ */ new Date();
-    const vencimiento = new Date(fechaVencimiento);
-    const diferencia = vencimiento.getTime() - hoy.getTime();
-    const dias = Math.ceil(diferencia / (1e3 * 60 * 60 * 24));
-    return dias > 0 ? dias : 0;
-  }
-  /**
-   * Valida si puede agregar un nuevo RFC
-   */
-  validarAgregarRfc() {
-    if (!this.repository.validarVigencia()) {
-      return { valido: false, motivo: "Licencia vencida" };
-    }
-    if (!this.repository.validarRfcDisponible()) {
-      return { valido: false, motivo: "Límite de RFCs alcanzado" };
-    }
-    return { valido: true };
-  }
-  /**
-   * Valida si puede registrar una nueva máquina
-   */
-  validarRegistrarMaquina() {
-    if (!this.repository.validarVigencia()) {
-      return { valido: false, motivo: "Licencia vencida" };
-    }
-    if (!this.repository.validarMaquinaDisponible()) {
-      return { valido: false, motivo: "Límite de máquinas alcanzado" };
-    }
-    return { valido: true };
-  }
-}
-class LicenseRepository {
-  constructor(db) {
-    this.db = db;
-  }
-  /**
-   * Obtiene la licencia actual (siempre es la ID 1)
-   */
-  obtenerLicencia() {
-    const stmt = this.db.prepare("SELECT * FROM licencias WHERE id = 1");
-    return stmt.get() || null;
-  }
-  /**
-   * Actualiza el estado de la licencia
-   */
-  actualizarEstado(estado) {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET estado = ?, fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run(estado);
-    this.registrarAuditoria("ACTUALIZAR_ESTADO", `Estado: ${estado}`);
-  }
-  /**
-   * Actualiza los límites de la licencia
-   */
-  actualizarLimites(rfcMaximo, maquinasMaximo, fechaInicio, fechaVencimiento) {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET 
-        rfc_maximo = ?,
-        maquinas_maximo = ?,
-        fecha_inicio = COALESCE(?, fecha_inicio),
-        fecha_vencimiento = COALESCE(?, fecha_vencimiento),
-        fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run(rfcMaximo, maquinasMaximo, fechaInicio, fechaVencimiento);
-    this.registrarAuditoria(
-      "ACTUALIZAR_LIMITES",
-      `RFC máximo: ${rfcMaximo}, Máquinas máximo: ${maquinasMaximo}`
-    );
-  }
-  /**
-   * Incrementa el contador de RFCs usados
-   */
-  incrementarRfcUsado() {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET rfc_usado = rfc_usado + 1, fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run();
-  }
-  /**
-   * Decrementa el contador de RFCs usados
-   */
-  decrementarRfcUsado() {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET rfc_usado = MAX(0, rfc_usado - 1), fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run();
-  }
-  /**
-   * Registra una nueva máquina
-   */
-  registrarMaquina(identificador, nombre, so) {
-    try {
-      const stmt = this.db.prepare(`
-        INSERT INTO maquinas_registradas (identificador_maquina, nombre_maquina, so)
-        VALUES (?, ?, ?)
-      `);
-      stmt.run(identificador, nombre, so);
-      const updateStmt = this.db.prepare(`
-        UPDATE licencias 
-        SET maquinas_usado = maquinas_usado + 1, fecha_actualizacion = datetime('now')
-        WHERE id = 1
-      `);
-      updateStmt.run();
-      this.registrarAuditoria("REGISTRAR_MAQUINA", `${nombre} (${so})`);
-    } catch (error) {
-      if (error.message.includes("UNIQUE constraint failed")) {
-        this.actualizarUltimoAcceso(identificador);
-      }
-    }
-  }
-  /**
-   * Obtiene todas las máquinas registradas
-   */
-  obtenerMaquinas() {
-    const stmt = this.db.prepare(`
-      SELECT * FROM maquinas_registradas WHERE activa = 1
-      ORDER BY fecha_registro DESC
-    `);
-    return stmt.all();
-  }
-  /**
-   * Actualiza el último acceso de una máquina
-   */
-  actualizarUltimoAcceso(identificador) {
-    const stmt = this.db.prepare(`
-      UPDATE maquinas_registradas 
-      SET fecha_ultimo_acceso = datetime('now')
-      WHERE identificador_maquina = ?
-    `);
-    stmt.run(identificador);
-  }
-  /**
-   * Desactiva una máquina
-   */
-  desactivarMaquina(identificador) {
-    const stmt = this.db.prepare(`
-      UPDATE maquinas_registradas 
-      SET activa = 0
-      WHERE identificador_maquina = ?
-    `);
-    stmt.run(identificador);
-    const updateStmt = this.db.prepare(`
-      UPDATE licencias 
-      SET maquinas_usado = MAX(0, maquinas_usado - 1), fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    updateStmt.run();
-    this.registrarAuditoria("DESACTIVAR_MAQUINA", `Identificador: ${identificador}`);
-  }
-  /**
-   * Valida si la licencia es válida por cantidad de RFCs
-   */
-  validarRfcDisponible() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    return licencia.rfc_usado < licencia.rfc_maximo;
-  }
-  /**
-   * Valida si la licencia es válida por cantidad de máquinas
-   */
-  validarMaquinaDisponible() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    return licencia.maquinas_usado < licencia.maquinas_maximo;
-  }
-  /**
-   * Valida si la licencia está vigente
-   */
-  validarVigencia() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    if (licencia.estado === "Demo") return true;
-    if (licencia.estado === "Vencido") return false;
-    if (licencia.fecha_vencimiento) {
-      return new Date(licencia.fecha_vencimiento) > /* @__PURE__ */ new Date();
-    }
-    return true;
-  }
-  /**
-   * Registra un evento en auditoría
-   */
-  registrarAuditoria(evento, descripcion) {
-    const stmt = this.db.prepare(`
-      INSERT INTO licencia_auditoria (evento, descripcion)
-      VALUES (?, ?)
-    `);
-    stmt.run(evento, descripcion);
-  }
-  /**
-   * Obtiene el historial de auditoría
-   */
-  obtenerAuditoria(limite = 50) {
-    const stmt = this.db.prepare(`
-      SELECT * FROM licencia_auditoria
-      ORDER BY fecha_evento DESC
-      LIMIT ?
-    `);
-    return stmt.all(limite);
-  }
-}
 class LicenseHandler {
   service;
   constructor(db) {
@@ -3961,6 +4647,301 @@ class LicenseHandler {
         return { success: false, error: String(error) };
       }
     });
+    electron.ipcMain.handle("validar-descarga-cfdi", async () => {
+      try {
+        const validacion = this.service.validarDescargaCfdi();
+        return { success: true, ...validacion };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("incrementar-descarga-cfdi", async () => {
+      try {
+        const repository = new LicenseRepository(this.service.repository.db);
+        repository.incrementarDescargasCfdi();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("validar-importacion-cfdi", async () => {
+      try {
+        const validacion = this.service.validarImportacionCfdi();
+        return { success: true, ...validacion };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("incrementar-importacion-cfdi", async () => {
+      try {
+        const repository = new LicenseRepository(this.service.repository.db);
+        repository.incrementarImportacionesCfdi();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("validar-consolidacion", async () => {
+      try {
+        const validacion = this.service.validarConsolidacion();
+        return { success: true, ...validacion };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("incrementar-consolidacion", async () => {
+      try {
+        const repository = new LicenseRepository(this.service.repository.db);
+        repository.incrementarConsolidaciones();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
+const LOGIN_URL = "https://wwwmat.sat.gob.mx/app/seg/faces/pages/lanzador.jsf?url=/operacion/43824/reimprime-tus-acuses-del-rfc&tipoLogeo=c&target=principal&hostServer=https://wwwmat.sat.gob.mx";
+const LOGIN_DOMAIN = "login.siat.sat.gob.mx";
+const PORTAL_DOMAIN = "wwwmat.sat.gob.mx";
+const PORTAL_REPORTE = "https://wwwmat.sat.gob.mx/operacion/43824/reimprime-tus-acuses-del-rfc";
+class SatConstanciaService {
+  async obtenerCaptcha(page) {
+    await page.goto(LOGIN_URL, { waitUntil: "networkidle", timeout: 3e4 });
+    await page.waitForURL(`**${LOGIN_DOMAIN}**`, { timeout: 2e4 });
+    await page.waitForLoadState("networkidle");
+    const captchaEl = await page.waitForSelector('img[src^="data:image"]', { timeout: 1e4 });
+    const screenshot = await captchaEl.screenshot({ type: "png" });
+    return { imagenBase64: `data:image/png;base64,${screenshot.toString("base64")}` };
+  }
+  async loginCiecYObtenerConstancia(page, carpetaTemp, rfc, password, captcha, onProgreso) {
+    return this.ejecutarFlujoConstancia(
+      page,
+      carpetaTemp,
+      () => this.llenarFormularioCiec(page, rfc, password, captcha),
+      "CIEC",
+      rfc,
+      onProgreso
+    );
+  }
+  async loginFielYObtenerConstancia(page, carpetaTemp, rfc, rutaCer, rutaKey, password, onProgreso) {
+    return this.ejecutarFlujoConstancia(
+      page,
+      carpetaTemp,
+      () => this.llenarFormularioFiel(page, rutaCer, rutaKey, password),
+      "FIEL",
+      rfc,
+      onProgreso
+    );
+  }
+  // ---------------------------------------------------------------------------
+  async ejecutarFlujoConstancia(page, carpetaTemp, accionLogin, metodo, rfc, onProgreso) {
+    try {
+      onProgreso?.("Conectando con el SAT...");
+      if (!page.url().includes(LOGIN_DOMAIN)) {
+        await page.goto(LOGIN_URL, { waitUntil: "networkidle", timeout: 3e4 });
+        await page.waitForURL(`**${LOGIN_DOMAIN}**`, { timeout: 2e4 });
+      }
+      onProgreso?.(`Iniciando sesión con ${metodo}...`);
+      await accionLogin();
+      await page.waitForURL("**", { timeout: 4e4 });
+      console.log(`[SatConstanciaService] URL después de login: ${page.url()}`);
+      onProgreso?.("Accediendo al portal de constancias...");
+      await page.waitForURL(`**${PORTAL_DOMAIN}**`, { timeout: 4e4 });
+      await page.waitForLoadState("networkidle", { timeout: 2e4 });
+      if (!page.url().includes("/operacion/43824")) {
+        await page.goto(PORTAL_REPORTE, { waitUntil: "networkidle", timeout: 3e4 });
+      }
+      if (page.url().includes("error.seg")) {
+        throw new Error("El SAT rechazó el acceso al portal. Intenta de nuevo en unos minutos.");
+      }
+      onProgreso?.("Generando constancia...");
+      const frame = await this.obtenerFrameConstancia(page);
+      const boton = frame.locator('button:has-text("Generar Constancia"), input[value="Generar Constancia"]');
+      await boton.waitFor({ state: "visible", timeout: 2e4 });
+      onProgreso?.("Descargando PDF...");
+      const rutaArchivo = await this.interceptarYDescargar(page, boton, carpetaTemp);
+      const paginas = page.context().pages();
+      for (const p of paginas) {
+        if (p !== page) {
+          await p.close().catch(() => null);
+        }
+      }
+      return {
+        rfc,
+        fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
+        rutaArchivo,
+        descripcion: rutaArchivo ? "Constancia generada y descargada correctamente." : "No se pudo capturar el PDF automáticamente."
+      };
+    } catch (error) {
+      console.error(`[SatConstanciaService] ${metodo}:`, error);
+      return {
+        rfc,
+        fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
+        descripcion: `Error: ${error.message || "Error desconocido"}`
+      };
+    }
+  }
+  /**
+   * Registra el interceptor de ruta ANTES del clic para atrapar el PDF
+   * cuando el botón abre el popup con IdcGeneraConstancia.jsf.
+   * Cierra el popup automáticamente tras capturar el buffer.
+   */
+  interceptarYDescargar(page, boton, carpetaTemp) {
+    return new Promise((resolve) => {
+      let resuelto = false;
+      let popupRef = null;
+      const limpiar = () => {
+        page.context().unroute("**IdcGeneraConstancia**").catch(() => null);
+      };
+      const timer = setTimeout(() => {
+        limpiar();
+        resolve(void 0);
+      }, 3e4);
+      page.context().route("**IdcGeneraConstancia**", async (route) => {
+        try {
+          const response = await route.fetch();
+          const contentType = response.headers()["content-type"] ?? "";
+          if (contentType.includes("pdf")) {
+            const buffer = Buffer.from(await response.body());
+            if (buffer.length > 5e3 && !resuelto) {
+              resuelto = true;
+              const rutaFinal = path.join(carpetaTemp, `constancia_${Date.now()}.pdf`);
+              fs.writeFileSync(rutaFinal, buffer);
+              console.log("[SatConstanciaService] Constancia capturada:", rutaFinal);
+              clearTimeout(timer);
+              limpiar();
+              await route.fulfill({ response }).catch(() => null);
+              await popupRef?.close().catch(() => null);
+              resolve(rutaFinal);
+              return;
+            }
+          }
+          await route.fulfill({ response }).catch(() => null);
+        } catch {
+          await route.abort().catch(() => null);
+        }
+      });
+      page.context().once("page", (p) => {
+        popupRef = p;
+      });
+      boton.click().catch(() => null);
+    });
+  }
+  async obtenerFrameConstancia(page) {
+    await page.waitForLoadState("networkidle", { timeout: 15e3 }).catch(() => null);
+    const iframeEl = await page.waitForSelector("#iframetoload", { timeout: 15e3 });
+    const frame = await iframeEl.contentFrame();
+    if (!frame) throw new Error("No se pudo acceder al iframe de constancias");
+    await frame.waitForLoadState("networkidle", { timeout: 15e3 }).catch(() => null);
+    return frame;
+  }
+  async llenarFormularioCiec(page, rfc, password, captcha) {
+    await page.waitForSelector("#rfc", { timeout: 1e4 });
+    await page.fill("#rfc", rfc);
+    await page.fill("#password", password);
+    const captchaSelector = 'input[id*="captcha" i], input[name*="captcha" i], input[placeholder*="captcha" i]';
+    await page.waitForSelector(captchaSelector, { timeout: 5e3 });
+    await page.click(captchaSelector);
+    await page.fill(captchaSelector, "");
+    await page.type(captchaSelector, captcha, { delay: 50 });
+    await page.click("#submit");
+  }
+  async llenarFormularioFiel(page, rutaCer, rutaKey, password) {
+    const tabFiel = page.locator('a:has-text("e.firma")');
+    if (await tabFiel.count() > 0) await tabFiel.first().click();
+    await page.setInputFiles('input[accept*=".cer"]', rutaCer);
+    await page.setInputFiles('input[accept*=".key"]', rutaKey);
+    await page.fill('input[type="password"]', password);
+    await page.click("#submit");
+  }
+}
+class ConstanciaHandler {
+  constanciaService;
+  configuracionService;
+  paginaActiva = null;
+  constructor(configuracionService) {
+    this.constanciaService = new SatConstanciaService();
+    this.configuracionService = configuracionService;
+  }
+  registrar() {
+    electron.ipcMain.handle("constancia-obtener-captcha", async () => {
+      try {
+        await this.cerrarPaginaActiva();
+        const contexto = await BrowserManager.newContext();
+        this.paginaActiva = await contexto.newPage();
+        const captcha = await this.constanciaService.obtenerCaptcha(this.paginaActiva);
+        return { success: true, data: captcha };
+      } catch (error) {
+        console.error("[ConstanciaHandler] obtener-captcha:", error);
+        await this.cerrarPaginaActiva();
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error obteniendo captcha"
+        };
+      }
+    });
+    electron.ipcMain.handle("constancia-obtener-constancia", async (_, data) => {
+      try {
+        const config = this.configuracionService.obtener();
+        if (!config?.rfc) {
+          return { success: false, error: "No hay RFC configurado. Ve a Configuración primero." };
+        }
+        const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+        const tipoLogin = config.metodoAuth ?? "contrasena";
+        const onProgreso = (mensaje) => {
+          electron.BrowserWindow.getAllWindows()[0]?.webContents.send("progreso-constancia", mensaje);
+        };
+        let constancia;
+        if (tipoLogin === "efirma") {
+          await this.cerrarPaginaActiva();
+          const contexto = await BrowserManager.newContext();
+          this.paginaActiva = await contexto.newPage();
+          constancia = await this.constanciaService.loginFielYObtenerConstancia(
+            this.paginaActiva,
+            carpetaTemp,
+            config.rfc,
+            config.rutaCer ?? "",
+            config.rutaKey ?? "",
+            config.contrasenaFiel ?? "",
+            onProgreso
+          );
+        } else {
+          if (!this.paginaActiva || this.paginaActiva.isClosed()) {
+            return { success: false, error: "La sesión expiró. Recarga el captcha e intenta de nuevo." };
+          }
+          if (!data.captcha?.trim()) {
+            return { success: false, error: "El captcha es requerido." };
+          }
+          constancia = await this.constanciaService.loginCiecYObtenerConstancia(
+            this.paginaActiva,
+            carpetaTemp,
+            config.rfc,
+            config.contrasena ?? "",
+            data.captcha,
+            onProgreso
+          );
+        }
+        return { success: true, data: constancia };
+      } catch (error) {
+        console.error("[ConstanciaHandler] obtener-constancia:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error obteniendo constancia"
+        };
+      } finally {
+        await this.cerrarPaginaActiva();
+      }
+    });
+    electron.ipcMain.handle("constancia-cerrar-sesion", async () => {
+      await this.cerrarPaginaActiva();
+      return { success: true };
+    });
+  }
+  async cerrarPaginaActiva() {
+    if (this.paginaActiva && !this.paginaActiva.isClosed()) {
+      await this.paginaActiva.context().close().catch(() => null);
+    }
+    this.paginaActiva = null;
   }
 }
 let mainWindow;
@@ -4019,14 +5000,17 @@ electron.app.whenReady().then(async () => {
   const pendientesService = new PendientesService(authService, busquedaService, satDescargaService, guardadoService, pendienteRepository);
   const conciliacionService = new ConciliacionService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, conciliacionRepository);
   const profileManager = new ProfileManager(db);
-  new PerfilHandler(profileManager).registrar();
+  new PerfilHandler(profileManager, db).registrar();
   new FacturaHandler(descargaService, pendientesService, configuracionService, authService, db).registrar();
-  new ConciliacionHandler(conciliacionService, configuracionService, authService).registrar();
-  new ImportacionHandler(guardadoService).registrar();
+  new ConciliacionHandler(conciliacionService, configuracionService, authService, db).registrar();
+  new ImportacionHandler(guardadoService, db).registrar();
   new ConfiguracionHandler(db).registrar();
   new DashboardHandler(db).registrar();
   new CatalogoHandler(db).registrar();
   new LicenseHandler(db).registrar();
+  new ExportacionHandler(db).registrar();
+  new CumplimientoHandler(configuracionService).registrar();
+  new ConstanciaHandler(configuracionService).registrar();
   createWindow();
   if (!utils.is.dev) {
     new UpdaterService(mainWindow).iniciar();

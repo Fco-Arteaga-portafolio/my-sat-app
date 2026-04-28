@@ -1,0 +1,139 @@
+.cumplimiento-container {
+  padding: 24px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.cumplimiento-card {
+  margin-top: 16px;
+}
+
+.cumplimiento-segmented {
+  margin-bottom: 24px;
+}
+
+/* Captcha */
+.cumplimiento-captcha-seccion {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.cumplimiento-captcha-imagen-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cumplimiento-captcha-imagen {
+  border: 1px solid var(--ant-color-border);
+  border-radius: 4px;
+  padding: 4px;
+  background: #fff;
+}
+
+.cumplimiento-captcha-input {
+  max-width: 200px;
+  letter-spacing: 4px;
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.cumplimiento-btn-cargar-captcha {
+  margin-bottom: 8px;
+}
+
+/* FIEL aviso */
+.cumplimiento-fiel-aviso {
+  margin-bottom: 20px;
+}
+
+/* Error */
+.cumplimiento-error {
+  margin-bottom: 16px;
+}
+
+/* Botón principal */
+.cumplimiento-btn-descargar {
+  margin-top: 8px;
+}
+
+/* Resultado */
+.cumplimiento-resultado-card {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.cumplimiento-resultado-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cumplimiento-resultado-header .anticon {
+  font-size: 56px;
+}
+
+.cumplimiento-icono-positivo {
+  color: var(--ant-color-success);
+}
+
+.cumplimiento-icono-negativo {
+  color: var(--ant-color-error);
+}
+
+.cumplimiento-icono-unknown {
+  color: var(--ant-color-info);
+}
+
+.cumplimiento-resultado-titulo {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.cumplimiento-resultado-positivo {
+  color: var(--ant-color-success);
+}
+
+.cumplimiento-resultado-negativo {
+  color: var(--ant-color-error);
+}
+
+.cumplimiento-resultado-unknown {
+  color: var(--ant-color-info);
+}
+
+.cumplimiento-resultado-descripcion {
+  color: var(--ant-color-text-secondary);
+  margin-bottom: 8px;
+}
+
+.cumplimiento-resultado-fecha {
+  font-size: 13px;
+  color: var(--ant-color-text-tertiary);
+  margin-bottom: 24px;
+}
+
+.cumplimiento-resultado-acciones {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+.cumplimiento-progreso {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  color: var(--ant-color-text-secondary);
+  font-size: 14px;
+}
+
+.cumplimiento-progreso-icono {
+  color: var(--ant-color-primary);
+  font-size: 16px;
+}

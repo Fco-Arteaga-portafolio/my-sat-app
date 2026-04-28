@@ -1,8 +1,20 @@
 import { ipcMain } from 'electron'
 import { ProfileManager } from '../database/ProfileManager'
+import BetterSqlite3 from 'better-sqlite3'
+import { LicenseService } from '../services/LicenseService'
+import { LicenseRepository } from '../database/repositories/LicenseRepository'
 
 export class PerfilHandler {
-  constructor(private readonly profileManager: ProfileManager) { }
+  private licenseService: LicenseService
+
+  constructor(private readonly profileManager: ProfileManager, db?: BetterSqlite3.Database) {
+    if (db) {
+      const licenseRepository = new LicenseRepository(db)
+      this.licenseService = new LicenseService(licenseRepository)
+    } else {
+      this.licenseService = null as any
+    }
+  }
 
   registrar(): void {
     ipcMain.handle('obtener-perfiles', async () => {
@@ -16,6 +28,14 @@ export class PerfilHandler {
 
     ipcMain.handle('crear-perfil', async (_, perfil) => {
       try {
+        // Validar si es Demo y ya hay RFC
+        if (this.licenseService) {
+          const validacion = this.licenseService.validarAgregarRfc()
+          if (!validacion.valido) {
+            return { success: false, error: validacion.motivo || 'No puedes agregar más RFCs' }
+          }
+        }
+
         this.profileManager.insertar(perfil)
         return { success: true }
       } catch (error) {

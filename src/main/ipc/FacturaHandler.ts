@@ -8,9 +8,12 @@ import { PdfService, Plantilla } from '../services/PdfService'
 import { PagoComplementoRepository } from '../database/repositories/PagoComplementoRepository'
 import { manejarErrorSat } from './satErrores'
 import BetterSqlite3 from 'better-sqlite3'
+import { LicenseService } from '../services/LicenseService'
+import { LicenseRepository } from '../database/repositories/LicenseRepository'
 
 export class FacturaHandler {
   private readonly pagoComplementoRepository: PagoComplementoRepository
+  private readonly licenseService: LicenseService
 
   constructor(
     private readonly descargaService: DescargaService,
@@ -20,6 +23,8 @@ export class FacturaHandler {
     db: BetterSqlite3.Database
   ) {
     this.pagoComplementoRepository = new PagoComplementoRepository(db)
+    const licenseRepository = new LicenseRepository(db)
+    this.licenseService = new LicenseService(licenseRepository)
   }
 
   registrar(): void {
@@ -37,6 +42,12 @@ export class FacturaHandler {
       params: ParametrosBusqueda
     }) => {
       try {
+        // Validar acceso a descargas según licencia
+        const validacion = this.licenseService.validarDescargaCfdi()
+        if (!validacion.valido) {
+          return { success: false, error: validacion.motivo }
+        }
+
         const config = this.configuracionService.obtener()
         if (!config) return { success: false, error: 'No hay configuración guardada' }
 
@@ -46,6 +57,13 @@ export class FacturaHandler {
           datos.captcha,
           (progreso) => event.sender.send('progreso-descarga', progreso)
         )
+
+        // Incrementar contador solo si fue 100% exitoso (sin errores)
+        if (resultado.total > 0 && (!resultado.errores || resultado.errores.length === 0)) {
+          const licenseRepo = new LicenseRepository((this.licenseService as any).repository.db)
+          licenseRepo.incrementarDescargasCfdi()
+        }
+
         return { success: true, total: resultado.total, errores: resultado.errores }
       } catch (error) {
         return { success: false, error: manejarErrorSat(error) }
@@ -56,6 +74,12 @@ export class FacturaHandler {
 
     ipcMain.handle('reintentar-pendientes', async (event, datos: { captcha?: string }) => {
       try {
+        // Validar acceso a descargas según licencia
+        const validacion = this.licenseService.validarDescargaCfdi()
+        if (!validacion.valido) {
+          return { success: false, error: validacion.motivo }
+        }
+
         const config = this.configuracionService.obtener()
         if (!config) return { success: false, error: 'No hay configuración guardada' }
 
@@ -64,6 +88,13 @@ export class FacturaHandler {
           datos.captcha,
           (progreso) => event.sender.send('progreso-descarga', progreso)
         )
+
+        // Incrementar contador solo si fue 100% exitoso (sin errores)
+        if (resultado.total > 0 && (!resultado.errores || resultado.errores.length === 0)) {
+          const licenseRepo = new LicenseRepository((this.licenseService as any).repository.db)
+          licenseRepo.incrementarDescargasCfdi()
+        }
+
         return { success: true, total: resultado.total, errores: resultado.errores }
       } catch (error) {
         return { success: false, error: manejarErrorSat(error) }

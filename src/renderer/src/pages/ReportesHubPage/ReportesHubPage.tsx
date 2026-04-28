@@ -25,7 +25,7 @@ const ReportesHubPage = () => {
           icon: '📊',
           label: 'Exportar Excel',
           description: 'Exporta tus facturas',
-          onClick: () => navigate('/facturas?accion=exportar')
+          onClick: () => navigate('/exportacion')
         }
       ]}
     />

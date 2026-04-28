@@ -8,7 +8,10 @@ import { createFacturaApi } from './factura'
 import { createImportacionApi } from './importacion'
 import { createPerfilApi } from './perfil'
 import { createLicenseApi } from './license'
+import { createExportacionApi } from './exportacion'
+import { createCumplimientoApi } from './cumplimiento'
 import { createMiscApi, createElectronUpdater, createAppInfo } from './misc'
+import { createConstanciaApi } from './constancia'
 
 if (process.contextIsolated) {
   try {
@@ -22,6 +25,9 @@ if (process.contextIsolated) {
       ...createImportacionApi(),
       ...createPerfilApi(),
       ...createLicenseApi(),
+      ...createExportacionApi(),
+      ...createCumplimientoApi(),
+      ...createConstanciaApi(),
       ...createMiscApi(),
     })
     contextBridge.exposeInMainWorld('electronUpdater', createElectronUpdater())
@@ -42,6 +48,9 @@ if (process.contextIsolated) {
     ...createImportacionApi(),
     ...createPerfilApi(),
     ...createLicenseApi(),
+    ...createExportacionApi(),
+    ...createCumplimientoApi(),
+    ...createConstanciaApi(),
     ...createMiscApi(),
   }
   // @ts-ignore (define in dts)

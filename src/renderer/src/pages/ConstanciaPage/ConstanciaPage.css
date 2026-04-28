@@ -1,0 +1,142 @@
+.constancia-container {
+  padding: 24px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.constancia-card {
+  margin-top: 16px;
+}
+
+/* Captcha */
+.constancia-captcha-seccion {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.constancia-captcha-imagen-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.constancia-captcha-imagen {
+  border: 1px solid var(--ant-color-border);
+  border-radius: 4px;
+  padding: 4px;
+  background: #fff;
+}
+
+.constancia-captcha-input {
+  max-width: 200px;
+  letter-spacing: 4px;
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* FIEL aviso */
+.constancia-fiel-aviso {
+  margin-bottom: 20px;
+}
+
+/* Progreso */
+.constancia-progreso {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  color: var(--ant-color-text-secondary);
+  font-size: 14px;
+}
+
+.constancia-progreso-icono {
+  color: var(--ant-color-primary);
+  font-size: 16px;
+}
+
+/* Error */
+.constancia-error {
+  margin-bottom: 16px;
+}
+
+/* Botón principal */
+.constancia-btn-generar {
+  margin-top: 8px;
+}
+
+/* Resultado */
+.constancia-resultado-card {
+  margin-top: 16px;
+}
+
+.constancia-resultado-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.constancia-resultado-header .anticon {
+  font-size: 56px;
+}
+
+.constancia-icono-exito {
+  color: var(--ant-color-success);
+}
+
+.constancia-resultado-titulo {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ant-color-success);
+}
+
+/* Info */
+.constancia-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--ant-color-fill-quaternary);
+  border-radius: 8px;
+}
+
+.constancia-info-fila {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.constancia-info-label {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.constancia-info-valor {
+  font-size: 15px;
+  color: var(--ant-color-text);
+  font-weight: 500;
+}
+
+.constancia-info-regimenes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* Acciones */
+.constancia-resultado-acciones {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}

@@ -47,5 +47,62 @@ export class LicenseHandler {
                 return { success: false, error: String(error) }
             }
         })
+
+        ipcMain.handle('validar-descarga-cfdi', async () => {
+            try {
+                const validacion = this.service.validarDescargaCfdi()
+                return { success: true, ...validacion }
+            } catch (error) {
+                return { success: false, error: String(error) }
+            }
+        })
+
+        ipcMain.handle('incrementar-descarga-cfdi', async () => {
+            try {
+                const repository = new LicenseRepository((this.service as any).repository.db)
+                repository.incrementarDescargasCfdi()
+                return { success: true }
+            } catch (error) {
+                return { success: false, error: String(error) }
+            }
+        })
+
+        ipcMain.handle('validar-importacion-cfdi', async () => {
+            try {
+                const validacion = this.service.validarImportacionCfdi()
+                return { success: true, ...validacion }
+            } catch (error) {
+                return { success: false, error: String(error) }
+            }
+        })
+
+        ipcMain.handle('incrementar-importacion-cfdi', async () => {
+            try {
+                const repository = new LicenseRepository((this.service as any).repository.db)
+                repository.incrementarImportacionesCfdi()
+                return { success: true }
+            } catch (error) {
+                return { success: false, error: String(error) }
+            }
+        })
+
+        ipcMain.handle('validar-consolidacion', async () => {
+            try {
+                const validacion = this.service.validarConsolidacion()
+                return { success: true, ...validacion }
+            } catch (error) {
+                return { success: false, error: String(error) }
+            }
+        })
+
+        ipcMain.handle('incrementar-consolidacion', async () => {
+            try {
+                const repository = new LicenseRepository((this.service as any).repository.db)
+                repository.incrementarConsolidaciones()
+                return { success: true }
+            } catch (error) {
+                return { success: false, error: String(error) }
+            }
+        })
     }
 }
