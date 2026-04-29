@@ -37,7 +37,7 @@ export function useCumplimientoPage() {
         try {
             const res = await window.api.obtenerCaptcha()
             if (res.success) {
-                setCaptchaBase64(res.data.imagenBase64)
+                setCaptchaBase64(res.imagenBase64 || '')
             } else {
                 setError(res.error ?? 'Error cargando captcha')
             }

@@ -81,7 +81,7 @@ export class ExportacionHandler {
         /**
          * Genera y guarda archivo Excel
          */
-        ipcMain.handle('exportacion-generar-excel', async (event, datos: { filtros: FiltersExportacion; rutaDestino: string }) => {
+        ipcMain.handle('exportacion-generar-excel', async (_event, datos: { filtros: FiltersExportacion; rutaDestino: string }) => {
             try {
                 // Obtener facturas
                 const facturas = this.facturaRepository.obtenerPorTipoDescarga(

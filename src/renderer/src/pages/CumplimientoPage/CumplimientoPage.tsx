@@ -37,7 +37,7 @@ export default function CumplimientoPage() {
 
     return (
       <div className="cumplimiento-container">
-        <PageHeader titulo="Opinión de Cumplimiento" rutaAtras="/cumplimiento" />
+        <PageHeader title="Opinión de Cumplimiento" backTo="/cumplimiento" />
 
         <Card className="cumplimiento-resultado-card">
           <div className="cumplimiento-resultado-header">
@@ -77,7 +77,7 @@ export default function CumplimientoPage() {
 
   return (
     <div className="cumplimiento-container">
-      <PageHeader titulo="Opinión de Cumplimiento" rutaAtras="/cumplimiento" />
+      <PageHeader title="Opinión de Cumplimiento" backTo="/cumplimiento" />
 
       <Card className="cumplimiento-card">
         <Spin spinning={loading}>

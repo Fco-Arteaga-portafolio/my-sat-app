@@ -23,7 +23,7 @@ const LicenseFooter = ({
   loading = false
 }: LicenseFooterProps) => {
   const [actualStatus, setActualStatus] = useState<'Demo' | 'Vigente' | 'Vencido'>(licenseStatus)
-  const [actualRfcCount, setActualRfcCount] = useState(rfcCount)
+  const [actualRfcCount] = useState(rfcCount)
   const [isLoading, setIsLoading] = useState(loading)
 
   useEffect(() => {

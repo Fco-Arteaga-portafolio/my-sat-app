@@ -164,10 +164,12 @@ declare global {
 
 
       // Cumplimiento
-      obtenerCaptcha(): Promise<{ success: boolean; data: { imagenBase64: string }; error?: string }>
+      cumplimientoObtenerCaptcha(): Promise<{ success: boolean; data: { imagenBase64: string }; error?: string }>
       obtenerOpinion(data: { captcha?: string }): Promise<{ success: boolean; data: OpinionCumplimiento; error?: string }>
       cerrarSesion(): Promise<{ success: boolean }>
       onProgresoCumplimiento(callback: (mensaje: string) => void): void
+
+      // Constancia Situación Fiscal
       constanciaObtenerCaptcha(): Promise<{ success: boolean; data: { imagenBase64: string }; error?: string }>
       constanciaObtenerConstancia(data: { captcha?: string }): Promise<{ success: boolean; data: ConstanciaSituacionFiscal; error?: string }>
       constanciaCerrarSesion(): Promise<{ success: boolean }>

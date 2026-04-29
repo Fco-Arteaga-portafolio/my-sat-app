@@ -1,16 +1,9 @@
 import { ipcRenderer } from 'electron'
 
-interface OpinionCumplimiento {
-    resultado: 'positivo' | 'negativo' | 'unknown'
-    fecha_emision: string
-    fecha_vigencia?: string
-    descripcion: string
-    rutaArchivo?: string
-}
-
 export const createCumplimientoApi = () => {
     return {
-        obtenerCaptcha: async () =>
+        // ✅ Renombrado para no colisionar con obtenerCaptcha de facturas
+        cumplimientoObtenerCaptcha: async () =>
             ipcRenderer.invoke('cumplimiento-obtener-captcha'),
 
         obtenerOpinion: async (data: { captcha?: string }) =>
@@ -22,15 +15,6 @@ export const createCumplimientoApi = () => {
         onProgresoCumplimiento: (callback: (mensaje: string) => void) => {
             ipcRenderer.on('progreso-cumplimiento', (_, mensaje) => callback(mensaje))
         },
-
-        constanciaObtenerCaptcha: async () =>
-            ipcRenderer.invoke('constancia-obtener-captcha'),
-        constanciaObtenerConstancia: async (data: { captcha?: string }) =>
-            ipcRenderer.invoke('constancia-obtener-constancia', data),
-        constanciaCerrarSesion: async () =>
-            ipcRenderer.invoke('constancia-cerrar-sesion'),
-        onProgresoConstancia: (callback: (mensaje: string) => void) => {
-            ipcRenderer.on('progreso-constancia', (_, mensaje) => callback(mensaje))
-        }
+        // ✅ Eliminados los constancia* duplicados — ya viven en createConstanciaApi
     }
 }

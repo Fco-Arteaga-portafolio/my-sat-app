@@ -30,7 +30,7 @@ export default function ConstanciaPage() {
   if (resultado) {
     return (
       <div className="constancia-container">
-        <PageHeader titulo="Constancia de Situación Fiscal" rutaAtras="/cumplimiento" />
+        <PageHeader title="Constancia de Situación Fiscal" backTo="/cumplimiento" />
 
         <Card className="constancia-resultado-card">
           <div className="constancia-resultado-header">
@@ -76,7 +76,7 @@ export default function ConstanciaPage() {
 
   return (
     <div className="constancia-container">
-      <PageHeader titulo="Constancia de Situación Fiscal" rutaAtras="/cumplimiento" />
+      <PageHeader title="Constancia de Situación Fiscal" backTo="/cumplimiento" />
 
       <Card className="constancia-card">
         <Spin spinning={loading}>

@@ -1,5 +1,4 @@
 import BetterSqlite3 from 'better-sqlite3'
-import { ProfileManager } from '../ProfileManager'
 
 export function migration012(db: BetterSqlite3.Database): void {
     // ── Columnas nuevas en todas las tablas de facturas por perfil ─────────────

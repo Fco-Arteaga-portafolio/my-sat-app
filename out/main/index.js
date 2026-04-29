@@ -2200,7 +2200,7 @@ class ConciliacionHandler {
           params,
           (progreso) => event.sender.send("progreso-conciliacion", progreso)
         );
-        if (this.licenseService && resumen && resumen.errores === 0) {
+        if (this.licenseService && resumen && resumen.errores.length === 0) {
           const licenseRepo = new LicenseRepository(this.licenseService.repository.db);
           licenseRepo.incrementarConsolidaciones();
         }
@@ -3026,7 +3026,7 @@ class ExportacionHandler {
         return { success: false, error: String(error) };
       }
     });
-    electron.ipcMain.handle("exportacion-generar-excel", async (event, datos) => {
+    electron.ipcMain.handle("exportacion-generar-excel", async (_event, datos) => {
       try {
         const facturas = this.facturaRepository.obtenerPorTipoDescarga(
           datos.filtros.tipoDescarga,

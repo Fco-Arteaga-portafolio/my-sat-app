@@ -104,18 +104,14 @@ const createExportacionApi = () => {
 };
 const createCumplimientoApi = () => {
   return {
-    obtenerCaptcha: async () => electron.ipcRenderer.invoke("cumplimiento-obtener-captcha"),
+    // ✅ Renombrado para no colisionar con obtenerCaptcha de facturas
+    cumplimientoObtenerCaptcha: async () => electron.ipcRenderer.invoke("cumplimiento-obtener-captcha"),
     obtenerOpinion: async (data) => electron.ipcRenderer.invoke("cumplimiento-obtener-opinion", data),
     cerrarSesion: async () => electron.ipcRenderer.invoke("cumplimiento-cerrar-sesion"),
     onProgresoCumplimiento: (callback) => {
       electron.ipcRenderer.on("progreso-cumplimiento", (_, mensaje) => callback(mensaje));
-    },
-    constanciaObtenerCaptcha: async () => electron.ipcRenderer.invoke("constancia-obtener-captcha"),
-    constanciaObtenerConstancia: async (data) => electron.ipcRenderer.invoke("constancia-obtener-constancia", data),
-    constanciaCerrarSesion: async () => electron.ipcRenderer.invoke("constancia-cerrar-sesion"),
-    onProgresoConstancia: (callback) => {
-      electron.ipcRenderer.on("progreso-constancia", (_, mensaje) => callback(mensaje));
     }
+    // ✅ Eliminados los constancia* duplicados — ya viven en createConstanciaApi
   };
 };
 const createMiscApi = () => {

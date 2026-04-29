@@ -1,5 +1,5 @@
-import * as ExcelJS from 'exceljs'
 import * as xml2js from 'xml2js'
+import * as ExcelJS from 'exceljs'
 import { Factura } from '../database/repositories/FacturaRepository'
 
 export interface FiltersExportacion {
@@ -245,7 +245,7 @@ export class ExportacionExcelService {
         ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
         ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF366092' } }
 
-        let row = 2
+        //let row = 2
         const totales = {
             cantidad: datos.length,
             subtotal: datos.reduce((s, d) => s + d.subtotal, 0),

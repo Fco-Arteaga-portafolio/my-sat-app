@@ -52,7 +52,7 @@ export default function ExportacionPage() {
     try {
       const resultado = await window.api.obtenerTiposCfdi()
       if (resultado.success) {
-        setTiposCfdi(resultado.tipos)
+        setTiposCfdi(resultado.tipos || [])
       }
     } catch (error) {
       console.error('Error cargando tipos CFDI:', error)

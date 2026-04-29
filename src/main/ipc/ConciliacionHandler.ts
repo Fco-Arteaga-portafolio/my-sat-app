@@ -45,7 +45,7 @@ export class ConciliacionHandler {
         )
 
         // Incrementar contador solo si fue 100% exitoso (sin errores en el resumen)
-        if (this.licenseService && resumen && resumen.errores === 0) {
+        if (this.licenseService && resumen && resumen.errores.length === 0) {
           const licenseRepo = new LicenseRepository((this.licenseService as any).repository.db)
           licenseRepo.incrementarConsolidaciones()
         }
