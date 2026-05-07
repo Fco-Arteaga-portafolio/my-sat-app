@@ -12,6 +12,7 @@ import { migration010 } from './migrations/010_nomina_complemento'
 import { migration011 } from './migrations/011_isr_tarifas'
 import { migration012 } from './migrations/012_nuevos_campos_cfdi'
 import { migration013 } from './migrations/013_licencias'
+import { migration014 } from './migrations/014_efos'
 
 export class MigrationRunner {
   constructor(private readonly db: BetterSqlite3.Database) { }
@@ -45,7 +46,8 @@ export class MigrationRunner {
       { nombre: '010_nomina_complemento', fn: migration010 },
       { nombre: '011_isr_tarifas', fn: migration011 },
       { nombre: '012_nuevos_campos_cfdi', fn: migration012 },
-      { nombre: '013_licencias', fn: migration013 }
+      { nombre: '013_licencias', fn: migration013 },
+      { nombre: '014_efos', fn: migration014 }
     ]
 
     for (const migration of migrations) {

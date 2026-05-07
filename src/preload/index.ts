@@ -12,6 +12,7 @@ import { createExportacionApi } from './exportacion'
 import { createCumplimientoApi } from './cumplimiento'
 import { createMiscApi, createElectronUpdater, createAppInfo } from './misc'
 import { createConstanciaApi } from './constancia'
+import { createLista69BApi } from './lista69b'
 
 if (process.contextIsolated) {
   try {
@@ -28,6 +29,7 @@ if (process.contextIsolated) {
       ...createExportacionApi(),
       ...createCumplimientoApi(),
       ...createConstanciaApi(),
+      ...createLista69BApi(),
       ...createMiscApi(),
     })
     contextBridge.exposeInMainWorld('electronUpdater', createElectronUpdater())
@@ -51,6 +53,7 @@ if (process.contextIsolated) {
     ...createExportacionApi(),
     ...createCumplimientoApi(),
     ...createConstanciaApi(),
+    ...createLista69BApi(),
     ...createMiscApi(),
   }
   // @ts-ignore (define in dts)

@@ -9,6 +9,7 @@ const pdfjsLib = require("pdfjs-dist/legacy/build/pdf");
 const axios = require("axios");
 const xmldom = require("@xmldom/xmldom");
 const electronUpdater = require("electron-updater");
+const https = require("https");
 function _interopNamespaceDefault(e) {
   const n = Object.create(null, { [Symbol.toStringTag]: { value: "Module" } });
   if (e) {
@@ -776,6 +777,23 @@ function migration013(db) {
     );
   `);
 }
+function migration014(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS efos (
+      rfc        TEXT PRIMARY KEY,
+      nombre     TEXT,
+      situacion  TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS efos_meta (
+      id               INTEGER PRIMARY KEY CHECK (id = 1),
+      ultima_sync      TEXT,
+      total_registros  INTEGER DEFAULT 0
+    );
+
+    INSERT OR IGNORE INTO efos_meta (id, total_registros) VALUES (1, 0);
+  `);
+}
 class MigrationRunner {
   constructor(db) {
     this.db = db;
@@ -807,7 +825,8 @@ class MigrationRunner {
       { nombre: "010_nomina_complemento", fn: migration010 },
       { nombre: "011_isr_tarifas", fn: migration011 },
       { nombre: "012_nuevos_campos_cfdi", fn: migration012 },
-      { nombre: "013_licencias", fn: migration013 }
+      { nombre: "013_licencias", fn: migration013 },
+      { nombre: "014_efos", fn: migration014 }
     ];
     for (const migration of migrations) {
       const yaEjecutada = this.db.prepare("SELECT id FROM migrations WHERE nombre = ?").get(migration.nombre);
@@ -4944,6 +4963,203 @@ class ConstanciaHandler {
     this.paginaActiva = null;
   }
 }
+class EfosRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  // Propiedad auxiliar para obtener el nombre de la tabla de facturas actual
+  get tablaFacturas() {
+    return ProfileManager.getTablaFacturas();
+  }
+  upsertMany(registros) {
+    const insertar = this.db.prepare(`
+            INSERT INTO efos (rfc, nombre, situacion)
+            VALUES (@rfc, @nombre, @situacion)
+            ON CONFLICT(rfc) DO UPDATE SET
+                nombre    = excluded.nombre,
+                situacion = excluded.situacion
+        `);
+    const transaccion = this.db.transaction((items) => {
+      this.db.exec("DELETE FROM efos");
+      for (const item of items) insertar.run(item);
+    });
+    transaccion(registros);
+  }
+  actualizarMeta(total) {
+    this.db.prepare(`
+            UPDATE efos_meta
+            SET ultima_sync = datetime('now', 'localtime'),
+                total_registros = ?
+            WHERE id = 1
+        `).run(total);
+  }
+  obtenerMeta() {
+    return this.db.prepare(`
+            SELECT ultima_sync, total_registros FROM efos_meta WHERE id = 1
+        `).get();
+  }
+  cruzarConCfdis() {
+    try {
+      const query = `
+                SELECT
+                    e.rfc,
+                    e.nombre,
+                    e.situacion,
+                    COUNT(f.uuid)                           AS total_facturas,
+                    COALESCE(SUM(CAST(f.total AS REAL)), 0) AS monto_total
+                FROM efos e
+                INNER JOIN ${this.tablaFacturas} f ON UPPER(f.rfc_emisor) = UPPER(e.rfc)
+                WHERE f.tipo_descarga = 'recibida'
+                  AND f.estado = 'vigente'
+                  AND e.situacion IN ('Definitivo', 'Presunto')
+                GROUP BY e.rfc, e.nombre, e.situacion
+                ORDER BY
+                    CASE e.situacion WHEN 'Definitivo' THEN 1 ELSE 2 END,
+                    monto_total DESC
+            `;
+      return this.db.prepare(query).all();
+    } catch (error) {
+      if (error.message.includes("no such table")) {
+        console.warn(`[EfosRepository] La tabla ${this.tablaFacturas} no existe aún.`);
+        return [];
+      }
+      throw error;
+    }
+  }
+}
+const URL_LISTADO_COMPLETO = "https://wu1agsprosta001.blob.core.windows.net/agsc-publicaciones/Datos_abiertos/Documents_AGAFF/Listado_completo_69-B.csv";
+const SITUACION_MAP = {
+  "definitivo": "Definitivo",
+  "presunto": "Presunto",
+  "desvirtuado": "Desvirtuado",
+  "sentencia favorable": "SentenciaFavorable",
+  "sentenciafavorable": "SentenciaFavorable",
+  "sentencias favorables": "SentenciaFavorable"
+};
+class Lista69BService {
+  constructor(efosRepository) {
+    this.efosRepository = efosRepository;
+  }
+  async sincronizar(onProgreso) {
+    onProgreso("Conectando con el SAT...");
+    const csv = await this.descargarCsv(URL_LISTADO_COMPLETO);
+    onProgreso("Procesando registros...");
+    const registros = this.parsearCsv(csv);
+    if (registros.length === 0) {
+      throw new Error("No se pudieron procesar registros. Verifica tu conexión e intenta de nuevo.");
+    }
+    onProgreso(`Guardando ${registros.length.toLocaleString("es-MX")} registros...`);
+    this.efosRepository.upsertMany(registros);
+    this.efosRepository.actualizarMeta(registros.length);
+    onProgreso(`Listo. ${registros.length.toLocaleString("es-MX")} contribuyentes cargados.`);
+    return { total: registros.length };
+  }
+  analizarRiesgo() {
+    const resultados = this.efosRepository.cruzarConCfdis();
+    const definitivos = resultados.filter((r) => r.situacion === "Definitivo");
+    const presuntos = resultados.filter((r) => r.situacion === "Presunto");
+    return {
+      definitivos,
+      presuntos,
+      montoDefinitivo: definitivos.reduce((s, r) => s + r.monto_total, 0),
+      montoPresunto: presuntos.reduce((s, r) => s + r.monto_total, 0),
+      sinRiesgo: resultados.length === 0
+    };
+  }
+  obtenerMeta() {
+    return this.efosRepository.obtenerMeta();
+  }
+  async descargarCsv(url) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("Tiempo de espera agotado al descargar la lista del SAT")),
+        6e4
+      );
+      https.get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, (res) => {
+        if (res.statusCode !== 200) {
+          clearTimeout(timeout);
+          reject(new Error(`Error HTTP ${res.statusCode} al descargar lista`));
+          return;
+        }
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          clearTimeout(timeout);
+          const buffer = Buffer.concat(chunks);
+          const contenido = buffer[0] === 239 && buffer[1] === 187 && buffer[2] === 191 ? buffer.subarray(3).toString("utf-8") : buffer.toString("utf-8");
+          resolve(contenido);
+        });
+        res.on("error", (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      }).on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+  parsearCsv(contenido) {
+    const separador = ";";
+    const lineas = contenido.split(/\r?\n/).filter((l) => l.trim().length > 10);
+    const registros = [];
+    const rfcRegex = /[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}/i;
+    for (const linea of lineas) {
+      const cols = linea.split(separador).map((c) => c.trim().replace(/^"|"$/g, ""));
+      const indexRFC = cols.findIndex((c) => rfcRegex.test(c));
+      if (indexRFC !== -1) {
+        const rfc = cols[indexRFC].toUpperCase();
+        const nombre = cols[indexRFC + 1] || "SIN NOMBRE";
+        const situacionRaw = (cols[indexRFC + 2] || "").toLowerCase().trim();
+        const situacion = SITUACION_MAP[situacionRaw] || "Desvirtuado";
+        registros.push({ rfc, nombre, situacion });
+      }
+    }
+    return registros;
+  }
+}
+class Lista69BHandler {
+  constructor(lista69BService) {
+    this.lista69BService = lista69BService;
+  }
+  registrar() {
+    electron.ipcMain.handle("lista69b-sincronizar", async () => {
+      try {
+        const onProgreso = (mensaje) => {
+          electron.BrowserWindow.getAllWindows()[0]?.webContents.send("progreso-lista69b", mensaje);
+        };
+        const resultado = await this.lista69BService.sincronizar(onProgreso);
+        return { success: true, data: resultado };
+      } catch (error) {
+        console.error("[Lista69BHandler] sincronizar:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error al sincronizar lista 69-B"
+        };
+      }
+    });
+    electron.ipcMain.handle("lista69b-analizar", () => {
+      try {
+        const resultado = this.lista69BService.analizarRiesgo();
+        return { success: true, data: resultado };
+      } catch (error) {
+        console.error("[Lista69BHandler] analizar:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error al analizar riesgo"
+        };
+      }
+    });
+    electron.ipcMain.handle("lista69b-obtener-meta", () => {
+      try {
+        const meta = this.lista69BService.obtenerMeta();
+        return { success: true, data: meta };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
 let mainWindow;
 function initDatabase() {
   const db = Database.getInstance();
@@ -4996,9 +5212,11 @@ electron.app.whenReady().then(async () => {
   const conciliacionRepository = new ConciliacionRepository(db);
   const configuracionService = new ConfiguracionService(db);
   const guardadoService = new CfdiGuardadoService(facturaRepository, pendienteRepository, db);
+  const efosRepository = new EfosRepository(db);
   const descargaService = new DescargaService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, pendienteRepository);
   const pendientesService = new PendientesService(authService, busquedaService, satDescargaService, guardadoService, pendienteRepository);
   const conciliacionService = new ConciliacionService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, conciliacionRepository);
+  const lista69BService = new Lista69BService(efosRepository);
   const profileManager = new ProfileManager(db);
   new PerfilHandler(profileManager, db).registrar();
   new FacturaHandler(descargaService, pendientesService, configuracionService, authService, db).registrar();
@@ -5011,6 +5229,7 @@ electron.app.whenReady().then(async () => {
   new ExportacionHandler(db).registrar();
   new CumplimientoHandler(configuracionService).registrar();
   new ConstanciaHandler(configuracionService).registrar();
+  new Lista69BHandler(lista69BService).registrar();
   createWindow();
   if (!utils.is.dev) {
     new UpdaterService(mainWindow).iniciar();

@@ -151,6 +151,16 @@ const createConstanciaApi = () => {
     }
   };
 };
+const createLista69BApi = () => {
+  return {
+    lista69bSincronizar: async () => electron.ipcRenderer.invoke("lista69b-sincronizar"),
+    lista69bAnalizar: async () => electron.ipcRenderer.invoke("lista69b-analizar"),
+    lista69bObtenerMeta: async () => electron.ipcRenderer.invoke("lista69b-obtener-meta"),
+    onProgresoLista69B: (callback) => {
+      electron.ipcRenderer.on("progreso-lista69b", (_, mensaje) => callback(mensaje));
+    }
+  };
+};
 if (process.contextIsolated) {
   try {
     electron.contextBridge.exposeInMainWorld("electron", preload.electronAPI);
@@ -166,6 +176,7 @@ if (process.contextIsolated) {
       ...createExportacionApi(),
       ...createCumplimientoApi(),
       ...createConstanciaApi(),
+      ...createLista69BApi(),
       ...createMiscApi()
     });
     electron.contextBridge.exposeInMainWorld("electronUpdater", createElectronUpdater());
@@ -187,6 +198,7 @@ if (process.contextIsolated) {
     ...createExportacionApi(),
     ...createCumplimientoApi(),
     ...createConstanciaApi(),
+    ...createLista69BApi(),
     ...createMiscApi()
   };
   window.electronUpdater = createElectronUpdater();

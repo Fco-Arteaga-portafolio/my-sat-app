@@ -29,6 +29,9 @@ import { ConciliacionService } from './services/ConciliacionService'
 import { UpdaterService } from './window/UpdaterService'
 import { LicenseHandler } from './ipc/LicenseHandler'
 import { ConstanciaHandler } from './ipc/ConstanciaHandler'
+import { EfosRepository } from './database/repositories/EfosRepository'
+import { Lista69BService } from './services/Lista69BService'
+import { Lista69BHandler } from './ipc/Lista69BHandler'
 
 let mainWindow: BrowserWindow;
 
@@ -97,11 +100,13 @@ app.whenReady().then(async () => {
   // Servicios base
   const configuracionService = new ConfiguracionService(db)
   const guardadoService = new CfdiGuardadoService(facturaRepository, pendienteRepository, db)
+  const efosRepository = new EfosRepository(db)
 
   // Flujos
   const descargaService = new DescargaService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, pendienteRepository)
   const pendientesService = new PendientesService(authService, busquedaService, satDescargaService, guardadoService, pendienteRepository)
   const conciliacionService = new ConciliacionService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, conciliacionRepository)
+  const lista69BService = new Lista69BService(efosRepository)
 
   // Handlers
   const profileManager = new ProfileManager(db)
@@ -116,6 +121,7 @@ app.whenReady().then(async () => {
   new ExportacionHandler(db).registrar()
   new CumplimientoHandler(configuracionService).registrar()
   new ConstanciaHandler(configuracionService).registrar()
+  new Lista69BHandler(lista69BService).registrar()
 
   createWindow()
   if (!is.dev) {

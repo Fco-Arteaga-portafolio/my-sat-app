@@ -23,6 +23,7 @@ import ReporteDetalleMesPage from './pages/ReporteDetalleMesPage/ReporteDetalleM
 import ExportacionPage from './pages/ExportacionPage/ExportacionPage'
 import CumplimientoPage from './pages/CumplimientoPage/CumplimientoPage'
 import ConstanciaPage from './pages/ConstanciaPage/ConstanciaPage'
+import Radar69BPage from './pages/Radar69BPage/Radar69BPage'
 
 const RutaProtegida = ({ children }: { children: React.ReactNode }) => {
   const { perfil } = useContribuyente()
@@ -110,6 +111,7 @@ const AppRoutes = () => {
         <Route path="/reportes/:origen/:anio/:mes" element={<ReporteDetalleMesPage />} />
         <Route path="/exportacion" element={<ExportacionPage />} />
         <Route path="/cumplimiento/opinion" element={<CumplimientoPage />} />
+        <Route path="/cumplimiento/radar" element={<Radar69BPage />} />
       </Route>
     </Routes>
   )

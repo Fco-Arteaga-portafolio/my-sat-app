@@ -174,6 +174,12 @@ declare global {
       constanciaObtenerConstancia(data: { captcha?: string }): Promise<{ success: boolean; data: ConstanciaSituacionFiscal; error?: string }>
       constanciaCerrarSesion(): Promise<{ success: boolean }>
       onProgresoConstancia(callback: (mensaje: string) => void): void
+
+      // Radar 69-B
+      lista69bSincronizar(): Promise<{ success: boolean; data?: { total: number }; error?: string }>
+      lista69bAnalizar(): Promise<{ success: boolean; data?: Radar69BAnalisis; error?: string }>
+      lista69bObtenerMeta(): Promise<{ success: boolean; data?: { ultima_sync: string | null; total_registros: number }; error?: string }>
+      onProgresoLista69B(callback: (mensaje: string) => void): void
     }
   }
 }
