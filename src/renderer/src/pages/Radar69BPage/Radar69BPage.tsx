@@ -74,7 +74,7 @@ const columnas: ColumnsType<EfosRiesgo> = [
 const Radar69BPage = () => {
   const { meta, analisis, sincronizando, progreso, cargando, error, sincronizar } = useRadar69B()
 
-  const totalRiesgo = (analisis?.definitivos.length ?? 0) + (analisis?.presuntos.length ?? 0)
+  // const totalRiesgo = (analisis?.definitivos.length ?? 0) + (analisis?.presuntos.length ?? 0)
   const montoTotal = (analisis?.montoDefinitivo ?? 0) + (analisis?.montoPresunto ?? 0)
 
   const renderContenido = () => {
