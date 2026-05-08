@@ -1,6 +1,6 @@
 {
   "name": "ifrat",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "IFRAT Desktop - Plataforma fiscal y facturación para México",
   "main": "out/main/index.js",
   "author": "Francisco Emmanuel Arteaga Ayala",
@@ -74,6 +74,12 @@
     "directories": {
       "output": "C:/Users/pako_/source/repos/infrat-releases"
     },
+    "extraResources": [
+      {
+        "from": "playwright-browsers",
+        "to": "playwright-browsers"
+      }
+    ],
     "files": [
       {
         "from": "dist",

@@ -1,4 +1,6 @@
 import { chromium, BrowserContext, Browser } from 'playwright'
+import { app } from 'electron'
+import { join } from 'path'
 
 export class BrowserManager {
     private static browser: Browser | null = null
@@ -11,6 +13,10 @@ export class BrowserManager {
     static async getBrowser(): Promise<Browser> {
         if (!this.browser) {
             // Carpeta donde se guardará el perfil (cookies, localStorage, etc.)
+
+            if (app.isPackaged) {
+                process.env.PLAYWRIGHT_BROWSERS_PATH = join(process.resourcesPath, 'playwright-browsers')
+            }
 
             this.browser = await chromium.launch({
                 headless: this.headless,
