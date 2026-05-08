@@ -1,10 +1,28 @@
+import path from 'path/win32';
 import { chromium, BrowserContext, Browser } from 'playwright'
-import { app } from 'electron'
-import { join } from 'path'
 
 export class BrowserManager {
     private static browser: Browser | null = null
     private static headless = process.env.NODE_ENV === 'production' // ← un solo lugar para cambiar
+
+
+    // Método para calcular la ruta del ejecutable según el entorno
+    private static getExecutablePath(): string | undefined {
+        if (process.env.NODE_ENV !== 'production') {
+            // En desarrollo, dejamos que Playwright use su ruta por defecto (ms-playwright)
+            return undefined;
+        }
+
+        // En producción (IFRAT instalado), construimos la ruta hacia la carpeta resources
+        // Ajusta los nombres de las carpetas según tu estructura real detectada
+        return path.join(
+            process.resourcesPath,
+            'resources',
+            'chromium-1208',
+            'chrome-win64',
+            'chrome.exe'
+        );
+    }
 
     static setHeadless(value: boolean): void {
         this.headless = value
@@ -12,14 +30,11 @@ export class BrowserManager {
 
     static async getBrowser(): Promise<Browser> {
         if (!this.browser) {
-            // Carpeta donde se guardará el perfil (cookies, localStorage, etc.)
-
-            if (app.isPackaged) {
-                process.env.PLAYWRIGHT_BROWSERS_PATH = join(process.resourcesPath, 'playwright-browsers')
-            }
+            const exePath = this.getExecutablePath();
 
             this.browser = await chromium.launch({
                 headless: this.headless,
+                executablePath: exePath,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',

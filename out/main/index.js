@@ -4,6 +4,7 @@ const path = require("path");
 const utils = require("@electron-toolkit/utils");
 const BetterSqlite3 = require("better-sqlite3");
 const fs = require("fs");
+const path$1 = require("path/win32");
 const playwright = require("playwright");
 const pdfjsLib = require("pdfjs-dist/legacy/build/pdf");
 const axios = require("axios");
@@ -991,13 +992,28 @@ class BrowserManager {
   static browser = null;
   static headless = process.env.NODE_ENV === "production";
   // ← un solo lugar para cambiar
+  // Método para calcular la ruta del ejecutable según el entorno
+  static getExecutablePath() {
+    if (process.env.NODE_ENV !== "production") {
+      return void 0;
+    }
+    return path$1.join(
+      process.resourcesPath,
+      "resources",
+      "chromium-1208",
+      "chrome-win64",
+      "chrome.exe"
+    );
+  }
   static setHeadless(value) {
     this.headless = value;
   }
   static async getBrowser() {
     if (!this.browser) {
+      const exePath = this.getExecutablePath();
       this.browser = await playwright.chromium.launch({
         headless: this.headless,
+        executablePath: exePath,
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
