@@ -1,7 +1,9 @@
 import { Button, Modal, Space, Popconfirm, Alert, Tag, Avatar } from 'antd'
-import { PlusOutlined, UserOutlined, DeleteOutlined, LoginOutlined } from '@ant-design/icons'
+import { UserOutlined, DeleteOutlined, LoginOutlined } from '@ant-design/icons'
 import { usePerfilesPage } from './PerfilesPage.hook'
 import ContribuyenteForm from '../../components/ContribuyenteForm/ContribuyenteForm'
+import ModalLicencia from '../../components/ModalLicencia/ModalLicencia'
+import ModalSoporte from '../../components/ModalSoporte/ModalSoporte'
 import logoIcon from '../../assets/icon.png'
 import { useEffect, useState } from 'react'
 import './PerfilesPage.css'
@@ -27,7 +29,11 @@ const PerfilesPage = ({
     seleccionarCer,
     seleccionarKey,
     moverSlot,
-    toggleSlot
+    toggleSlot,
+    modalLicenciaVisible, // ← nuevo
+    setModalLicenciaVisible, // ← nuevo
+    modalSoporteVisible, // ← nuevo
+    setModalSoporteVisible // ← nuevo
   } = usePerfilesPage(onPerfilSeleccionado)
 
   const [version, setVersion] = useState('')
@@ -83,9 +89,34 @@ const PerfilesPage = ({
           </div>
         ))}
 
-        <div className="perfil-agregar" onClick={() => setModalVisible(true)}>
-          <PlusOutlined />
-          <span>Agregar contribuyente</span>
+        <div className="perfil-acciones">
+          <button className="perfil-accion-btn" onClick={() => setModalVisible(true)}>
+            <div className="perfil-accion-icono add">➕</div>
+            <span className="perfil-accion-label">
+              Agregar
+              <br />
+              contribuyente
+            </span>
+            <span className="perfil-accion-sub">RFC + credenciales</span>
+          </button>
+          <button className="perfil-accion-btn" onClick={() => setModalLicenciaVisible(true)}>
+            <div className="perfil-accion-icono lic">🔑</div>
+            <span className="perfil-accion-label">
+              Licencia &amp;
+              <br />
+              Activación
+            </span>
+            <span className="perfil-accion-sub">Comprar o activar</span>
+          </button>
+          <button className="perfil-accion-btn" onClick={() => setModalSoporteVisible(true)}>
+            <div className="perfil-accion-icono sup">🎧</div>
+            <span className="perfil-accion-label">
+              Soporte
+              <br />
+              Técnico
+            </span>
+            <span className="perfil-accion-sub">Tickets y errores</span>
+          </button>
         </div>
       </div>
 
@@ -127,6 +158,10 @@ const PerfilesPage = ({
           mostrarNombre={true}
         />
       </Modal>
+
+      {modalLicenciaVisible && <ModalLicencia onClose={() => setModalLicenciaVisible(false)} />}
+
+      {modalSoporteVisible && <ModalSoporte onClose={() => setModalSoporteVisible(false)} />}
     </div>
   )
 }

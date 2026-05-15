@@ -14,7 +14,6 @@ import { PerfilHandler } from './ipc/PerfilHandler'
 import { DashboardHandler } from './ipc/DashboardHandler'
 import { CatalogoHandler } from './ipc/CatalogoHandler'
 import { ExportacionHandler } from './ipc/ExportacionHandler'
-import { CumplimientoHandler } from './ipc/CumplimientoHandler'
 import { FacturaRepository } from './database/repositories/FacturaRepository'
 import { DescargaPendienteRepository } from './database/repositories/DescargaPendienteRepository'
 import { ConciliacionRepository } from './database/repositories/ConciliacionRepository'
@@ -30,12 +29,40 @@ import { PendientesService } from './services/PendientesService'
 import { ConciliacionService } from './services/ConciliacionService'
 import { UpdaterService } from './window/UpdaterService'
 import { LicenseHandler } from './ipc/LicenseHandler'
-import { ConstanciaHandler } from './ipc/ConstanciaHandler'
 import { EfosRepository } from './database/repositories/EfosRepository'
 import { Lista69BService } from './services/Lista69BService'
 import { Lista69BHandler } from './ipc/Lista69BHandler'
 
+// Nuevos servicios unificados
+import { UnifiedSatHandler } from './ipc/UnifiedSatHandler'
+import { PortalConfigProvider } from './scraper/PortalConfigProvider'
+import { SatUnifiedAuthService } from './scraper/SatUnifiedAuthService'
+import { SatConstanciaOperationService } from './scraper/SatConstanciaOperationService'
+import { SatCumplimientoOperationService } from './scraper/SatCumplimientoOperationService'
+
 let mainWindow: BrowserWindow;
+
+/**
+ * Implementar single instance lock
+ * Solo permite una instancia del programa al mismo tiempo
+ */
+const gotLock = app.requestSingleInstanceLock()
+
+if (!gotLock) {
+  // No pudimos obtener el lock, significa que ya hay otra instancia corriendo
+  app.quit()
+} else {
+  // Escuchar cuando otra instancia intenta iniciar
+  app.on('second-instance', () => {
+    // Si ya existe una ventana, enfocarla
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore()
+      }
+      mainWindow.focus()
+    }
+  })
+}
 
 function initDatabase(): void {
   const db = Database.getInstance()
@@ -121,9 +148,38 @@ app.whenReady().then(async () => {
   new CatalogoHandler(db).registrar()
   new LicenseHandler(db).registrar()
   new ExportacionHandler(db).registrar()
-  new CumplimientoHandler(configuracionService).registrar()
-  new ConstanciaHandler(configuracionService).registrar()
   new Lista69BHandler(lista69BService).registrar()
+
+  // Servicios unificados para SAT
+  const configProvider = new PortalConfigProvider()
+
+  // Crear instancia ÚNICA de authService que será compartida por todos
+  const sharedAuthService = new SatUnifiedAuthService(configProvider)
+
+  // Pasar la MISMA instancia de authService a los servicios de operación
+  const constanciaService = new SatConstanciaOperationService(configProvider, sharedAuthService)
+  const cumplimientoService = new SatCumplimientoOperationService(configProvider, sharedAuthService)
+
+  // Handler unificado con compatibilidad hacia atrás
+  const unifiedHandler = new UnifiedSatHandler(
+    configuracionService,
+    {
+      constancia: {
+        obtenerCaptcha: () => constanciaService.obtenerCaptcha(),
+        ejecutar: (page, cred, opts) => constanciaService.ejecutar(page, cred, opts), // ← page primero
+        cerrarSesion: () => constanciaService.cerrarSesion()
+      },
+      cumplimiento: {
+        obtenerCaptcha: () => cumplimientoService.obtenerCaptcha(),
+        ejecutar: (page, cred, opts) => cumplimientoService.ejecutar(page, cred, opts), // ← page primero
+        cerrarSesion: () => cumplimientoService.cerrarSesion()
+      }
+    },
+    sharedAuthService,
+    configProvider   // ← cuarto argumento, antes faltaba
+  )
+  unifiedHandler.registrar()
+  // ✅ Handlers legacy ya están registrados dentro de unifiedHandler.registrar()
 
   createWindow()
   if (!is.dev) {

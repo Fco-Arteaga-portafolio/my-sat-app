@@ -1,0 +1,69 @@
+{
+  "portals": [
+    {
+      "id": "facturas",
+      "name": "Descargar Facturas",
+      "baseUrl": "https://portalcfdi.facturaelectronica.sat.gob.mx/",
+      "loginUrl": "https://portalcfdi.facturaelectronica.sat.gob.mx/",
+      "loginDomain": "portalcfdi.facturaelectronica.sat.gob.mx",
+      "authMethods": ["ciec", "fiel"],
+      "requiresCaptcha": true,
+      "selectors": {
+        "captchaContainer": "#divCaptcha",
+        "captchaImage": "#divCaptcha img",
+        "rfcField": "#rfc",
+        "passwordField": "#password",
+        "captchaField": "#userCaptcha",
+        "submitButton": "#submit",
+        "fielButton": "#buttonFiel",
+        "cerFileInput": "#fileCertificate",
+        "keyFileInput": "#filePrivateKey",
+        "fielPasswordField": "#privateKeyPassword",
+        "logoutButton": "#salir"
+      }
+    },
+    {
+      "id": "constancia",
+      "name": "Constancia de Situación Fiscal",
+      "baseUrl": "https://wwwmat.sat.gob.mx/app/seg/faces/pages/lanzador.jsf?url=/operacion/43824/reimprime-tus-acuses-del-rfc&tipoLogeo=c&target=principal&hostServer=https://wwwmat.sat.gob.mx",
+      "loginUrl": "https://wwwmat.sat.gob.mx/app/seg/faces/pages/lanzador.jsf?url=/operacion/43824/reimprime-tus-acuses-del-rfc&tipoLogeo=c&target=principal&hostServer=https://wwwmat.sat.gob.mx",
+      "loginDomain": "login.siat.sat.gob.mx",
+      "portalDomain": "wwwmat.sat.gob.mx",
+      "authMethods": ["ciec", "fiel"],
+      "requiresCaptcha": true,
+      "selectors": {
+        "captchaImage": "img[src^=\"data:image\"]",
+        "rfcField": "#rfc",
+        "passwordField": "#password",
+        "captchaField": "input[type=\"text\"][placeholder*=\"captcha\"], #userCaptcha, input[name*=\"captcha\"]",
+        "submitButton": "#submit",
+        "cerFileInput": "input[accept*=\".cer\"]",
+        "keyFileInput": "input[accept*=\".key\"]",
+        "fielPasswordField": "input[type=\"password\"]",
+        "generateButton": "button:has-text(\"Generar Constancia\"), input[value=\"Generar Constancia\"]",
+        "iframe": "#iframetoload"
+      }
+    },
+    {
+      "id": "cumplimiento",
+      "name": "Opinión de Cumplimiento",
+      "baseUrl": "https://ptsc32d.clouda.sat.gob.mx",
+      "loginUrl": "https://ptsc32d.clouda.sat.gob.mx/?/reporteOpinion32DContribuyente",
+      "loginDomain": "loginda.siat.sat.gob.mx",
+      "portalDomain": "ptsc32d.clouda.sat.gob.mx",
+      "portalRoute": "https://ptsc32d.clouda.sat.gob.mx/#/reporteOpinion32DContribuyente",
+      "authMethods": ["ciec", "fiel"],
+      "requiresCaptcha": true,
+      "selectors": {
+        "captchaImage": "img[src^=\"data:image\"]",
+        "rfcField": "#rfc",
+        "passwordField": "#password",
+        "captchaField": "input[type=\"text\"][placeholder*=\"captcha\"], #userCaptcha, input[name*=\"captcha\"]",
+        "submitButton": "#submit",
+        "cerFileInput": "input[accept*=\".cer\"]",
+        "keyFileInput": "input[accept*=\".key\"]",
+        "fielPasswordField": "input[type=\"password\"]"
+      }
+    }
+  ]
+}

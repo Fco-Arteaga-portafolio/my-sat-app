@@ -35,9 +35,9 @@ export function useCumplimientoPage() {
         setLoading(true)
         setError('')
         try {
-            const res = await window.api.obtenerCaptcha()
+            const res = await window.api.cumplimientoObtenerCaptcha()
             if (res.success) {
-                setCaptchaBase64(res.imagenBase64 || '')
+                setCaptchaBase64(res.data?.imagenBase64 || '')
             } else {
                 setError(res.error ?? 'Error cargando captcha')
             }
@@ -69,6 +69,7 @@ export function useCumplimientoPage() {
         } finally {
             setLoading(false)
             setProgreso('')
+            await window.api.cerrarSesion().catch(() => null)
         }
     }
 

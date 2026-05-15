@@ -3,12 +3,28 @@ import { defineConfig } from 'electron-vite'
 import { normalizePath } from 'vite'
 import react from '@vitejs/plugin-react'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
-import path from 'path' 
+import path from 'path'
 
 const pdfjsDistPath = path.resolve('node_modules/react-pdf/node_modules/pdfjs-dist')
 
 export default defineConfig({
-  main: {},
+  main: {
+    build: {
+      rollupOptions: {
+        external: ['original-fs']
+      }
+    },
+    plugins: [
+      viteStaticCopy({
+        targets: [
+          {
+            src: normalizePath(path.resolve('src/main/templates')),
+            dest: ''
+          }
+        ]
+      })
+    ]
+  },
   preload: {},
   renderer: {
     resolve: {

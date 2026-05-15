@@ -1,27 +1,33 @@
-import path from 'path/win32';
+import { readdirSync, existsSync } from 'original-fs';
+import { app } from 'electron';
+import { join } from 'path/win32';
 import { chromium, BrowserContext, Browser } from 'playwright'
 
 export class BrowserManager {
     private static browser: Browser | null = null
-    private static headless = process.env.NODE_ENV === 'production' // ← un solo lugar para cambiar
+    private static headless = app.isPackaged // ← un solo lugar para cambiar
 
 
     // Método para calcular la ruta del ejecutable según el entorno
-    private static getExecutablePath(): string | undefined {
-        if (process.env.NODE_ENV !== 'production') {
-            // En desarrollo, dejamos que Playwright use su ruta por defecto (ms-playwright)
-            return undefined;
-        }
+    private static findBundledChromium(): string | undefined {
+        if (!app.isPackaged) return undefined
 
-        // En producción (IFRAT instalado), construimos la ruta hacia la carpeta resources
-        // Ajusta los nombres de las carpetas según tu estructura real detectada
-        return path.join(
-            process.resourcesPath,
-            'resources',
-            'chromium-1208',
-            'chrome-win64',
-            'chrome.exe'
-        );
+        const browsersPath = join(process.resourcesPath, 'playwright-browsers')
+        console.log('[BrowserManager] buscando chromium en:', browsersPath)
+        console.log('[BrowserManager] existe:', existsSync(browsersPath))
+
+        if (!existsSync(browsersPath)) return undefined
+
+        const dirs = readdirSync(browsersPath)
+        console.log('[BrowserManager] carpetas encontradas:', dirs)
+
+        const chromiumDir = dirs.find(d => d.startsWith('chromium-') && !d.includes('headless'))
+        if (!chromiumDir) return undefined
+
+        const exePath = join(browsersPath, chromiumDir, 'chrome-win64', 'chrome.exe')
+        console.log('[BrowserManager] exePath:', exePath, '| existe:', existsSync(exePath))
+
+        return existsSync(exePath) ? exePath : undefined
     }
 
     static setHeadless(value: boolean): void {
@@ -30,7 +36,7 @@ export class BrowserManager {
 
     static async getBrowser(): Promise<Browser> {
         if (!this.browser) {
-            const exePath = this.getExecutablePath();
+            const exePath = this.findBundledChromium();
 
             this.browser = await chromium.launch({
                 headless: this.headless,

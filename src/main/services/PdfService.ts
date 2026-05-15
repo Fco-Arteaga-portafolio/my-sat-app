@@ -21,7 +21,9 @@ export class PdfService {
     }
 
     private async construirHtml(parseada: FacturaParseada, uuid: string, plantilla: Plantilla): Promise<string> {
-        const templatePath = join(app.getAppPath(), 'src', 'main', 'templates', `${plantilla}.html`)
+        const templatePath = app.isPackaged
+            ? join(__dirname, 'templates', `${plantilla}.html`)
+            : join(app.getAppPath(), 'src', 'main', 'templates', `${plantilla}.html`)
         let html = fs.readFileSync(templatePath, 'utf-8')
 
         const fmt = (n: number) => (n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
@@ -84,18 +86,21 @@ export class PdfService {
 
         html = this.reemplazar(html, 'CONCEPTOS_ROWS', conceptosRows)
 
-        // Impuestos
-        /* const tieneImpuestos = parseada.impuestos.length > 0
-         const impuestosRows = parseada.impuestos.map((i) => `
-       <tr>
-         <td>${i.tipo === 'traslado' ? 'Traslado' : 'Retención'}</td>
-         <td>${cat(impuesto, i.impuesto)}</td>
-         <td class="text-right">${i.tasa ? (i.tasa * 100).toFixed(0) + '%' : '-'}</td>
-         <td class="text-right">${fmt(i.importe)}</td>
-       </tr>`).join('')
-         html = this.bloqueContenido(html, 'TIENE_IMPUESTOS', tieneImpuestos)
-         html = this.reemplazar(html, 'IMPUESTOS_ROWS', impuestosRows)
- */
+        // Impuestos — derivados de los conceptos
+        const todosImpuestos = parseada.conceptos.flatMap(c => c.impuestos ?? [])
+        const tieneImpuestos = todosImpuestos.length > 0
+
+        const impuestosRows = todosImpuestos.map((i) => `
+  <tr>
+    <td>${i.tipo === 'traslado' ? 'Traslado' : 'Retención'}</td>
+    <td>${cat(impuesto, i.impuesto)}</td>
+    <td class="text-right">${i.tasa ? (i.tasa * 100).toFixed(0) + '%' : '-'}</td>
+    <td class="text-right">${fmt(i.importe)}</td>
+  </tr>`).join('')
+
+        html = this.bloqueContenido(html, 'TIENE_IMPUESTOS', tieneImpuestos)
+        html = this.reemplazar(html, 'IMPUESTOS_ROWS', impuestosRows)
+
         // Totales
         html = this.reemplazar(html, 'SUBTOTAL', fmt(parseada.subtotal))
         html = this.reemplazar(html, 'TOTAL', fmt(parseada.total))

@@ -68,6 +68,7 @@ export function useConstanciaPage() {
     } finally {
       setLoading(false)
       setProgreso('')
+      await window.api.cerrarSesion().catch(() => null)
     }
   }
 

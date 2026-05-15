@@ -4,13 +4,14 @@ const path = require("path");
 const utils = require("@electron-toolkit/utils");
 const BetterSqlite3 = require("better-sqlite3");
 const fs = require("fs");
-const path$1 = require("path/win32");
+const originalFs = require("original-fs");
+const win32 = require("path/win32");
 const playwright = require("playwright");
-const pdfjsLib = require("pdfjs-dist/legacy/build/pdf");
 const axios = require("axios");
 const xmldom = require("@xmldom/xmldom");
 const electronUpdater = require("electron-updater");
 const https = require("https");
+const pdfjsLib = require("pdfjs-dist/legacy/build/pdf");
 function _interopNamespaceDefault(e) {
   const n = Object.create(null, { [Symbol.toStringTag]: { value: "Module" } });
   if (e) {
@@ -39,6 +40,7 @@ class Database {
       Database.instance = new BetterSqlite3(dbPath);
       Database.instance.pragma("journal_mode = WAL");
       Database.instance.pragma("foreign_keys = ON");
+      console.log("Ruta de la BD:", dbPath);
     }
     return Database.instance;
   }
@@ -990,27 +992,29 @@ const tipoDeduccion = {
 const cat = (catalogo, clave) => catalogo[clave] ? `${clave} - ${catalogo[clave]}` : clave;
 class BrowserManager {
   static browser = null;
-  static headless = process.env.NODE_ENV === "production";
+  static headless = electron.app.isPackaged;
   // ← un solo lugar para cambiar
   // Método para calcular la ruta del ejecutable según el entorno
-  static getExecutablePath() {
-    if (process.env.NODE_ENV !== "production") {
-      return void 0;
-    }
-    return path$1.join(
-      process.resourcesPath,
-      "resources",
-      "chromium-1208",
-      "chrome-win64",
-      "chrome.exe"
-    );
+  static findBundledChromium() {
+    if (!electron.app.isPackaged) return void 0;
+    const browsersPath = win32.join(process.resourcesPath, "playwright-browsers");
+    console.log("[BrowserManager] buscando chromium en:", browsersPath);
+    console.log("[BrowserManager] existe:", originalFs.existsSync(browsersPath));
+    if (!originalFs.existsSync(browsersPath)) return void 0;
+    const dirs = originalFs.readdirSync(browsersPath);
+    console.log("[BrowserManager] carpetas encontradas:", dirs);
+    const chromiumDir = dirs.find((d) => d.startsWith("chromium-") && !d.includes("headless"));
+    if (!chromiumDir) return void 0;
+    const exePath = win32.join(browsersPath, chromiumDir, "chrome-win64", "chrome.exe");
+    console.log("[BrowserManager] exePath:", exePath, "| existe:", originalFs.existsSync(exePath));
+    return originalFs.existsSync(exePath) ? exePath : void 0;
   }
   static setHeadless(value) {
     this.headless = value;
   }
   static async getBrowser() {
     if (!this.browser) {
-      const exePath = this.getExecutablePath();
+      const exePath = this.findBundledChromium();
       this.browser = await playwright.chromium.launch({
         headless: this.headless,
         executablePath: exePath,
@@ -1054,7 +1058,7 @@ class PdfService {
     await this.htmlAPdf(html, rutaDestino);
   }
   async construirHtml(parseada, uuid, plantilla) {
-    const templatePath = path.join(electron.app.getAppPath(), "src", "main", "templates", `${plantilla}.html`);
+    const templatePath = electron.app.isPackaged ? path.join(__dirname, "templates", `${plantilla}.html`) : path.join(electron.app.getAppPath(), "src", "main", "templates", `${plantilla}.html`);
     let html = fs__namespace.readFileSync(templatePath, "utf-8");
     const fmt = (n) => (n || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
     html = this.reemplazar(html, "UUID", uuid);
@@ -1100,6 +1104,17 @@ class PdfService {
             ${impuestosHtml}`;
     }).join("");
     html = this.reemplazar(html, "CONCEPTOS_ROWS", conceptosRows);
+    const todosImpuestos = parseada.conceptos.flatMap((c) => c.impuestos ?? []);
+    const tieneImpuestos = todosImpuestos.length > 0;
+    const impuestosRows = todosImpuestos.map((i) => `
+  <tr>
+    <td>${i.tipo === "traslado" ? "Traslado" : "Retención"}</td>
+    <td>${cat(impuesto, i.impuesto)}</td>
+    <td class="text-right">${i.tasa ? (i.tasa * 100).toFixed(0) + "%" : "-"}</td>
+    <td class="text-right">${fmt(i.importe)}</td>
+  </tr>`).join("");
+    html = this.bloqueContenido(html, "TIENE_IMPUESTOS", tieneImpuestos);
+    html = this.reemplazar(html, "IMPUESTOS_ROWS", impuestosRows);
     html = this.reemplazar(html, "SUBTOTAL", fmt(parseada.subtotal));
     html = this.reemplazar(html, "TOTAL", fmt(parseada.total));
     html = this.bloque(html, "DESCUENTO", !!parseada.descuento, fmt(parseada.descuento || 0));
@@ -3186,264 +3201,6 @@ class ExportacionHandler {
     return mapeo[tipo] || tipo;
   }
 }
-const CUMPLIMIENTO_PORTAL = "https://ptsc32d.clouda.sat.gob.mx";
-const LOGIN_DOMAIN$1 = "loginda.siat.sat.gob.mx";
-const RUTA_REPORTE = "https://ptsc32d.clouda.sat.gob.mx/#/reporteOpinion32DContribuyente";
-const MAX_REINTENTOS$1 = 3;
-class SatCumplimientoService {
-  async obtenerCaptcha(page) {
-    await page.goto(CUMPLIMIENTO_PORTAL, { waitUntil: "networkidle", timeout: 3e4 });
-    await page.waitForURL(`**${LOGIN_DOMAIN$1}**`, { timeout: 2e4 });
-    const captchaEl = await page.waitForSelector('img[src^="data:image"]', { timeout: 1e4 });
-    const screenshot = await captchaEl.screenshot({ type: "png" });
-    return { imagenBase64: `data:image/png;base64,${screenshot.toString("base64")}` };
-  }
-  async loginCiecYObtenerOpinion(page, carpetaTemp, rfc, password, captcha, onProgreso) {
-    const accionLogin = async () => {
-      await this.llenarFormularioCiec(page, rfc, password, captcha);
-    };
-    return this.ejecutarFlujoOpinion(page, carpetaTemp, accionLogin, "contrasena", onProgreso);
-  }
-  async loginFielYObtenerOpinion(page, carpetaTemp, rutaCer, rutaKey, password, onProgreso) {
-    const accionLogin = async () => {
-      await this.llenarFormularioFiel(page, rutaCer, rutaKey, password);
-    };
-    return this.ejecutarFlujoOpinion(page, carpetaTemp, accionLogin, "efirma", onProgreso);
-  }
-  // ---------------------------------------------------------------------------
-  async ejecutarFlujoOpinion(page, carpetaTemp, accionLogin, metodo, onProgreso) {
-    try {
-      onProgreso?.("Conectando con el SAT...");
-      const pdfPromesa = this.configurarInterceptacionPdf(page, carpetaTemp);
-      onProgreso?.("Iniciando sesión...");
-      await this.intentarLogin(page, accionLogin, metodo);
-      onProgreso?.("Generando reporte de cumplimiento...");
-      const rutaArchivo = await this.navegarYCapturarReporte(page, pdfPromesa, onProgreso);
-      onProgreso?.("Procesando resultado...");
-      return this.formatearRespuesta(rutaArchivo);
-    } catch (error) {
-      return this.manejarError(metodo === "contrasena" ? "CIEC" : "FIEL", error);
-    }
-  }
-  async intentarLogin(page, accion, metodoAuth, intento = 1) {
-    try {
-      await accion();
-      const resultado = await Promise.race([
-        page.waitForSelector(".alert-danger, #msgError, #pnlError", { timeout: 7e3 }).then(async (el) => ({ tipo: "ERROR", texto: await el?.innerText() })),
-        page.waitForSelector('a[href*="Logout"], .separador-menu, #header', { timeout: 2e4 }).then(() => ({ tipo: "EXITO", texto: null })),
-        page.waitForURL(`**/ptsc32d.clouda.sat.gob.mx/#/`, { timeout: 2e4 }).then(() => ({ tipo: "EXITO", texto: null }))
-      ]);
-      if (resultado?.tipo === "ERROR") {
-        const txt = resultado.texto?.toLowerCase() || "";
-        if (txt.includes("captcha")) throw new Error("CAPTCHA_INVALIDO");
-        if (txt.includes("rfc") || txt.includes("contraseña") || txt.includes("acceso"))
-          throw new Error("CREDENCIALES_INVALIDAS");
-        throw new Error(resultado.texto || "ERROR_DESCONOCIDO_SAT");
-      }
-      console.log("[SatCumplimientoService] Login verificado con éxito");
-    } catch (error) {
-      if (error.message === "CAPTCHA_INVALIDO" || error.message === "CREDENCIALES_INVALIDAS") {
-        throw error;
-      }
-      const esTimeout = error.message?.toLowerCase().includes("timeout");
-      if (esTimeout && intento < MAX_REINTENTOS$1) {
-        console.log(`[SatCumplimientoService] Timeout (intento ${intento}/${MAX_REINTENTOS$1}), verificando estado...`);
-        const estaAdentro = await page.evaluate(
-          () => document.body.innerText.includes("Cerrar sesión") || !!document.querySelector(".separador-menu")
-        ).catch(() => false);
-        if (estaAdentro) {
-          console.log("[SatCumplimientoService] Ya estamos adentro, continuando...");
-          return;
-        }
-        await page.goto(CUMPLIMIENTO_PORTAL, { waitUntil: "networkidle" });
-        return this.intentarLogin(page, accion, metodoAuth, intento + 1);
-      }
-      throw error;
-    }
-  }
-  async navegarYCapturarReporte(page, pdfPromesa, onProgreso) {
-    await page.waitForURL(`**ptsc32d.clouda.sat.gob.mx**`, { timeout: 2e4 });
-    await page.waitForTimeout(2e3);
-    onProgreso?.("Descargando PDF de opinión...");
-    await page.goto(RUTA_REPORTE, { waitUntil: "commit", timeout: 45e3 });
-    await page.waitForSelector("sat-mf-reporte-opinion-contribuyente-root", { timeout: 3e4 }).catch(() => null);
-    return await pdfPromesa;
-  }
-  async configurarInterceptacionPdf(page, carpetaTemp) {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        page.removeListener("response", handler);
-        resolve(void 0);
-      }, 6e4);
-      const handler = async (response) => {
-        const url = response.url();
-        const contentType = (response.headers()["content-type"] || "").toLowerCase();
-        if (url.includes("GeneraOpinion") || contentType.includes("pdf")) {
-          try {
-            const buffer = await response.body();
-            if (buffer.length > 5e3) {
-              const rutaFinal = path.join(carpetaTemp, `opinion_${Date.now()}.pdf`);
-              fs.writeFileSync(rutaFinal, buffer);
-              clearTimeout(timer);
-              page.removeListener("response", handler);
-              resolve(rutaFinal);
-            }
-          } catch {
-          }
-        }
-      };
-      page.on("response", handler);
-    });
-  }
-  async formatearRespuesta(rutaArchivo) {
-    let resultado = "unknown";
-    if (rutaArchivo) {
-      resultado = await this.determinarResultadoDesdePdf(rutaArchivo);
-    }
-    return {
-      resultado,
-      fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
-      descripcion: rutaArchivo ? "Procesado con éxito." : "Error: PDF no capturado.",
-      rutaArchivo
-    };
-  }
-  manejarError(tipo, error) {
-    const msg = error.message || "Error desconocido";
-    console.error(`[SatCumplimientoService] ${tipo}: ${msg}`);
-    return {
-      resultado: "unknown",
-      fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
-      descripcion: `FALLO_${tipo}: ${msg}`
-    };
-  }
-  async determinarResultadoDesdePdf(ruta) {
-    try {
-      const buffer = fs.readFileSync(ruta);
-      const loadingTask = pdfjsLib__namespace.getDocument({ data: new Uint8Array(buffer) });
-      const pdf = await loadingTask.promise;
-      let textoCompleto = "";
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const pagina = await pdf.getPage(i);
-        const content = await pagina.getTextContent();
-        textoCompleto += content.items.map((item) => item.str).join(" ") + "\n";
-      }
-      const texto = textoCompleto.toUpperCase();
-      if (texto.includes("POSITIVO")) return "positivo";
-      if (texto.includes("NEGATIVO")) return "negativo";
-      return "unknown";
-    } catch (error) {
-      console.error("[SatCumplimientoService] Error procesando PDF:", error);
-      return "unknown";
-    }
-  }
-  async llenarFormularioCiec(page, rfc, password, captcha) {
-    await page.waitForSelector("#rfc", { timeout: 1e4 });
-    await page.fill("#rfc", rfc);
-    await page.fill("#password", password);
-    const captchaSelector = 'input[id*="captcha" i], input[name*="captcha" i], input[placeholder*="captcha" i]';
-    await page.waitForSelector(captchaSelector, { timeout: 5e3 });
-    await page.click(captchaSelector);
-    await page.fill(captchaSelector, "");
-    await page.type(captchaSelector, captcha, { delay: 50 });
-    await page.click("#submit");
-  }
-  async llenarFormularioFiel(page, rutaCer, rutaKey, password) {
-    const tabFiel = page.locator('a:has-text("e.firma")');
-    if (await tabFiel.count() > 0) await tabFiel.first().click();
-    await page.setInputFiles('input[accept*=".cer"]', rutaCer);
-    await page.setInputFiles('input[accept*=".key"]', rutaKey);
-    await page.fill('input[type="password"]', password);
-    await page.click("#submit");
-  }
-}
-class CumplimientoHandler {
-  cumplimientoService;
-  configuracionService;
-  paginaActiva = null;
-  constructor(configuracionService) {
-    this.cumplimientoService = new SatCumplimientoService();
-    this.configuracionService = configuracionService;
-  }
-  registrar() {
-    electron.ipcMain.handle("cumplimiento-obtener-captcha", async () => {
-      try {
-        await this.cerrarPaginaActiva();
-        const contexto = await BrowserManager.newContext();
-        this.paginaActiva = await contexto.newPage();
-        const captcha = await this.cumplimientoService.obtenerCaptcha(this.paginaActiva);
-        return { success: true, data: captcha };
-      } catch (error) {
-        console.error("[CumplimientoHandler] obtener-captcha:", error);
-        await this.cerrarPaginaActiva();
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Error obteniendo captcha"
-        };
-      }
-    });
-    electron.ipcMain.handle("cumplimiento-obtener-opinion", async (_, data) => {
-      try {
-        const config = this.configuracionService.obtener();
-        if (!config?.rfc) {
-          return { success: false, error: "No hay RFC configurado. Ve a Configuración primero." };
-        }
-        const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
-        const tipoLogin = config.metodoAuth ?? "contrasena";
-        const onProgreso = (mensaje) => {
-          electron.BrowserWindow.getAllWindows()[0]?.webContents.send("progreso-cumplimiento", mensaje);
-        };
-        let opinion;
-        if (tipoLogin === "efirma") {
-          await this.cerrarPaginaActiva();
-          const contexto = await BrowserManager.newContext();
-          this.paginaActiva = await contexto.newPage();
-          opinion = await this.cumplimientoService.loginFielYObtenerOpinion(
-            this.paginaActiva,
-            carpetaTemp,
-            config.rutaCer ?? "",
-            config.rutaKey ?? "",
-            config.contrasenaFiel ?? "",
-            onProgreso
-          );
-        } else {
-          if (!this.paginaActiva || this.paginaActiva.isClosed()) {
-            return { success: false, error: "La sesión expiró. Recarga el captcha e intenta de nuevo." };
-          }
-          if (!data.captcha?.trim()) {
-            return { success: false, error: "El captcha es requerido." };
-          }
-          opinion = await this.cumplimientoService.loginCiecYObtenerOpinion(
-            this.paginaActiva,
-            carpetaTemp,
-            config.rfc,
-            config.contrasena ?? "",
-            data.captcha,
-            onProgreso
-          );
-        }
-        return { success: true, data: opinion };
-      } catch (error) {
-        console.error("[CumplimientoHandler] obtener-opinion:", error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Error obteniendo opinión"
-        };
-      } finally {
-        await this.cerrarPaginaActiva();
-      }
-    });
-    electron.ipcMain.handle("cumplimiento-cerrar-sesion", async () => {
-      await this.cerrarPaginaActiva();
-      return { success: true };
-    });
-  }
-  async cerrarPaginaActiva() {
-    if (this.paginaActiva && !this.paginaActiva.isClosed()) {
-      await this.paginaActiva.close().catch(() => null);
-    }
-    this.paginaActiva = null;
-  }
-}
 class DescargaPendienteRepository {
   constructor(db) {
     this.db = db;
@@ -3511,8 +3268,8 @@ class ConciliacionRepository {
     `).all(limite);
   }
 }
-const MAX_REINTENTOS = 3;
-const ESPERA_ENTRE_REINTENTOS_MS = 5e3;
+const MAX_REINTENTOS$1 = 3;
+const ESPERA_ENTRE_REINTENTOS_MS$1 = 5e3;
 class SatAuthService {
   context = null;
   paginaLogin = null;
@@ -3587,9 +3344,9 @@ class SatAuthService {
       if (esTimeout && metodoAuth === "contrasena") {
         throw new Error("SAT_TIMEOUT");
       }
-      if (esTimeout && intento < MAX_REINTENTOS) {
-        console.log(`Login timeout (intento ${intento}/${MAX_REINTENTOS}), reintentando en ${ESPERA_ENTRE_REINTENTOS_MS / 1e3}s...`);
-        await page.waitForTimeout(ESPERA_ENTRE_REINTENTOS_MS);
+      if (esTimeout && intento < MAX_REINTENTOS$1) {
+        console.log(`Login timeout (intento ${intento}/${MAX_REINTENTOS$1}), reintentando en ${ESPERA_ENTRE_REINTENTOS_MS$1 / 1e3}s...`);
+        await page.waitForTimeout(ESPERA_ENTRE_REINTENTOS_MS$1);
         await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
         await page.waitForSelector("#divCaptcha", { timeout: 15e3 });
         return this.intentarLogin(page, accion, metodoAuth, intento + 1);
@@ -4735,250 +4492,6 @@ class LicenseHandler {
     });
   }
 }
-const LOGIN_URL = "https://wwwmat.sat.gob.mx/app/seg/faces/pages/lanzador.jsf?url=/operacion/43824/reimprime-tus-acuses-del-rfc&tipoLogeo=c&target=principal&hostServer=https://wwwmat.sat.gob.mx";
-const LOGIN_DOMAIN = "login.siat.sat.gob.mx";
-const PORTAL_DOMAIN = "wwwmat.sat.gob.mx";
-const PORTAL_REPORTE = "https://wwwmat.sat.gob.mx/operacion/43824/reimprime-tus-acuses-del-rfc";
-class SatConstanciaService {
-  async obtenerCaptcha(page) {
-    await page.goto(LOGIN_URL, { waitUntil: "networkidle", timeout: 3e4 });
-    await page.waitForURL(`**${LOGIN_DOMAIN}**`, { timeout: 2e4 });
-    await page.waitForLoadState("networkidle");
-    const captchaEl = await page.waitForSelector('img[src^="data:image"]', { timeout: 1e4 });
-    const screenshot = await captchaEl.screenshot({ type: "png" });
-    return { imagenBase64: `data:image/png;base64,${screenshot.toString("base64")}` };
-  }
-  async loginCiecYObtenerConstancia(page, carpetaTemp, rfc, password, captcha, onProgreso) {
-    return this.ejecutarFlujoConstancia(
-      page,
-      carpetaTemp,
-      () => this.llenarFormularioCiec(page, rfc, password, captcha),
-      "CIEC",
-      rfc,
-      onProgreso
-    );
-  }
-  async loginFielYObtenerConstancia(page, carpetaTemp, rfc, rutaCer, rutaKey, password, onProgreso) {
-    return this.ejecutarFlujoConstancia(
-      page,
-      carpetaTemp,
-      () => this.llenarFormularioFiel(page, rutaCer, rutaKey, password),
-      "FIEL",
-      rfc,
-      onProgreso
-    );
-  }
-  // ---------------------------------------------------------------------------
-  async ejecutarFlujoConstancia(page, carpetaTemp, accionLogin, metodo, rfc, onProgreso) {
-    try {
-      onProgreso?.("Conectando con el SAT...");
-      if (!page.url().includes(LOGIN_DOMAIN)) {
-        await page.goto(LOGIN_URL, { waitUntil: "networkidle", timeout: 3e4 });
-        await page.waitForURL(`**${LOGIN_DOMAIN}**`, { timeout: 2e4 });
-      }
-      onProgreso?.(`Iniciando sesión con ${metodo}...`);
-      await accionLogin();
-      await page.waitForURL("**", { timeout: 4e4 });
-      console.log(`[SatConstanciaService] URL después de login: ${page.url()}`);
-      onProgreso?.("Accediendo al portal de constancias...");
-      await page.waitForURL(`**${PORTAL_DOMAIN}**`, { timeout: 4e4 });
-      await page.waitForLoadState("networkidle", { timeout: 2e4 });
-      if (!page.url().includes("/operacion/43824")) {
-        await page.goto(PORTAL_REPORTE, { waitUntil: "networkidle", timeout: 3e4 });
-      }
-      if (page.url().includes("error.seg")) {
-        throw new Error("El SAT rechazó el acceso al portal. Intenta de nuevo en unos minutos.");
-      }
-      onProgreso?.("Generando constancia...");
-      const frame = await this.obtenerFrameConstancia(page);
-      const boton = frame.locator('button:has-text("Generar Constancia"), input[value="Generar Constancia"]');
-      await boton.waitFor({ state: "visible", timeout: 2e4 });
-      onProgreso?.("Descargando PDF...");
-      const rutaArchivo = await this.interceptarYDescargar(page, boton, carpetaTemp);
-      const paginas = page.context().pages();
-      for (const p of paginas) {
-        if (p !== page) {
-          await p.close().catch(() => null);
-        }
-      }
-      return {
-        rfc,
-        fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
-        rutaArchivo,
-        descripcion: rutaArchivo ? "Constancia generada y descargada correctamente." : "No se pudo capturar el PDF automáticamente."
-      };
-    } catch (error) {
-      console.error(`[SatConstanciaService] ${metodo}:`, error);
-      return {
-        rfc,
-        fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
-        descripcion: `Error: ${error.message || "Error desconocido"}`
-      };
-    }
-  }
-  /**
-   * Registra el interceptor de ruta ANTES del clic para atrapar el PDF
-   * cuando el botón abre el popup con IdcGeneraConstancia.jsf.
-   * Cierra el popup automáticamente tras capturar el buffer.
-   */
-  interceptarYDescargar(page, boton, carpetaTemp) {
-    return new Promise((resolve) => {
-      let resuelto = false;
-      let popupRef = null;
-      const limpiar = () => {
-        page.context().unroute("**IdcGeneraConstancia**").catch(() => null);
-      };
-      const timer = setTimeout(() => {
-        limpiar();
-        resolve(void 0);
-      }, 3e4);
-      page.context().route("**IdcGeneraConstancia**", async (route) => {
-        try {
-          const response = await route.fetch();
-          const contentType = response.headers()["content-type"] ?? "";
-          if (contentType.includes("pdf")) {
-            const buffer = Buffer.from(await response.body());
-            if (buffer.length > 5e3 && !resuelto) {
-              resuelto = true;
-              const rutaFinal = path.join(carpetaTemp, `constancia_${Date.now()}.pdf`);
-              fs.writeFileSync(rutaFinal, buffer);
-              console.log("[SatConstanciaService] Constancia capturada:", rutaFinal);
-              clearTimeout(timer);
-              limpiar();
-              await route.fulfill({ response }).catch(() => null);
-              await popupRef?.close().catch(() => null);
-              resolve(rutaFinal);
-              return;
-            }
-          }
-          await route.fulfill({ response }).catch(() => null);
-        } catch {
-          await route.abort().catch(() => null);
-        }
-      });
-      page.context().once("page", (p) => {
-        popupRef = p;
-      });
-      boton.click().catch(() => null);
-    });
-  }
-  async obtenerFrameConstancia(page) {
-    await page.waitForLoadState("networkidle", { timeout: 15e3 }).catch(() => null);
-    const iframeEl = await page.waitForSelector("#iframetoload", { timeout: 15e3 });
-    const frame = await iframeEl.contentFrame();
-    if (!frame) throw new Error("No se pudo acceder al iframe de constancias");
-    await frame.waitForLoadState("networkidle", { timeout: 15e3 }).catch(() => null);
-    return frame;
-  }
-  async llenarFormularioCiec(page, rfc, password, captcha) {
-    await page.waitForSelector("#rfc", { timeout: 1e4 });
-    await page.fill("#rfc", rfc);
-    await page.fill("#password", password);
-    const captchaSelector = 'input[id*="captcha" i], input[name*="captcha" i], input[placeholder*="captcha" i]';
-    await page.waitForSelector(captchaSelector, { timeout: 5e3 });
-    await page.click(captchaSelector);
-    await page.fill(captchaSelector, "");
-    await page.type(captchaSelector, captcha, { delay: 50 });
-    await page.click("#submit");
-  }
-  async llenarFormularioFiel(page, rutaCer, rutaKey, password) {
-    const tabFiel = page.locator('a:has-text("e.firma")');
-    if (await tabFiel.count() > 0) await tabFiel.first().click();
-    await page.setInputFiles('input[accept*=".cer"]', rutaCer);
-    await page.setInputFiles('input[accept*=".key"]', rutaKey);
-    await page.fill('input[type="password"]', password);
-    await page.click("#submit");
-  }
-}
-class ConstanciaHandler {
-  constanciaService;
-  configuracionService;
-  paginaActiva = null;
-  constructor(configuracionService) {
-    this.constanciaService = new SatConstanciaService();
-    this.configuracionService = configuracionService;
-  }
-  registrar() {
-    electron.ipcMain.handle("constancia-obtener-captcha", async () => {
-      try {
-        await this.cerrarPaginaActiva();
-        const contexto = await BrowserManager.newContext();
-        this.paginaActiva = await contexto.newPage();
-        const captcha = await this.constanciaService.obtenerCaptcha(this.paginaActiva);
-        return { success: true, data: captcha };
-      } catch (error) {
-        console.error("[ConstanciaHandler] obtener-captcha:", error);
-        await this.cerrarPaginaActiva();
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Error obteniendo captcha"
-        };
-      }
-    });
-    electron.ipcMain.handle("constancia-obtener-constancia", async (_, data) => {
-      try {
-        const config = this.configuracionService.obtener();
-        if (!config?.rfc) {
-          return { success: false, error: "No hay RFC configurado. Ve a Configuración primero." };
-        }
-        const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
-        const tipoLogin = config.metodoAuth ?? "contrasena";
-        const onProgreso = (mensaje) => {
-          electron.BrowserWindow.getAllWindows()[0]?.webContents.send("progreso-constancia", mensaje);
-        };
-        let constancia;
-        if (tipoLogin === "efirma") {
-          await this.cerrarPaginaActiva();
-          const contexto = await BrowserManager.newContext();
-          this.paginaActiva = await contexto.newPage();
-          constancia = await this.constanciaService.loginFielYObtenerConstancia(
-            this.paginaActiva,
-            carpetaTemp,
-            config.rfc,
-            config.rutaCer ?? "",
-            config.rutaKey ?? "",
-            config.contrasenaFiel ?? "",
-            onProgreso
-          );
-        } else {
-          if (!this.paginaActiva || this.paginaActiva.isClosed()) {
-            return { success: false, error: "La sesión expiró. Recarga el captcha e intenta de nuevo." };
-          }
-          if (!data.captcha?.trim()) {
-            return { success: false, error: "El captcha es requerido." };
-          }
-          constancia = await this.constanciaService.loginCiecYObtenerConstancia(
-            this.paginaActiva,
-            carpetaTemp,
-            config.rfc,
-            config.contrasena ?? "",
-            data.captcha,
-            onProgreso
-          );
-        }
-        return { success: true, data: constancia };
-      } catch (error) {
-        console.error("[ConstanciaHandler] obtener-constancia:", error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Error obteniendo constancia"
-        };
-      } finally {
-        await this.cerrarPaginaActiva();
-      }
-    });
-    electron.ipcMain.handle("constancia-cerrar-sesion", async () => {
-      await this.cerrarPaginaActiva();
-      return { success: true };
-    });
-  }
-  async cerrarPaginaActiva() {
-    if (this.paginaActiva && !this.paginaActiva.isClosed()) {
-      await this.paginaActiva.context().close().catch(() => null);
-    }
-    this.paginaActiva = null;
-  }
-}
 class EfosRepository {
   constructor(db) {
     this.db = db;
@@ -5176,7 +4689,753 @@ class Lista69BHandler {
     });
   }
 }
+class UnifiedSatHandler {
+  constructor(configuracionService, operationServices, authService, configProvider) {
+    this.configuracionService = configuracionService;
+    this.operationServices = operationServices;
+    this.authService = authService;
+    this.configProvider = configProvider;
+  }
+  registrarServicioOperacion(portalId, servicio) {
+    this.operationServices[portalId] = servicio;
+  }
+  registrar() {
+    electron.ipcMain.handle("obtener-captcha-dinamico", async (_, { portalId }) => {
+      try {
+        this.validarPortal(portalId);
+        const captcha = await this.authService.obtenerCaptcha(portalId);
+        return { success: true, data: captcha };
+      } catch (error) {
+        console.error(`[UnifiedSatHandler] Error obteniendo captcha para ${portalId}:`, error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error obteniendo captcha"
+        };
+      }
+    });
+    electron.ipcMain.handle("ejecutar-operacion-dinamica", async (_event, { portalId, credenciales }) => {
+      try {
+        this.validarPortal(portalId);
+        const config = this.configuracionService.obtener();
+        if (!config?.rfc) {
+          return { success: false, error: "No hay RFC configurado. Ve a Configuración primero." };
+        }
+        const operationService = this.operationServices[portalId];
+        if (!operationService) {
+          throw new Error(`No hay servicio de operación registrado para ${portalId}`);
+        }
+        const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+        const tipoLogin = config.metodoAuth ?? "contrasena";
+        const onProgreso = (mensaje) => {
+          electron.BrowserWindow.getAllWindows()[0]?.webContents.send(`progreso-${portalId}`, mensaje);
+        };
+        const credencialesFinal = this.prepararCredenciales(credenciales, tipoLogin, config);
+        const paginaAutenticada = await this.autenticar(portalId, tipoLogin, credencialesFinal);
+        const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
+          carpetaTemp,
+          onProgreso
+        });
+        return { success: true, data: resultado };
+      } catch (error) {
+        console.error(`[UnifiedSatHandler] Error ejecutando operación en ${portalId}:`, error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error ejecutando operación"
+        };
+      }
+    });
+    electron.ipcMain.handle("cerrar-sesion-dinamica", async (_, { portalId }) => {
+      try {
+        const operationService = this.operationServices[portalId];
+        if (operationService) {
+          await operationService.cerrarSesion();
+        }
+        return { success: true };
+      } catch (error) {
+        console.error(`[UnifiedSatHandler] Error cerrando sesión en ${portalId}:`, error);
+        return { success: false, error: String(error) };
+      }
+    });
+    this.registrarHandlersLegacy();
+  }
+  async autenticar(portalId, tipoLogin, credenciales) {
+    if (tipoLogin === "efirma") {
+      return this.authService.loginFiel(portalId, credenciales);
+    } else {
+      return this.authService.loginCiec(portalId, credenciales);
+    }
+  }
+  registrarHandlersLegacy() {
+    electron.ipcMain.handle("constancia-obtener-captcha", async () => {
+      try {
+        this.validarPortal("constancia");
+        const captcha = await this.authService.obtenerCaptcha("constancia");
+        return { success: true, data: captcha };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error obteniendo captcha"
+        };
+      }
+    });
+    electron.ipcMain.handle("constancia-obtener-constancia", async (_, data) => {
+      try {
+        this.validarPortal("constancia");
+        const config = this.configuracionService.obtener();
+        if (!config?.rfc) {
+          return { success: false, error: "No hay RFC configurado" };
+        }
+        const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+        const tipoLogin = config.metodoAuth ?? "contrasena";
+        const onProgreso = (mensaje) => {
+          electron.BrowserWindow.getAllWindows()[0]?.webContents.send("progreso-constancia", mensaje);
+        };
+        const operationService = this.operationServices["constancia"];
+        if (!operationService) {
+          throw new Error("No hay servicio registrado para constancia");
+        }
+        const credencialesFinal = this.prepararCredenciales(data, tipoLogin, config);
+        const paginaAutenticada = await this.autenticar("constancia", tipoLogin, credencialesFinal);
+        const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
+          carpetaTemp,
+          onProgreso
+        });
+        return { success: true, data: resultado };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error ejecutando operación"
+        };
+      }
+    });
+    electron.ipcMain.handle("constancia-cerrar-sesion", async () => {
+      try {
+        const operationService = this.operationServices["constancia"];
+        if (operationService) await operationService.cerrarSesion();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+    electron.ipcMain.handle("cumplimiento-obtener-captcha", async () => {
+      try {
+        this.validarPortal("cumplimiento");
+        const captcha = await this.authService.obtenerCaptcha("cumplimiento");
+        return { success: true, data: captcha };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error obteniendo captcha"
+        };
+      }
+    });
+    electron.ipcMain.handle("cumplimiento-obtener-opinion", async (_, data) => {
+      try {
+        this.validarPortal("cumplimiento");
+        const config = this.configuracionService.obtener();
+        if (!config?.rfc) {
+          return { success: false, error: "No hay RFC configurado" };
+        }
+        const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+        const tipoLogin = config.metodoAuth ?? "contrasena";
+        const onProgreso = (mensaje) => {
+          electron.BrowserWindow.getAllWindows()[0]?.webContents.send("progreso-cumplimiento", mensaje);
+        };
+        const operationService = this.operationServices["cumplimiento"];
+        if (!operationService) {
+          throw new Error("No hay servicio registrado para cumplimiento");
+        }
+        const credencialesFinal = this.prepararCredenciales(data, tipoLogin, config);
+        const paginaAutenticada = await this.autenticar("cumplimiento", tipoLogin, credencialesFinal);
+        const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
+          carpetaTemp,
+          onProgreso
+        });
+        return { success: true, data: resultado };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Error ejecutando operación"
+        };
+      }
+    });
+    electron.ipcMain.handle("cumplimiento-cerrar-sesion", async () => {
+      try {
+        const operationService = this.operationServices["cumplimiento"];
+        if (operationService) await operationService.cerrarSesion();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+  prepararCredenciales(credenciales, tipoLogin, config) {
+    if (tipoLogin === "efirma") {
+      return {
+        rutaCer: config.rutaCer ?? "",
+        rutaKey: config.rutaKey ?? "",
+        contrasenaFiel: config.contrasenaFiel ?? ""
+      };
+    } else {
+      return {
+        rfc: config.rfc ?? "",
+        password: config.contrasena ?? "",
+        captcha: credenciales.captcha ?? ""
+      };
+    }
+  }
+  validarPortal(portalId) {
+    if (!this.configProvider.existePortal(portalId)) {
+      throw new Error(`Portal ${portalId} no existe`);
+    }
+  }
+}
+const portals = [{ "id": "facturas", "name": "Descargar Facturas", "baseUrl": "https://portalcfdi.facturaelectronica.sat.gob.mx/", "loginUrl": "https://portalcfdi.facturaelectronica.sat.gob.mx/", "loginDomain": "portalcfdi.facturaelectronica.sat.gob.mx", "authMethods": ["ciec", "fiel"], "requiresCaptcha": true, "selectors": { "captchaContainer": "#divCaptcha", "captchaImage": "#divCaptcha img", "rfcField": "#rfc", "passwordField": "#password", "captchaField": "#userCaptcha", "submitButton": "#submit", "fielButton": "#buttonFiel", "cerFileInput": "#fileCertificate", "keyFileInput": "#filePrivateKey", "fielPasswordField": "#privateKeyPassword", "logoutButton": "#salir" } }, { "id": "constancia", "name": "Constancia de Situación Fiscal", "baseUrl": "https://wwwmat.sat.gob.mx/app/seg/faces/pages/lanzador.jsf?url=/operacion/43824/reimprime-tus-acuses-del-rfc&tipoLogeo=c&target=principal&hostServer=https://wwwmat.sat.gob.mx", "loginUrl": "https://wwwmat.sat.gob.mx/app/seg/faces/pages/lanzador.jsf?url=/operacion/43824/reimprime-tus-acuses-del-rfc&tipoLogeo=c&target=principal&hostServer=https://wwwmat.sat.gob.mx", "loginDomain": "login.siat.sat.gob.mx", "portalDomain": "wwwmat.sat.gob.mx", "authMethods": ["ciec", "fiel"], "requiresCaptcha": true, "selectors": { "captchaImage": 'img[src^="data:image"]', "rfcField": "#rfc", "passwordField": "#password", "captchaField": 'input[type="text"][placeholder*="captcha"], #userCaptcha, input[name*="captcha"]', "submitButton": "#submit", "cerFileInput": 'input[accept*=".cer"]', "keyFileInput": 'input[accept*=".key"]', "fielPasswordField": 'input[type="password"]', "generateButton": 'button:has-text("Generar Constancia"), input[value="Generar Constancia"]', "iframe": "#iframetoload" } }, { "id": "cumplimiento", "name": "Opinión de Cumplimiento", "baseUrl": "https://ptsc32d.clouda.sat.gob.mx", "loginUrl": "https://ptsc32d.clouda.sat.gob.mx/?/reporteOpinion32DContribuyente", "loginDomain": "loginda.siat.sat.gob.mx", "portalDomain": "ptsc32d.clouda.sat.gob.mx", "portalRoute": "https://ptsc32d.clouda.sat.gob.mx/#/reporteOpinion32DContribuyente", "authMethods": ["ciec", "fiel"], "requiresCaptcha": true, "selectors": { "captchaImage": 'img[src^="data:image"]', "rfcField": "#rfc", "passwordField": "#password", "captchaField": 'input[type="text"][placeholder*="captcha"], #userCaptcha, input[name*="captcha"]', "submitButton": "#submit", "cerFileInput": 'input[accept*=".cer"]', "keyFileInput": 'input[accept*=".key"]', "fielPasswordField": 'input[type="password"]' } }];
+const portalsConfig = {
+  portals
+};
+class PortalConfigProvider {
+  portales;
+  constructor() {
+    this.portales = portalsConfig.portals || [];
+  }
+  /**
+   * Obtiene la configuración de un portal específico.
+   * @param portalId - ID del portal (ej: 'facturas', 'constancia')
+   * @returns Configuración del portal o null si no existe
+   */
+  obtenerConfiguracion(portalId) {
+    return this.portales.find((p) => p.id === portalId) || null;
+  }
+  /**
+   * Lista todos los portales disponibles.
+   */
+  listarPortales() {
+    return [...this.portales];
+  }
+  /**
+   * Valida que un portal exista.
+   */
+  existePortal(portalId) {
+    return this.obtenerConfiguracion(portalId) !== null;
+  }
+  /**
+   * Obtiene todos los portales que soportan un método de autenticación.
+   */
+  obtenerPorMetodoAuth(metodo) {
+    return this.portales.filter((p) => p.authMethods.includes(metodo));
+  }
+}
+const MAX_REINTENTOS = 3;
+const ESPERA_ENTRE_REINTENTOS_MS = 5e3;
+class SatUnifiedAuthService {
+  constructor(configProvider) {
+    this.configProvider = configProvider;
+  }
+  context = null;
+  paginaActiva = /* @__PURE__ */ new Map();
+  /**
+   * Obtiene el captcha para un portal específico.
+   * Reutiliza la página existente si está abierta, sino crea una nueva.
+   */
+  async obtenerCaptcha(portalId) {
+    const config = this.validarPortal(portalId);
+    if (!config.requiresCaptcha) {
+      throw new Error(`Portal ${portalId} no requiere captcha`);
+    }
+    let pagina = this.paginaActiva.get(portalId);
+    if (!pagina || pagina.isClosed()) {
+      pagina = await this.crearPagina();
+      this.paginaActiva.set(portalId, pagina);
+    }
+    try {
+      await pagina.goto(config.loginUrl, { waitUntil: "networkidle", timeout: 3e4 });
+      await pagina.waitForSelector(config.selectors.captchaImage, { timeout: 15e3 });
+      const captchaEl = await pagina.$(config.selectors.captchaImage);
+      if (!captchaEl) {
+        throw new Error("No se pudo encontrar el elemento del captcha");
+      }
+      let imagenBase64;
+      const src = await captchaEl.getAttribute("src");
+      if (src?.startsWith("data:image")) {
+        imagenBase64 = src;
+      } else {
+        const buffer = await captchaEl.screenshot({ type: "png" });
+        imagenBase64 = `data:image/png;base64,${buffer.toString("base64")}`;
+      }
+      return {
+        imagenBase64,
+        timestamp: Date.now()
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+  /**
+   * Login con credenciales CIEC (RFC + Contraseña + Captcha).
+   * Reutiliza la página existente o crea una nueva si no existe.
+   */
+  async loginCiec(portalId, credentials) {
+    const config = this.validarPortal(portalId);
+    if (!config.authMethods.includes("ciec")) {
+      throw new Error(`Portal ${portalId} no soporta autenticación CIEC`);
+    }
+    let pagina = this.paginaActiva.get(portalId);
+    if (!pagina || pagina.isClosed()) {
+      pagina = await this.crearPagina();
+      this.paginaActiva.set(portalId, pagina);
+    }
+    try {
+      await this.llenarFormularioCiec(pagina, config, credentials);
+      await this.intentarLogin(
+        pagina,
+        config,
+        () => pagina.click(config.selectors.submitButton, { timeout: 9e4 }),
+        "ciec"
+      );
+      return pagina;
+    } catch (error) {
+      throw error;
+    }
+  }
+  /**
+   * Login con credenciales FIEL (Certificado).
+   * Reutiliza la página existente o crea una nueva si no existe.
+   */
+  async loginFiel(portalId, credentials) {
+    const config = this.validarPortal(portalId);
+    if (!config.authMethods.includes("fiel")) {
+      throw new Error(`Portal ${portalId} no soporta autenticación FIEL`);
+    }
+    let pagina = this.paginaActiva.get(portalId);
+    if (!pagina || pagina.isClosed()) {
+      const context = await this.obtenerContext();
+      pagina = await context.newPage();
+      this.paginaActiva.set(portalId, pagina);
+    }
+    try {
+      await pagina.goto(config.loginUrl, { waitUntil: "networkidle", timeout: 3e4 });
+      if (config.selectors.fielButton) {
+        try {
+          await pagina.click(config.selectors.fielButton, { timeout: 1e4 });
+          await pagina.waitForTimeout(500);
+        } catch {
+        }
+      }
+      await pagina.setInputFiles(config.selectors.cerFileInput, credentials.rutaCer);
+      await pagina.setInputFiles(config.selectors.keyFileInput, credentials.rutaKey);
+      await pagina.fill(config.selectors.fielPasswordField, credentials.contrasenaFiel);
+      await this.intentarLogin(
+        pagina,
+        config,
+        () => pagina.click(config.selectors.submitButton, { timeout: 9e4 }),
+        "fiel"
+      );
+      return pagina;
+    } catch (error) {
+      throw error;
+    }
+  }
+  /**
+   * Cierra la sesión.
+   */
+  async cerrarSesion() {
+    for (const pagina of this.paginaActiva.values()) {
+      await pagina.close().catch(() => null);
+    }
+    this.paginaActiva.clear();
+    if (this.context) {
+      await this.context.close().catch(() => null);
+      this.context = null;
+    }
+    await BrowserManager.cerrar();
+  }
+  /**
+   * Valida que el portal existe.
+   * @private
+   */
+  validarPortal(portalId) {
+    const config = this.configProvider.obtenerConfiguracion(portalId);
+    if (!config) {
+      throw new Error(`Portal ${portalId} no encontrado`);
+    }
+    return config;
+  }
+  /**
+   * Obtiene o crea el contexto del navegador.
+   * @private
+   */
+  async obtenerContext() {
+    if (!this.context) {
+      this.context = await BrowserManager.newContext();
+    }
+    return this.context;
+  }
+  /**
+   * Crea una nueva página en el contexto.
+   * @private
+   */
+  async crearPagina() {
+    const context = await this.obtenerContext();
+    return await context.newPage();
+  }
+  /**
+   * Llena el formulario CIEC.
+   * @private
+   */
+  async llenarFormularioCiec(pagina, config, credentials) {
+    await pagina.fill(config.selectors.rfcField, credentials.rfc);
+    await pagina.fill(config.selectors.passwordField, credentials.password);
+    if (credentials.captcha) {
+      await pagina.fill(config.selectors.captchaField, credentials.captcha.toUpperCase());
+    }
+  }
+  /**
+   * Intenta hacer login con manejo de reintentos.
+   * @private
+   */
+  async intentarLogin(pagina, config, accion, metodoAuth, intento = 1) {
+    try {
+      await this.esperarLoginExitoso(pagina, config, accion);
+    } catch (error) {
+      const esTimeout = error.message?.includes("Timeout") || error.message?.includes("timeout");
+      const esCaptchaInvalido = error.message?.includes("CAPTCHA_INVALIDO");
+      if ((esTimeout || esCaptchaInvalido) && intento < MAX_REINTENTOS) {
+        console.log(
+          `[SatUnifiedAuthService] ${metodoAuth.toUpperCase()} intento ${intento}/${MAX_REINTENTOS}, reintentando en ${ESPERA_ENTRE_REINTENTOS_MS / 1e3}s...`
+        );
+        await pagina.waitForTimeout(ESPERA_ENTRE_REINTENTOS_MS);
+        await pagina.goto(config.loginUrl, { waitUntil: "networkidle" });
+        return this.intentarLogin(pagina, config, accion, metodoAuth, intento + 1);
+      }
+      throw error;
+    }
+  }
+  /**
+   * Espera a que el login sea exitoso.
+   * @private
+   */
+  async esperarLoginExitoso(pagina, _config, accion) {
+    const loginTimeoutPromise = new Promise((resolve, reject) => {
+      pagina.once("framenavigated", () => {
+        resolve();
+      });
+      setTimeout(() => {
+        reject(new Error("Timeout esperando respuesta del servidor"));
+      }, 12e4);
+    });
+    await accion();
+    try {
+      await Promise.race([
+        loginTimeoutPromise,
+        pagina.waitForNavigation({ timeout: 12e4 }).catch(() => null),
+        pagina.waitForURL("**", { timeout: 12e4 }).catch(() => null)
+      ]);
+    } catch {
+    }
+    try {
+      const msgError = await pagina.evaluate(() => {
+        const textos = [
+          document.body.innerText,
+          document.querySelector(".alert")?.textContent,
+          document.querySelector(".error")?.textContent,
+          document.querySelector("#msgError")?.textContent
+        ].filter((t) => t);
+        return textos.join(" ").toLowerCase();
+      });
+      if (msgError.includes("captcha")) {
+        throw new Error("CAPTCHA_INVALIDO");
+      }
+      if (msgError.includes("rfc") || msgError.includes("contraseña") || msgError.includes("acceso")) {
+        throw new Error("CREDENCIALES_INVALIDAS");
+      }
+    } catch (error) {
+      if (error.message?.includes("INVALIDO")) throw error;
+    }
+  }
+}
+class SatPortalOperationService {
+  constructor(portalId, configProvider, authService) {
+    this.portalId = portalId;
+    this.configProvider = configProvider;
+    this.authService = authService;
+  }
+  paginaActiva = null;
+  /**
+   * Recibe la página ya autenticada desde el handler.
+   * Ya no hace login aquí — eso evita que se abra un segundo navegador.
+   */
+  async ejecutar(page, credenciales, options) {
+    try {
+      options.onProgreso?.("Conectando con el SAT...");
+      this.paginaActiva = page;
+      const resultado = await this.ejecutarOperacion(credenciales, options);
+      return resultado;
+    } catch (error) {
+      return this.manejarError(error);
+    } finally {
+      await this.limpiar();
+    }
+  }
+  async obtenerCaptcha() {
+    return this.authService.obtenerCaptcha(this.portalId);
+  }
+  async cerrarSesion() {
+    if (this.paginaActiva && !this.paginaActiva.isClosed()) {
+      await this.paginaActiva.close().catch(() => null);
+      this.paginaActiva = null;
+    }
+    await this.authService.cerrarSesion();
+  }
+  manejarError(error) {
+    const mensaje = error.message || "Error desconocido";
+    console.error(`[${this.portalId}] Error:`, mensaje);
+    return {
+      fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
+      descripcion: `Error: ${mensaje}`
+    };
+  }
+  async limpiar() {
+    this.paginaActiva = null;
+  }
+}
+class SatConstanciaOperationService extends SatPortalOperationService {
+  constructor(configProvider, authService) {
+    super("constancia", configProvider, authService);
+  }
+  /**
+   * Ejecuta la operación de obtener constancia.
+   */
+  async ejecutarOperacion(credenciales, options) {
+    if (!this.paginaActiva) {
+      throw new Error("No hay página activa");
+    }
+    const config = this.configProvider.obtenerConfiguracion(this.portalId);
+    const rfc = "rfc" in credenciales ? credenciales.rfc : "";
+    try {
+      options.onProgreso?.("Accediendo al portal de constancias...");
+      await this.paginaActiva.waitForURL(`**${config.portalDomain}**`, { timeout: 4e4 });
+      await this.paginaActiva.waitForLoadState("networkidle", { timeout: 2e4 });
+      if (!this.paginaActiva.url().includes("/operacion/43824")) {
+        await this.paginaActiva.goto(config.portalRoute || config.baseUrl, {
+          waitUntil: "networkidle",
+          timeout: 3e4
+        });
+      }
+      if (this.paginaActiva.url().includes("error.seg")) {
+        throw new Error(
+          "El SAT rechazó el acceso al portal. Intenta de nuevo en unos minutos."
+        );
+      }
+      options.onProgreso?.("Generando constancia...");
+      const frame = await this.obtenerFrameConstancia(this.paginaActiva);
+      const boton = frame.locator(
+        'button:has-text("Generar Constancia"), input[value="Generar Constancia"]'
+      );
+      await boton.waitFor({ state: "visible", timeout: 2e4 });
+      options.onProgreso?.("Descargando PDF...");
+      const rutaArchivo = await this.interceptarYDescargar(
+        this.paginaActiva,
+        boton,
+        options.carpetaTemp
+      );
+      const paginas = this.paginaActiva.context().pages();
+      for (const p of paginas) {
+        if (p !== this.paginaActiva) {
+          await p.close().catch(() => null);
+        }
+      }
+      return {
+        rfc,
+        fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
+        rutaArchivo,
+        descripcion: rutaArchivo ? "Constancia generada y descargada correctamente." : "No se pudo capturar el PDF automáticamente."
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+  /**
+   * Obtiene el frame donde está el formulario de constancia.
+   * @private
+   */
+  async obtenerFrameConstancia(page) {
+    const config = this.configProvider.obtenerConfiguracion(this.portalId);
+    await page.waitForLoadState("networkidle", { timeout: 15e3 }).catch(() => null);
+    const iframeEl = await page.waitForSelector(config.selectors.iframe || "#iframetoload", {
+      timeout: 15e3
+    });
+    const frame = await iframeEl.contentFrame();
+    if (!frame) {
+      throw new Error("No se pudo obtener el frame del iframe");
+    }
+    return frame;
+  }
+  /**
+   * Intercepta y descarga el PDF de la constancia.
+   * @private
+   */
+  interceptarYDescargar(page, boton, carpetaTemp) {
+    return new Promise((resolve) => {
+      let resuelto = false;
+      let popupRef = null;
+      const limpiar = () => {
+        page.context().unroute("**IdcGeneraConstancia**").catch(() => null);
+      };
+      const timer = setTimeout(() => {
+        limpiar();
+        resolve(void 0);
+      }, 3e4);
+      page.context().route("**IdcGeneraConstancia**", async (route) => {
+        try {
+          const response = await route.fetch();
+          const contentType = response.headers()["content-type"] ?? "";
+          if (contentType.includes("pdf")) {
+            const buffer = Buffer.from(await response.body());
+            if (buffer.length > 5e3 && !resuelto) {
+              resuelto = true;
+              const rutaFinal = path.join(carpetaTemp, `constancia_${Date.now()}.pdf`);
+              fs__namespace.writeFileSync(rutaFinal, buffer);
+              console.log("[SatConstanciaOperationService] Constancia capturada:", rutaFinal);
+              clearTimeout(timer);
+              limpiar();
+              await route.fulfill({ response }).catch(() => null);
+              await popupRef?.close().catch(() => null);
+              resolve(rutaFinal);
+              return;
+            }
+          }
+          await route.fulfill({ response }).catch(() => null);
+        } catch {
+          await route.abort().catch(() => null);
+        }
+      });
+      page.context().once("page", (p) => {
+        popupRef = p;
+      });
+      boton.click().catch(() => null);
+    });
+  }
+}
+class SatCumplimientoOperationService extends SatPortalOperationService {
+  constructor(configProvider, authService) {
+    super("cumplimiento", configProvider, authService);
+  }
+  /**
+   * Ejecuta la operación de obtener opinión de cumplimiento.
+   */
+  async ejecutarOperacion(_credenciales, options) {
+    if (!this.paginaActiva) {
+      throw new Error("No hay página activa");
+    }
+    const config = this.configProvider.obtenerConfiguracion(this.portalId);
+    try {
+      options.onProgreso?.("Configurando descarga de PDF...");
+      const pdfPromesa = this.configurarInterceptacionPdf(
+        this.paginaActiva,
+        options.carpetaTemp
+      );
+      options.onProgreso?.("Navegando al portal de cumplimiento...");
+      await this.paginaActiva.waitForURL(`**${config.portalDomain}**`, { timeout: 2e4 });
+      await this.paginaActiva.waitForTimeout(2e3);
+      options.onProgreso?.("Descargando opinión...");
+      await this.paginaActiva.goto(config.portalRoute || config.baseUrl, {
+        waitUntil: "commit",
+        timeout: 45e3
+      });
+      await this.paginaActiva.waitForSelector("sat-mf-reporte-opinion-contribuyente-root", { timeout: 3e4 }).catch(() => null);
+      const rutaArchivo = await pdfPromesa;
+      options.onProgreso?.("Procesando resultado...");
+      const resultado = await this.formatearRespuesta(rutaArchivo);
+      return resultado;
+    } catch (error) {
+      throw error;
+    }
+  }
+  /**
+   * Configura el interceptor para capturar el PDF.
+   * @private
+   */
+  configurarInterceptacionPdf(page, carpetaTemp) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        page.removeListener("response", handler);
+        resolve(void 0);
+      }, 6e4);
+      const handler = async (response) => {
+        const url = response.url();
+        const contentType = (response.headers()["content-type"] || "").toLowerCase();
+        if (url.includes("GeneraOpinion") || contentType.includes("pdf")) {
+          try {
+            const buffer = await response.body();
+            if (buffer.length > 5e3) {
+              const rutaFinal = path.join(carpetaTemp, `opinion_${Date.now()}.pdf`);
+              fs__namespace.writeFileSync(rutaFinal, buffer);
+              clearTimeout(timer);
+              page.removeListener("response", handler);
+              resolve(rutaFinal);
+            }
+          } catch {
+          }
+        }
+      };
+      page.on("response", handler);
+    });
+  }
+  /**
+   * Formatea la respuesta de la opinión.
+   * @private
+   */
+  async formatearRespuesta(rutaArchivo) {
+    let resultado = "unknown";
+    if (rutaArchivo) {
+      resultado = await this.determinarResultadoDesdePdf(rutaArchivo);
+    }
+    return {
+      resultado,
+      fecha_emision: (/* @__PURE__ */ new Date()).toISOString(),
+      descripcion: rutaArchivo ? "Procesado con éxito." : "Error: PDF no capturado.",
+      rutaArchivo
+    };
+  }
+  /**
+   * Determina si la opinión es positiva o negativa leyendo el PDF.
+   * @private
+   */
+  async determinarResultadoDesdePdf(ruta) {
+    try {
+      const buffer = fs__namespace.readFileSync(ruta);
+      const loadingTask = pdfjsLib__namespace.getDocument({ data: new Uint8Array(buffer) });
+      const pdf = await loadingTask.promise;
+      let textoCompleto = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const pagina = await pdf.getPage(i);
+        const content = await pagina.getTextContent();
+        textoCompleto += content.items.map((item) => item.str).join(" ") + "\n";
+      }
+      const texto = textoCompleto.toUpperCase();
+      if (texto.includes("POSITIVO")) return "positivo";
+      if (texto.includes("NEGATIVO")) return "negativo";
+      return "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+}
 let mainWindow;
+const gotLock = electron.app.requestSingleInstanceLock();
+if (!gotLock) {
+  electron.app.quit();
+} else {
+  electron.app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+    }
+  });
+}
 function initDatabase() {
   const db = Database.getInstance();
   const migrationRunner = new MigrationRunner(db);
@@ -5243,9 +5502,32 @@ electron.app.whenReady().then(async () => {
   new CatalogoHandler(db).registrar();
   new LicenseHandler(db).registrar();
   new ExportacionHandler(db).registrar();
-  new CumplimientoHandler(configuracionService).registrar();
-  new ConstanciaHandler(configuracionService).registrar();
   new Lista69BHandler(lista69BService).registrar();
+  const configProvider = new PortalConfigProvider();
+  const sharedAuthService = new SatUnifiedAuthService(configProvider);
+  const constanciaService = new SatConstanciaOperationService(configProvider, sharedAuthService);
+  const cumplimientoService = new SatCumplimientoOperationService(configProvider, sharedAuthService);
+  const unifiedHandler = new UnifiedSatHandler(
+    configuracionService,
+    {
+      constancia: {
+        obtenerCaptcha: () => constanciaService.obtenerCaptcha(),
+        ejecutar: (page, cred, opts) => constanciaService.ejecutar(page, cred, opts),
+        // ← page primero
+        cerrarSesion: () => constanciaService.cerrarSesion()
+      },
+      cumplimiento: {
+        obtenerCaptcha: () => cumplimientoService.obtenerCaptcha(),
+        ejecutar: (page, cred, opts) => cumplimientoService.ejecutar(page, cred, opts),
+        // ← page primero
+        cerrarSesion: () => cumplimientoService.cerrarSesion()
+      }
+    },
+    sharedAuthService,
+    configProvider
+    // ← cuarto argumento, antes faltaba
+  );
+  unifiedHandler.registrar();
   createWindow();
   if (!utils.is.dev) {
     new UpdaterService(mainWindow).iniciar();

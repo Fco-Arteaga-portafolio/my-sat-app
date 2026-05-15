@@ -56,6 +56,8 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
   const [modalVisible, setModalVisible] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<Perfil>(formVacio())
+  const [modalLicenciaVisible, setModalLicenciaVisible] = useState(false)
+  const [modalSoporteVisible, setModalSoporteVisible] = useState(false)
 
   useEffect(() => {
     cargarPerfiles()
@@ -185,6 +187,10 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
     cambiarForm,
     seleccionarCarpetaEmitidos, seleccionarCarpetaRecibidos,
     seleccionarCer, seleccionarKey,
-    moverSlot, toggleSlot
+    moverSlot, toggleSlot,
+    modalLicenciaVisible,
+    setModalLicenciaVisible,
+    modalSoporteVisible,
+    setModalSoporteVisible
   }
 }

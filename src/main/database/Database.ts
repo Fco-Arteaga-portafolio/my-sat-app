@@ -11,6 +11,7 @@ export class Database {
       Database.instance = new BetterSqlite3(dbPath)
       Database.instance.pragma('journal_mode = WAL')
       Database.instance.pragma('foreign_keys = ON')
+      console.log('Ruta de la BD:', dbPath)
     }
     return Database.instance
   }

@@ -180,6 +180,34 @@ declare global {
       lista69bAnalizar(): Promise<{ success: boolean; data?: Radar69BAnalisis; error?: string }>
       lista69bObtenerMeta(): Promise<{ success: boolean; data?: { ultima_sync: string | null; total_registros: number }; error?: string }>
       onProgresoLista69B(callback: (mensaje: string) => void): void
+
+      // Soporte
+      enviarTicketSoporte(datos: {
+        tipo: string
+        asunto: string
+        descripcion: string
+        email: string
+      }): Promise<{ success: boolean; folio?: string; error?: string }>
+
+      //pagos
+      comprarLicencia(datos: {
+        plan: string
+        nombre: string
+        email: string
+        rfc: string
+        metodoPago: string
+        tarjeta?: {
+          numero: string
+          vencimiento: string
+          cvv: string
+          titular: string
+        }
+      }): Promise<{ success: boolean; licenseKey?: string; error?: string }>
+
+      activarLicencia(datos: {
+        licenseKey: string
+        rfc: string
+      }): Promise<{ success: boolean; error?: string }>
     }
   }
 }
