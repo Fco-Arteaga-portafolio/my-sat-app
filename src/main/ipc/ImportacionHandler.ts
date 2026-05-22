@@ -1,54 +1,52 @@
-import { ipcMain, dialog } from 'electron'
+import { dialog } from 'electron'
 import { CfdiGuardadoService } from '../services/CfdiGuardadoService'
 import * as fs from 'fs'
 import * as path from 'path'
 import BetterSqlite3 from 'better-sqlite3'
 import { LicenseService } from '../services/LicenseService'
 import { LicenseRepository } from '../database/repositories/LicenseRepository'
+import { IpcWrapper } from './IpcWrapper'
+import { LicenseHelper } from '../services/LicenseHelper'
 
 export class ImportacionHandler {
-  private licenseService: LicenseService
+  private licenseHelper?: LicenseHelper
 
   constructor(private readonly guardadoService: CfdiGuardadoService, db?: BetterSqlite3.Database) {
     if (db) {
       const licenseRepository = new LicenseRepository(db)
-      this.licenseService = new LicenseService(licenseRepository)
-    } else {
-      this.licenseService = null as any
+      const licenseService = new LicenseService(licenseRepository)
+      this.licenseHelper = new LicenseHelper(licenseService, db)
     }
   }
 
   registrar(): void {
-    ipcMain.handle('seleccionar-xmls', async () => {
+    IpcWrapper.handle('seleccionar-xmls', async () => {
       const result = await dialog.showOpenDialog({
         title: 'Seleccionar archivos XML',
         filters: [{ name: 'XML', extensions: ['xml'] }],
         properties: ['openFile', 'multiSelections']
       })
-      return { success: true, rutas: result.canceled ? [] : result.filePaths }
+      return { rutas: result.canceled ? [] : result.filePaths }
     })
 
-    ipcMain.handle('seleccionar-carpeta-xml', async () => {
+    IpcWrapper.handle('seleccionar-carpeta-xml', async () => {
       const result = await dialog.showOpenDialog({
         title: 'Seleccionar carpeta con XMLs',
         properties: ['openDirectory']
       })
-      if (result.canceled) return { success: true, rutas: [] }
+      if (result.canceled) return { rutas: [] }
 
       const carpeta = result.filePaths[0]
       const rutas = fs.readdirSync(carpeta)
         .filter(f => f.toLowerCase().endsWith('.xml'))
         .map(f => path.join(carpeta, f))
-      return { success: true, rutas }
+      return { rutas }
     })
 
-    ipcMain.handle('importar-xmls', async (_, rutas: string[]) => {
-      // Validar acceso a importaciones según licencia
-      if (this.licenseService) {
-        const validacion = this.licenseService.validarImportacionCfdi()
-        if (!validacion.valido) {
-          return { success: false, error: validacion.motivo }
-        }
+    IpcWrapper.handle('importar-xmls', async (_event, rutas: string[]) => {
+      if (this.licenseHelper) {
+        const validacion = this.licenseHelper.validateFeature('importacion')
+        if (!validacion.valido) throw new Error(validacion.motivo)
       }
 
       let importadas = 0
@@ -65,14 +63,12 @@ export class ImportacionHandler {
         }
       }
 
-      // Incrementar contador solo si fue 100% exitoso (sin errores)
-      if (importadas > 0 && errores.length === 0) {
-        const licenseRepo = new LicenseRepository((this.licenseService as any).repository.db)
-        licenseRepo.incrementarImportacionesCfdi()
+      if (importadas > 0 && !errores.length && this.licenseHelper) {
+        this.licenseHelper.incrementCounter('importaciones')
       }
 
       this.guardadoService.sincronizarCatalogos()
-      return { success: true, importadas, omitidas, errores }
+      return { importadas, omitidas, errores }
     })
   }
 }

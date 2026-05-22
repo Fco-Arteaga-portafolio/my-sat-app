@@ -1,4 +1,4 @@
-import { Modal, Input, Alert } from 'antd'
+import { Modal, Input, Alert, Checkbox } from 'antd'
 import { useModalSoporte, TipoTicket } from './ModalSoporte.hook'
 import './ModalSoporte.css'
 
@@ -75,11 +75,16 @@ const ModalSoporte = ({ onClose }: { onClose: () => void }) => {
             placeholder="Tu correo para recibir respuesta"
             value={form.email}
             onChange={(e) => cambiarCampo('email', e.target.value)}
+            style={{ marginBottom: 12 }}
           />
 
-          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 12 }}>
-            📎 El log de errores se adjuntará automáticamente al ticket.
-          </div>
+          <Checkbox
+            checked={form.adjuntarLogs}
+            onChange={(e) => cambiarCampo('adjuntarLogs', e.target.checked)}
+            style={{ marginBottom: 12 }}
+          >
+            📎 Adjuntar logs del sistema para diagnosticar mejor
+          </Checkbox>
         </>
       )}
     </Modal>

@@ -208,6 +208,11 @@ declare global {
         licenseKey: string
         rfc: string
       }): Promise<{ success: boolean; error?: string }>
+
+      // Logger
+      obtenerLogs(): Promise<{ success: boolean; logs?: any[]; error?: string }>
+      obtenerRutaLogs(): Promise<{ success: boolean; ruta?: string; error?: string }>
+      limpiarLogs(): Promise<{ success: boolean; error?: string }>
     }
   }
 }

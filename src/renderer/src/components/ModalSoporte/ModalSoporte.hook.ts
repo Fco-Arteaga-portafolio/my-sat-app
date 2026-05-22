@@ -7,13 +7,15 @@ interface FormSoporte {
     asunto: string
     descripcion: string
     email: string
+    adjuntarLogs: boolean
 }
 
 const formVacio = (): FormSoporte => ({
     tipo: 'bug',
     asunto: '',
     descripcion: '',
-    email: ''
+    email: '',
+    adjuntarLogs: true
 })
 
 export const useModalSoporte = (onClose: () => void) => {
@@ -35,18 +37,33 @@ export const useModalSoporte = (onClose: () => void) => {
         setError(null)
         setLoading(true)
 
-        const res = await window.api.enviarTicketSoporte({
-            tipo: form.tipo,
-            asunto: form.asunto,
-            descripcion: form.descripcion,
-            email: form.email
-        })
+        try {
+            let logsAdjuntos = ''
+            if (form.adjuntarLogs) {
+                const logsRes = await window.api.obtenerLogs()
+                if (logsRes.success && logsRes.logs) {
+                    logsAdjuntos = logsRes.logs.map((log: any) =>
+                        `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.module}] ${log.message}`
+                    ).join('\n')
+                }
+            }
 
-        if (res.success) {
-            setFolioGenerado(res.folio ?? null)
-            setEnviado(true)
-        } else {
-            setError(res.error || 'No se pudo enviar el ticket')
+            const res = await window.api.enviarTicketSoporte({
+                tipo: form.tipo,
+                asunto: form.asunto,
+                descripcion: form.descripcion,
+                email: form.email,
+                logs: logsAdjuntos
+            } as any)
+
+            if (res.success) {
+                setFolioGenerado(res.folio ?? null)
+                setEnviado(true)
+            } else {
+                setError(res.error || 'No se pudo enviar el ticket')
+            }
+        } catch (err) {
+            setError('Error al procesar los logs')
         }
 
         setLoading(false)

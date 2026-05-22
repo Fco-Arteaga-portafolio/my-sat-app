@@ -161,6 +161,13 @@ const createLista69BApi = () => {
     }
   };
 };
+function createLoggerApi() {
+  return {
+    obtenerLogs: async () => electron.ipcRenderer.invoke("obtener-logs"),
+    obtenerRutaLogs: async () => electron.ipcRenderer.invoke("obtener-ruta-logs"),
+    limpiarLogs: async () => electron.ipcRenderer.invoke("limpiar-logs")
+  };
+}
 if (process.contextIsolated) {
   try {
     electron.contextBridge.exposeInMainWorld("electron", preload.electronAPI);
@@ -177,6 +184,7 @@ if (process.contextIsolated) {
       ...createCumplimientoApi(),
       ...createConstanciaApi(),
       ...createLista69BApi(),
+      ...createLoggerApi(),
       ...createMiscApi()
     });
     electron.contextBridge.exposeInMainWorld("electronUpdater", createElectronUpdater());
@@ -199,6 +207,7 @@ if (process.contextIsolated) {
     ...createCumplimientoApi(),
     ...createConstanciaApi(),
     ...createLista69BApi(),
+    ...createLoggerApi(),
     ...createMiscApi()
   };
   window.electronUpdater = createElectronUpdater();

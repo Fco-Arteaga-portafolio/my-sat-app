@@ -6,15 +6,20 @@ import { CfdiGuardadoService } from './CfdiGuardadoService'
 import { DescargaPendienteRepository } from '../database/repositories/DescargaPendienteRepository'
 import { Configuracion } from './ConfiguracionService'
 import { ProgresoDescarga } from '../scraper/SatTypes'
+import { AuthHelper } from './AuthHelper'
 
 export class PendientesService {
+    private authHelper: AuthHelper
+
     constructor(
-        private readonly authService: SatAuthService,
+        authService: SatAuthService,
         private readonly busquedaService: SatBusquedaService,
         private readonly descargaService: SatDescargaService,
         private readonly guardadoService: CfdiGuardadoService,
         private readonly pendienteRepository: DescargaPendienteRepository
-    ) { }
+    ) {
+        this.authHelper = new AuthHelper(authService)
+    }
 
     async reintentar(
         config: Configuracion,
@@ -24,7 +29,7 @@ export class PendientesService {
         const pendientes = this.pendienteRepository.obtenerTodas()
         if (pendientes.length === 0) return { total: 0, errores: [] }
 
-        const page = await this.login(config, captcha)
+        const page = await this.authHelper.login(config, captcha)
         const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
 
         let guardadas = 0
@@ -86,12 +91,5 @@ export class PendientesService {
         onProgreso?.({ etapa: 'completado', totalFacturas: guardadas })
 
         return { total: guardadas, errores }
-    }
-
-    private async login(config: Configuracion, captcha?: string) {
-        if (config.metodoAuth === 'contrasena') {
-            return this.authService.loginConContrasena(config.rfc, config.contrasena!, captcha!)
-        }
-        return this.authService.loginConEfirma(config.rutaCer!, config.rutaKey!, config.contrasenaFiel!)
     }
 }

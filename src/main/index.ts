@@ -32,6 +32,7 @@ import { LicenseHandler } from './ipc/LicenseHandler'
 import { EfosRepository } from './database/repositories/EfosRepository'
 import { Lista69BService } from './services/Lista69BService'
 import { Lista69BHandler } from './ipc/Lista69BHandler'
+import { LoggerHandler } from './ipc/LoggerHandler'
 
 // Nuevos servicios unificados
 import { UnifiedSatHandler } from './ipc/UnifiedSatHandler'
@@ -149,6 +150,7 @@ app.whenReady().then(async () => {
   new LicenseHandler(db).registrar()
   new ExportacionHandler(db).registrar()
   new Lista69BHandler(lista69BService).registrar()
+  new LoggerHandler().registrar()
 
   // Servicios unificados para SAT
   const configProvider = new PortalConfigProvider()

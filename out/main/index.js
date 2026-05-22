@@ -1058,7 +1058,12 @@ class PdfService {
     await this.htmlAPdf(html, rutaDestino);
   }
   async construirHtml(parseada, uuid, plantilla) {
-    const templatePath = electron.app.isPackaged ? path.join(__dirname, "templates", `${plantilla}.html`) : path.join(electron.app.getAppPath(), "src", "main", "templates", `${plantilla}.html`);
+    let templatePath;
+    if (electron.app.isPackaged) {
+      templatePath = path.join(electron.app.getAppPath(), "src", "main", "templates", `${plantilla}.html`);
+    } else {
+      templatePath = path.join(electron.app.getAppPath(), "src", "main", "templates", `${plantilla}.html`);
+    }
     let html = fs__namespace.readFileSync(templatePath, "utf-8");
     const fmt = (n) => (n || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
     html = this.reemplazar(html, "UUID", uuid);
@@ -1442,19 +1447,6 @@ class PagoComplementoRepository {
   eliminar(uuid_rep) {
     this.db.prepare(`DELETE FROM ${this.tabla} WHERE uuid_rep = ?`).run(uuid_rep);
   }
-}
-function manejarErrorSat(error) {
-  const mensaje = String(error);
-  if (mensaje.includes("SAT_SATURADO")) {
-    return "El SAT se encuentra saturado en este momento. Intenta de nuevo en 20 minutos.";
-  }
-  if (mensaje.includes("CAPTCHA_INVALIDO")) {
-    return "El captcha es incorrecto. Recarga el captcha e intenta de nuevo.";
-  }
-  if (mensaje.includes("SAT_TIMEOUT")) {
-    return "El servicio del SAT parece inestable en este momento. Intenta de nuevo en 5 minutos.";
-  }
-  return mensaje;
 }
 class LicenseService {
   repository;
@@ -1862,6 +1854,57 @@ class LicenseRepository {
     return stmt.all(limite);
   }
 }
+class IpcWrapper {
+  static handle(channel, handler) {
+    electron.ipcMain.handle(channel, async (event, ...args) => {
+      try {
+        const result = await handler(event, ...args);
+        return { success: true, ...result };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+  }
+}
+class LicenseHelper {
+  constructor(licenseService, db) {
+    this.licenseService = licenseService;
+    this.db = db;
+  }
+  validateFeature(feature) {
+    const validations = {
+      descarga: () => this.licenseService.validarDescargaCfdi(),
+      importacion: () => this.licenseService.validarImportacionCfdi(),
+      consolidacion: () => this.licenseService.validarConsolidacion(),
+      agregarRfc: () => this.licenseService.validarAgregarRfc(),
+      registrarMaquina: () => this.licenseService.validarRegistrarMaquina()
+    };
+    return validations[feature]();
+  }
+  incrementCounter(counter) {
+    const repo = new LicenseRepository(this.db);
+    const increments = {
+      descargas: () => repo.incrementarDescargasCfdi(),
+      importaciones: () => repo.incrementarImportacionesCfdi(),
+      consolidaciones: () => repo.incrementarConsolidaciones()
+    };
+    increments[counter]();
+  }
+}
+class AuthHelper {
+  constructor(authService) {
+    this.authService = authService;
+  }
+  async login(config, captcha) {
+    if (config.metodoAuth === "contrasena") {
+      return this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
+    }
+    return this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
+  }
+  async logout() {
+    return this.authService.cerrarSesion();
+  }
+}
 class FacturaHandler {
   constructor(descargaService, pendientesService, configuracionService, authService, db) {
     this.descargaService = descargaService;
@@ -1871,190 +1914,109 @@ class FacturaHandler {
     this.pagoComplementoRepository = new PagoComplementoRepository(db);
     const licenseRepository = new LicenseRepository(db);
     this.licenseService = new LicenseService(licenseRepository);
+    this.licenseHelper = new LicenseHelper(this.licenseService, db);
   }
   pagoComplementoRepository;
   licenseService;
+  licenseHelper;
   registrar() {
-    electron.ipcMain.handle("obtener-captcha", async () => {
-      try {
-        const imagenBase64 = await this.authService.obtenerCaptcha();
-        return { success: true, imagenBase64: imagenBase64.imagenBase64 };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
+    IpcWrapper.handle("obtener-captcha", async () => {
+      const imagenBase64 = await this.authService.obtenerCaptcha();
+      return { imagenBase64: imagenBase64.imagenBase64 };
     });
-    electron.ipcMain.handle("descargar-facturas", async (event, datos) => {
-      try {
-        const validacion = this.licenseService.validarDescargaCfdi();
-        if (!validacion.valido) {
-          return { success: false, error: validacion.motivo };
-        }
-        const config = this.configuracionService.obtener();
-        if (!config) return { success: false, error: "No hay configuración guardada" };
-        const resultado = await this.descargaService.descargar(
-          config,
-          datos.params,
-          datos.captcha,
-          (progreso) => event.sender.send("progreso-descarga", progreso)
-        );
-        if (resultado.total > 0 && (!resultado.errores || resultado.errores.length === 0)) {
-          const licenseRepo = new LicenseRepository(this.licenseService.repository.db);
-          licenseRepo.incrementarDescargasCfdi();
-        }
-        return { success: true, total: resultado.total, errores: resultado.errores };
-      } catch (error) {
-        return { success: false, error: manejarErrorSat(error) };
-      } finally {
-        await this.authService.cerrarSesion();
+    IpcWrapper.handle("descargar-facturas", async (event, datos) => {
+      const validacion = this.licenseHelper.validateFeature("descarga");
+      if (!validacion.valido) throw new Error(validacion.motivo);
+      const config = this.configuracionService.obtener();
+      if (!config) throw new Error("No hay configuración guardada");
+      const resultado = await this.descargaService.descargar(
+        config,
+        datos.params,
+        datos.captcha,
+        (progreso) => event.sender.send("progreso-descarga", progreso)
+      );
+      if (resultado.total > 0 && !resultado.errores.length) {
+        this.licenseHelper.incrementCounter("descargas");
       }
+      return { total: resultado.total, errores: resultado.errores };
     });
-    electron.ipcMain.handle("reintentar-pendientes", async (event, datos) => {
-      try {
-        const validacion = this.licenseService.validarDescargaCfdi();
-        if (!validacion.valido) {
-          return { success: false, error: validacion.motivo };
-        }
-        const config = this.configuracionService.obtener();
-        if (!config) return { success: false, error: "No hay configuración guardada" };
-        const resultado = await this.pendientesService.reintentar(
-          config,
-          datos.captcha,
-          (progreso) => event.sender.send("progreso-descarga", progreso)
-        );
-        if (resultado.total > 0 && (!resultado.errores || resultado.errores.length === 0)) {
-          const licenseRepo = new LicenseRepository(this.licenseService.repository.db);
-          licenseRepo.incrementarDescargasCfdi();
-        }
-        return { success: true, total: resultado.total, errores: resultado.errores };
-      } catch (error) {
-        return { success: false, error: manejarErrorSat(error) };
-      } finally {
-        await this.authService.cerrarSesion();
+    IpcWrapper.handle("reintentar-pendientes", async (event, datos) => {
+      const validacion = this.licenseHelper.validateFeature("descarga");
+      if (!validacion.valido) throw new Error(validacion.motivo);
+      const config = this.configuracionService.obtener();
+      if (!config) throw new Error("No hay configuración guardada");
+      const resultado = await this.pendientesService.reintentar(
+        config,
+        datos.captcha,
+        (progreso) => event.sender.send("progreso-descarga", progreso)
+      );
+      if (resultado.total > 0 && !resultado.errores.length) {
+        this.licenseHelper.incrementCounter("descargas");
       }
+      return { total: resultado.total, errores: resultado.errores };
     });
-    electron.ipcMain.handle("obtener-facturas", async () => {
-      try {
-        return { success: true, facturas: this.descargaService.obtenerFacturas() };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
+    IpcWrapper.handle("obtener-facturas", () => ({
+      facturas: this.descargaService.obtenerFacturas()
+    }));
+    IpcWrapper.handle("obtener-facturas-por-tipo", async (_, datos) => ({
+      facturas: this.descargaService.obtenerFacturasPorTipo(datos.tipoDescarga, datos.filtros ?? {})
+    }));
+    IpcWrapper.handle("obtener-pago-complemento", async (_, uuid_rep) => {
+      const pago = this.pagoComplementoRepository.obtenerPorUuidRep(uuid_rep);
+      return {
+        pago: pago ? { ...pago, documentos: pago.documentos ? JSON.parse(pago.documentos) : [] } : null
+      };
     });
-    electron.ipcMain.handle("obtener-facturas-por-tipo", async (_, datos) => {
-      try {
-        const facturas = this.descargaService.obtenerFacturasPorTipo(
-          datos.tipoDescarga,
-          datos.filtros ?? {}
-        );
-        return { success: true, facturas };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
+    IpcWrapper.handle("eliminar-factura", async (_, uuid) => {
+      this.descargaService.eliminarFactura(uuid);
+      this.pagoComplementoRepository.eliminar(uuid);
+      return {};
     });
-    electron.ipcMain.handle("obtener-pago-complemento", async (_, uuid_rep) => {
-      try {
-        const pago = this.pagoComplementoRepository.obtenerPorUuidRep(uuid_rep);
-        if (!pago) return { success: true, pago: null };
-        return {
-          success: true,
-          pago: {
-            ...pago,
-            documentos: pago.documentos ? JSON.parse(pago.documentos) : []
-          }
-        };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("eliminar-factura", async (_, uuid) => {
-      try {
-        this.descargaService.eliminarFactura(uuid);
-        this.pagoComplementoRepository.eliminar(uuid);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("abrir-archivo", async (_, ruta) => {
+    IpcWrapper.handle("abrir-archivo", async (_, ruta) => {
       const { shell } = require("electron");
       const { platform } = require("os");
-      if (platform() === "win32") {
-        await shell.openExternal(`file:///${ruta.replace(/\\/g, "/")}`);
-      } else {
-        await shell.openExternal(`file://${ruta}`);
-      }
+      const url = platform() === "win32" ? `file:///${ruta.replace(/\\/g, "/")}` : `file://${ruta}`;
+      await shell.openExternal(url);
+      return {};
     });
-    electron.ipcMain.handle("leer-xml", async (_, ruta) => {
-      try {
-        const fs2 = require("fs");
-        return { success: true, contenido: fs2.readFileSync(ruta, "utf-8") };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
+    IpcWrapper.handle("leer-xml", async (_, ruta) => {
+      const fs2 = require("fs");
+      return { contenido: fs2.readFileSync(ruta, "utf-8") };
     });
-    electron.ipcMain.handle("generar-pdf", async (_, datos) => {
-      try {
+    IpcWrapper.handle("generar-pdf", async (_, datos) => {
+      const pdfService = new PdfService();
+      await pdfService.generarPdf(datos.xmlContenido, datos.parseada, datos.uuid, datos.plantilla, datos.rutaDestino);
+      return {};
+    });
+    IpcWrapper.handle("obtener-pendientes", () => ({
+      pendientes: this.descargaService.obtenerPendientes()
+    }));
+    IpcWrapper.handle("contar-pendientes", () => ({
+      total: this.descargaService.contarPendientes()
+    }));
+    IpcWrapper.handle("limpiar-pendientes", () => {
+      this.descargaService.limpiarPendientes();
+      return {};
+    });
+    IpcWrapper.handle("facturas-drill-down", async (_, rfc) => ({
+      data: this.descargaService.obtenerDrillDown(rfc)
+    }));
+    IpcWrapper.handle("obtener-pdf-factura", async (_, datos) => {
+      const fs2 = require("fs");
+      const rutaPdf = datos.rutaXml.replace(/\.xml$/i, ".pdf");
+      if (!fs2.existsSync(rutaPdf)) {
+        const xmlContenido = fs2.readFileSync(datos.rutaXml, "utf-8");
         const pdfService = new PdfService();
-        await pdfService.generarPdf(datos.xmlContenido, datos.parseada, datos.uuid, datos.plantilla, datos.rutaDestino);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
+        const plantilla = this.configuracionService.obtener()?.plantillaDefault ?? "clasica";
+        await pdfService.generarPdf(xmlContenido, datos.parseada, datos.uuid, plantilla, rutaPdf);
       }
+      return { base64: fs2.readFileSync(rutaPdf).toString("base64"), rutaPdf };
     });
-    electron.ipcMain.handle("obtener-pendientes", async () => {
-      try {
-        return { success: true, pendientes: this.descargaService.obtenerPendientes() };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("contar-pendientes", async () => {
-      try {
-        return { success: true, total: this.descargaService.contarPendientes() };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("limpiar-pendientes", async () => {
-      try {
-        this.descargaService.limpiarPendientes();
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("facturas-drill-down", async (_, rfc) => {
-      try {
-        return { success: true, data: this.descargaService.obtenerDrillDown(rfc) };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("obtener-pdf-factura", async (_, datos) => {
-      try {
-        const fs2 = require("fs");
-        const rutaPdf = datos.rutaXml.replace(/\.xml$/i, ".pdf");
-        if (!fs2.existsSync(rutaPdf)) {
-          const xmlContenido = fs2.readFileSync(datos.rutaXml, "utf-8");
-          const pdfService = new PdfService();
-          const plantilla = this.configuracionService.obtener()?.plantillaDefault ?? "clasica";
-          await pdfService.generarPdf(xmlContenido, datos.parseada, datos.uuid, plantilla, rutaPdf);
-        }
-        const base64 = fs2.readFileSync(rutaPdf).toString("base64");
-        return { success: true, base64, rutaPdf };
-      } catch (error) {
-        console.error("Error al obtener PDF de factura:", error);
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("imprimir-pdf", async (event) => {
-      try {
-        event.sender.print({}, (success, reason) => {
-          if (!success) console.error("Error al imprimir:", reason);
-        });
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
+    IpcWrapper.handle("imprimir-pdf", async (event) => {
+      event.sender.print({}, (success, reason) => {
+        if (!success) console.error("Error al imprimir:", reason);
+      });
+      return {};
     });
   }
 }
@@ -2221,44 +2183,54 @@ class ConfiguracionHandler {
     });
   }
 }
+function manejarErrorSat(error) {
+  const mensaje = String(error);
+  if (mensaje.includes("SAT_SATURADO")) {
+    return "El SAT se encuentra saturado en este momento. Intenta de nuevo en 20 minutos.";
+  }
+  if (mensaje.includes("CAPTCHA_INVALIDO")) {
+    return "El captcha es incorrecto. Recarga el captcha e intenta de nuevo.";
+  }
+  if (mensaje.includes("SAT_TIMEOUT")) {
+    return "El servicio del SAT parece inestable en este momento. Intenta de nuevo en 5 minutos.";
+  }
+  return mensaje;
+}
 class ConciliacionHandler {
   constructor(conciliacionService, configuracionService, authService, db) {
     this.conciliacionService = conciliacionService;
     this.configuracionService = configuracionService;
-    this.authService = authService;
     if (db) {
       const licenseRepository = new LicenseRepository(db);
-      this.licenseService = new LicenseService(licenseRepository);
-    } else {
-      this.licenseService = null;
+      const licenseService = new LicenseService(licenseRepository);
+      this.licenseHelper = new LicenseHelper(licenseService, db);
     }
+    this.authHelper = new AuthHelper(authService);
   }
-  licenseService;
+  licenseHelper;
+  authHelper;
   registrar() {
     electron.ipcMain.handle("iniciar-conciliacion", async (event, params) => {
       try {
-        if (this.licenseService) {
-          const validacion = this.licenseService.validarConsolidacion();
-          if (!validacion.valido) {
-            return { success: false, error: validacion.motivo };
-          }
+        if (this.licenseHelper) {
+          const validacion = this.licenseHelper.validateFeature("consolidacion");
+          if (!validacion.valido) throw new Error(validacion.motivo);
         }
         const config = this.configuracionService.obtener();
-        if (!config) return { success: false, error: "No hay configuración guardada" };
+        if (!config) throw new Error("No hay configuración guardada");
         const resumen = await this.conciliacionService.conciliar(
           config,
           params,
           (progreso) => event.sender.send("progreso-conciliacion", progreso)
         );
-        if (this.licenseService && resumen && resumen.errores.length === 0) {
-          const licenseRepo = new LicenseRepository(this.licenseService.repository.db);
-          licenseRepo.incrementarConsolidaciones();
+        if (this.licenseHelper && resumen && resumen.errores.length === 0) {
+          this.licenseHelper.incrementCounter("consolidaciones");
         }
         return { success: true, resumen };
       } catch (error) {
         return { success: false, error: manejarErrorSat(error) };
       } finally {
-        await this.authService.cerrarSesion();
+        await this.authHelper.logout();
       }
     });
     electron.ipcMain.handle("obtener-ultima-conciliacion", (_, params) => {
@@ -2282,37 +2254,34 @@ class ImportacionHandler {
     this.guardadoService = guardadoService;
     if (db) {
       const licenseRepository = new LicenseRepository(db);
-      this.licenseService = new LicenseService(licenseRepository);
-    } else {
-      this.licenseService = null;
+      const licenseService = new LicenseService(licenseRepository);
+      this.licenseHelper = new LicenseHelper(licenseService, db);
     }
   }
-  licenseService;
+  licenseHelper;
   registrar() {
-    electron.ipcMain.handle("seleccionar-xmls", async () => {
+    IpcWrapper.handle("seleccionar-xmls", async () => {
       const result = await electron.dialog.showOpenDialog({
         title: "Seleccionar archivos XML",
         filters: [{ name: "XML", extensions: ["xml"] }],
         properties: ["openFile", "multiSelections"]
       });
-      return { success: true, rutas: result.canceled ? [] : result.filePaths };
+      return { rutas: result.canceled ? [] : result.filePaths };
     });
-    electron.ipcMain.handle("seleccionar-carpeta-xml", async () => {
+    IpcWrapper.handle("seleccionar-carpeta-xml", async () => {
       const result = await electron.dialog.showOpenDialog({
         title: "Seleccionar carpeta con XMLs",
         properties: ["openDirectory"]
       });
-      if (result.canceled) return { success: true, rutas: [] };
+      if (result.canceled) return { rutas: [] };
       const carpeta = result.filePaths[0];
       const rutas = fs__namespace.readdirSync(carpeta).filter((f) => f.toLowerCase().endsWith(".xml")).map((f) => path__namespace.join(carpeta, f));
-      return { success: true, rutas };
+      return { rutas };
     });
-    electron.ipcMain.handle("importar-xmls", async (_, rutas) => {
-      if (this.licenseService) {
-        const validacion = this.licenseService.validarImportacionCfdi();
-        if (!validacion.valido) {
-          return { success: false, error: validacion.motivo };
-        }
+    IpcWrapper.handle("importar-xmls", async (_event, rutas) => {
+      if (this.licenseHelper) {
+        const validacion = this.licenseHelper.validateFeature("importacion");
+        if (!validacion.valido) throw new Error(validacion.motivo);
       }
       let importadas = 0;
       let omitidas = 0;
@@ -2326,12 +2295,11 @@ class ImportacionHandler {
           errores.push({ archivo: path__namespace.basename(ruta), error: err.message });
         }
       }
-      if (importadas > 0 && errores.length === 0) {
-        const licenseRepo = new LicenseRepository(this.licenseService.repository.db);
-        licenseRepo.incrementarImportacionesCfdi();
+      if (importadas > 0 && !errores.length && this.licenseHelper) {
+        this.licenseHelper.incrementCounter("importaciones");
       }
       this.guardadoService.sincronizarCatalogos();
-      return { success: true, importadas, omitidas, errores };
+      return { importadas, omitidas, errores };
     });
   }
 }
@@ -4089,17 +4057,38 @@ class CfdiGuardadoService {
     this.catalogoRepository.sincronizarTodos();
   }
 }
+class DescargaHelper {
+  constructor(guardadoService) {
+    this.guardadoService = guardadoService;
+  }
+  async procesarDescargas(exitosas) {
+    let guardadas = 0;
+    const errores = [];
+    for (const { rutaTemp, meta } of exitosas) {
+      try {
+        this.guardadoService.guardarDesdeRuta(rutaTemp, meta);
+        guardadas++;
+      } catch (err) {
+        errores.push({ uuid: meta.uuid, error: err.message });
+      }
+    }
+    return { guardadas, errores };
+  }
+}
 class DescargaService {
   constructor(authService, busquedaService, descargaService, guardadoService, facturaRepository, pendienteRepository) {
-    this.authService = authService;
     this.busquedaService = busquedaService;
     this.descargaService = descargaService;
     this.guardadoService = guardadoService;
     this.facturaRepository = facturaRepository;
     this.pendienteRepository = pendienteRepository;
+    this.authHelper = new AuthHelper(authService);
+    this.descargaHelper = new DescargaHelper(guardadoService);
   }
+  authHelper;
+  descargaHelper;
   async descargar(config, params, captcha, onProgreso) {
-    const page = await this.login(config, captcha);
+    const page = await this.authHelper.login(config, captcha);
     const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
     const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
     onProgreso?.({ etapa: "buscando" });
@@ -4115,16 +4104,7 @@ class DescargaService {
       carpetaTemp,
       (descargadas, totalFacturas, uuid) => onProgreso?.({ etapa: "descargando", descargadas, totalFacturas, uuid })
     );
-    let guardadas = 0;
-    const errores = [];
-    for (const { rutaTemp, meta } of exitosas) {
-      try {
-        this.guardadoService.guardarDesdeRuta(rutaTemp, meta);
-        guardadas++;
-      } catch (err) {
-        errores.push({ uuid: meta.uuid, error: err.message });
-      }
-    }
+    const { guardadas, errores } = await this.descargaHelper.procesarDescargas(exitosas);
     for (const e of erroresDescarga) {
       this.guardadoService.guardarPendiente({
         uuid: e.uuid,
@@ -4142,12 +4122,6 @@ class DescargaService {
     this.guardadoService.sincronizarCatalogos();
     onProgreso?.({ etapa: "completado", totalFacturas: guardadas });
     return { total: guardadas, errores: [...errores, ...erroresDescarga.map((e) => ({ uuid: e.uuid, error: e.error }))] };
-  }
-  async login(config, captcha) {
-    if (config.metodoAuth === "contrasena") {
-      return this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
-    }
-    return this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
   }
   obtenerFacturas() {
     return this.facturaRepository.obtenerTodas();
@@ -4179,16 +4153,17 @@ class DescargaService {
 }
 class PendientesService {
   constructor(authService, busquedaService, descargaService, guardadoService, pendienteRepository) {
-    this.authService = authService;
     this.busquedaService = busquedaService;
     this.descargaService = descargaService;
     this.guardadoService = guardadoService;
     this.pendienteRepository = pendienteRepository;
+    this.authHelper = new AuthHelper(authService);
   }
+  authHelper;
   async reintentar(config, captcha, onProgreso) {
     const pendientes = this.pendienteRepository.obtenerTodas();
     if (pendientes.length === 0) return { total: 0, errores: [] };
-    const page = await this.login(config, captcha);
+    const page = await this.authHelper.login(config, captcha);
     const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
     let guardadas = 0;
     const errores = [];
@@ -4242,22 +4217,19 @@ class PendientesService {
     onProgreso?.({ etapa: "completado", totalFacturas: guardadas });
     return { total: guardadas, errores };
   }
-  async login(config, captcha) {
-    if (config.metodoAuth === "contrasena") {
-      return this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
-    }
-    return this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
-  }
 }
 class ConciliacionService {
   constructor(authService, busquedaService, descargaService, guardadoService, facturaRepository, conciliacionRepository) {
-    this.authService = authService;
     this.busquedaService = busquedaService;
     this.descargaService = descargaService;
     this.guardadoService = guardadoService;
     this.facturaRepository = facturaRepository;
     this.conciliacionRepository = conciliacionRepository;
+    this.authHelper = new AuthHelper(authService);
+    this.descargaHelper = new DescargaHelper(guardadoService);
   }
+  authHelper;
+  descargaHelper;
   async conciliar(config, params, onProgreso) {
     const mes = params.periodo.padStart(2, "0");
     const ultimoDia = new Date(parseInt(params.ejercicio), parseInt(mes), 0).getDate();
@@ -4265,7 +4237,7 @@ class ConciliacionService {
     const fechaFin = `${ultimoDia}/${mes}/${params.ejercicio}`;
     const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
     const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
-    const page = await this.login(config, params.captcha);
+    const page = await this.authHelper.login(config, params.captcha);
     onProgreso?.({ etapa: "consultando" });
     const filasSat = await this.busquedaService.buscarEnPagina(page, {
       tipo: params.tipo,
@@ -4292,14 +4264,9 @@ class ConciliacionService {
         carpetaTemp,
         (desc, _total, _uuid) => onProgreso?.({ etapa: "descargando", descargadas: desc, totalFaltantes: faltantes.length })
       );
-      for (const { rutaTemp, meta } of exitosas) {
-        try {
-          this.guardadoService.guardarDesdeRuta(rutaTemp, meta);
-          descargadas++;
-        } catch (err) {
-          errores.push({ uuid: meta.uuid, error: err.message });
-        }
-      }
+      const { guardadas, errores: erroresGuardado } = await this.descargaHelper.procesarDescargas(exitosas);
+      descargadas = guardadas;
+      errores.push(...erroresGuardado);
       for (const e of erroresDescarga) {
         errores.push({ uuid: e.uuid, error: e.error });
       }
@@ -4329,12 +4296,6 @@ class ConciliacionService {
     this.guardadoService.sincronizarCatalogos();
     onProgreso?.({ etapa: "completado" });
     return { totalSat, totalLocal, descargadas, actualizadas, errores };
-  }
-  async login(config, captcha) {
-    if (config.metodoAuth === "contrasena") {
-      return this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
-    }
-    return this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
   }
   obtenerUltima(tipo, ejercicio, periodo) {
     return this.conciliacionRepository.obtenerUltima(tipo, ejercicio, periodo);
@@ -4689,6 +4650,117 @@ class Lista69BHandler {
     });
   }
 }
+class LoggerService {
+  logFile;
+  logs = [];
+  maxLogs = 1e3;
+  constructor() {
+    const logsDir = path__namespace.join(electron.app.getPath("userData"), "logs");
+    if (!fs__namespace.existsSync(logsDir)) fs__namespace.mkdirSync(logsDir, { recursive: true });
+    const fecha = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    this.logFile = path__namespace.join(logsDir, `app-${fecha}.log`);
+    this.loadLogs();
+  }
+  loadLogs() {
+    try {
+      if (fs__namespace.existsSync(this.logFile)) {
+        const content = fs__namespace.readFileSync(this.logFile, "utf-8");
+        this.logs = content.split("\n").filter(Boolean).map((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        }).filter(Boolean);
+      }
+    } catch (err) {
+      console.error("Error loading logs:", err);
+    }
+  }
+  write(entry) {
+    this.logs.push(entry);
+    if (this.logs.length > this.maxLogs) {
+      this.logs.shift();
+    }
+    try {
+      fs__namespace.appendFileSync(this.logFile, JSON.stringify(entry) + "\n");
+    } catch (err) {
+      console.error("Error writing to log file:", err);
+    }
+  }
+  log(module, message, data) {
+    const entry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level: "info",
+      module,
+      message,
+      data
+    };
+    this.write(entry);
+    console.log(`[${module}] ${message}`, data || "");
+  }
+  error(module, message, data) {
+    const entry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level: "error",
+      module,
+      message,
+      data
+    };
+    this.write(entry);
+    console.error(`[${module}] ERROR: ${message}`, data || "");
+  }
+  warn(module, message, data) {
+    const entry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level: "warn",
+      module,
+      message,
+      data
+    };
+    this.write(entry);
+    console.warn(`[${module}] WARN: ${message}`, data || "");
+  }
+  debug(module, message, data) {
+    const entry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level: "debug",
+      module,
+      message,
+      data
+    };
+    this.write(entry);
+  }
+  getLogs() {
+    return [...this.logs];
+  }
+  getLogFile() {
+    return this.logFile;
+  }
+  clearLogs() {
+    this.logs = [];
+    try {
+      fs__namespace.writeFileSync(this.logFile, "");
+    } catch (err) {
+      console.error("Error clearing logs:", err);
+    }
+  }
+}
+const logger = new LoggerService();
+class LoggerHandler {
+  registrar() {
+    IpcWrapper.handle("obtener-logs", () => {
+      return { logs: logger.getLogs() };
+    });
+    IpcWrapper.handle("obtener-ruta-logs", () => {
+      return { ruta: logger.getLogFile() };
+    });
+    IpcWrapper.handle("limpiar-logs", () => {
+      logger.clearLogs();
+      return {};
+    });
+  }
+}
 class UnifiedSatHandler {
   constructor(configuracionService, operationServices, authService, configProvider) {
     this.configuracionService = configuracionService;
@@ -4766,108 +4838,61 @@ class UnifiedSatHandler {
     }
   }
   registrarHandlersLegacy() {
-    electron.ipcMain.handle("constancia-obtener-captcha", async () => {
-      try {
-        this.validarPortal("constancia");
-        const captcha = await this.authService.obtenerCaptcha("constancia");
-        return { success: true, data: captcha };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Error obteniendo captcha"
-        };
-      }
-    });
-    electron.ipcMain.handle("constancia-obtener-constancia", async (_, data) => {
-      try {
-        this.validarPortal("constancia");
-        const config = this.configuracionService.obtener();
-        if (!config?.rfc) {
-          return { success: false, error: "No hay RFC configurado" };
+    const portales = ["constancia", "cumplimiento"];
+    for (const portalId of portales) {
+      electron.ipcMain.handle(`${portalId}-obtener-captcha`, async () => {
+        try {
+          this.validarPortal(portalId);
+          const captcha = await this.authService.obtenerCaptcha(portalId);
+          return { success: true, data: captcha };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : "Error obteniendo captcha"
+          };
         }
-        const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
-        const tipoLogin = config.metodoAuth ?? "contrasena";
-        const onProgreso = (mensaje) => {
-          electron.BrowserWindow.getAllWindows()[0]?.webContents.send("progreso-constancia", mensaje);
-        };
-        const operationService = this.operationServices["constancia"];
-        if (!operationService) {
-          throw new Error("No hay servicio registrado para constancia");
+      });
+      const operacionKey = portalId === "constancia" ? "obtener-constancia" : "obtener-opinion";
+      electron.ipcMain.handle(`${portalId}-${operacionKey}`, async (_, data) => {
+        try {
+          this.validarPortal(portalId);
+          const config = this.configuracionService.obtener();
+          if (!config?.rfc) {
+            return { success: false, error: "No hay RFC configurado" };
+          }
+          const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+          const tipoLogin = config.metodoAuth ?? "contrasena";
+          const onProgreso = (mensaje) => {
+            electron.BrowserWindow.getAllWindows()[0]?.webContents.send(`progreso-${portalId}`, mensaje);
+          };
+          const operationService = this.operationServices[portalId];
+          if (!operationService) {
+            throw new Error(`No hay servicio registrado para ${portalId}`);
+          }
+          const credencialesFinal = this.prepararCredenciales(data, tipoLogin, config);
+          const paginaAutenticada = await this.autenticar(portalId, tipoLogin, credencialesFinal);
+          const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
+            carpetaTemp,
+            onProgreso
+          });
+          return { success: true, data: resultado };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : "Error ejecutando operación"
+          };
         }
-        const credencialesFinal = this.prepararCredenciales(data, tipoLogin, config);
-        const paginaAutenticada = await this.autenticar("constancia", tipoLogin, credencialesFinal);
-        const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
-          carpetaTemp,
-          onProgreso
-        });
-        return { success: true, data: resultado };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Error ejecutando operación"
-        };
-      }
-    });
-    electron.ipcMain.handle("constancia-cerrar-sesion", async () => {
-      try {
-        const operationService = this.operationServices["constancia"];
-        if (operationService) await operationService.cerrarSesion();
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
-    electron.ipcMain.handle("cumplimiento-obtener-captcha", async () => {
-      try {
-        this.validarPortal("cumplimiento");
-        const captcha = await this.authService.obtenerCaptcha("cumplimiento");
-        return { success: true, data: captcha };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Error obteniendo captcha"
-        };
-      }
-    });
-    electron.ipcMain.handle("cumplimiento-obtener-opinion", async (_, data) => {
-      try {
-        this.validarPortal("cumplimiento");
-        const config = this.configuracionService.obtener();
-        if (!config?.rfc) {
-          return { success: false, error: "No hay RFC configurado" };
+      });
+      electron.ipcMain.handle(`${portalId}-cerrar-sesion`, async () => {
+        try {
+          const operationService = this.operationServices[portalId];
+          if (operationService) await operationService.cerrarSesion();
+          return { success: true };
+        } catch (error) {
+          return { success: false, error: String(error) };
         }
-        const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
-        const tipoLogin = config.metodoAuth ?? "contrasena";
-        const onProgreso = (mensaje) => {
-          electron.BrowserWindow.getAllWindows()[0]?.webContents.send("progreso-cumplimiento", mensaje);
-        };
-        const operationService = this.operationServices["cumplimiento"];
-        if (!operationService) {
-          throw new Error("No hay servicio registrado para cumplimiento");
-        }
-        const credencialesFinal = this.prepararCredenciales(data, tipoLogin, config);
-        const paginaAutenticada = await this.autenticar("cumplimiento", tipoLogin, credencialesFinal);
-        const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
-          carpetaTemp,
-          onProgreso
-        });
-        return { success: true, data: resultado };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Error ejecutando operación"
-        };
-      }
-    });
-    electron.ipcMain.handle("cumplimiento-cerrar-sesion", async () => {
-      try {
-        const operationService = this.operationServices["cumplimiento"];
-        if (operationService) await operationService.cerrarSesion();
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
-    });
+      });
+    }
   }
   prepararCredenciales(credenciales, tipoLogin, config) {
     if (tipoLogin === "efirma") {
@@ -5503,6 +5528,7 @@ electron.app.whenReady().then(async () => {
   new LicenseHandler(db).registrar();
   new ExportacionHandler(db).registrar();
   new Lista69BHandler(lista69BService).registrar();
+  new LoggerHandler().registrar();
   const configProvider = new PortalConfigProvider();
   const sharedAuthService = new SatUnifiedAuthService(configProvider);
   const constanciaService = new SatConstanciaOperationService(configProvider, sharedAuthService);

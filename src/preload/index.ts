@@ -13,6 +13,7 @@ import { createCumplimientoApi } from './cumplimiento'
 import { createMiscApi, createElectronUpdater, createAppInfo } from './misc'
 import { createConstanciaApi } from './constancia'
 import { createLista69BApi } from './lista69b'
+import { createLoggerApi } from './logger'
 
 if (process.contextIsolated) {
   try {
@@ -30,6 +31,7 @@ if (process.contextIsolated) {
       ...createCumplimientoApi(),
       ...createConstanciaApi(),
       ...createLista69BApi(),
+      ...createLoggerApi(),
       ...createMiscApi(),
     })
     contextBridge.exposeInMainWorld('electronUpdater', createElectronUpdater())
@@ -54,6 +56,7 @@ if (process.contextIsolated) {
     ...createCumplimientoApi(),
     ...createConstanciaApi(),
     ...createLista69BApi(),
+    ...createLoggerApi(),
     ...createMiscApi(),
   }
   // @ts-ignore (define in dts)

@@ -13,17 +13,7 @@ export default defineConfig({
       rollupOptions: {
         external: ['original-fs']
       }
-    },
-    plugins: [
-      viteStaticCopy({
-        targets: [
-          {
-            src: normalizePath(path.resolve('src/main/templates')),
-            dest: ''
-          }
-        ]
-      })
-    ]
+    }
   },
   preload: {},
   renderer: {

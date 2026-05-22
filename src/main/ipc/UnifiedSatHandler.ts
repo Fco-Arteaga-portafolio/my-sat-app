@@ -117,125 +117,69 @@ export class UnifiedSatHandler {
     }
 
     private registrarHandlersLegacy(): void {
-        // Constancia
-        ipcMain.handle('constancia-obtener-captcha', async () => {
-            try {
-                this.validarPortal('constancia')
-                const captcha = await this.authService.obtenerCaptcha('constancia')
-                return { success: true, data: captcha }
-            } catch (error) {
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : 'Error obteniendo captcha'
+        const portales = ['constancia', 'cumplimiento']
+
+        for (const portalId of portales) {
+            ipcMain.handle(`${portalId}-obtener-captcha`, async () => {
+                try {
+                    this.validarPortal(portalId)
+                    const captcha = await this.authService.obtenerCaptcha(portalId)
+                    return { success: true, data: captcha }
+                } catch (error) {
+                    return {
+                        success: false,
+                        error: error instanceof Error ? error.message : 'Error obteniendo captcha'
+                    }
                 }
-            }
-        })
+            })
 
-        ipcMain.handle('constancia-obtener-constancia', async (_, data: { captcha?: string }) => {
-            try {
-                this.validarPortal('constancia')
-                const config = this.configuracionService.obtener()
-                if (!config?.rfc) {
-                    return { success: false, error: 'No hay RFC configurado' }
+            const operacionKey = portalId === 'constancia' ? 'obtener-constancia' : 'obtener-opinion'
+            ipcMain.handle(`${portalId}-${operacionKey}`, async (_, data: { captcha?: string }) => {
+                try {
+                    this.validarPortal(portalId)
+                    const config = this.configuracionService.obtener()
+                    if (!config?.rfc) {
+                        return { success: false, error: 'No hay RFC configurado' }
+                    }
+
+                    const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
+                    const tipoLogin = config.metodoAuth ?? 'contrasena'
+
+                    const onProgreso = (mensaje: string) => {
+                        BrowserWindow.getAllWindows()[0]?.webContents.send(`progreso-${portalId}`, mensaje)
+                    }
+
+                    const operationService = this.operationServices[portalId]
+                    if (!operationService) {
+                        throw new Error(`No hay servicio registrado para ${portalId}`)
+                    }
+
+                    const credencialesFinal = this.prepararCredenciales(data, tipoLogin, config)
+                    const paginaAutenticada = await this.autenticar(portalId, tipoLogin, credencialesFinal)
+                    const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
+                        carpetaTemp,
+                        onProgreso
+                    })
+
+                    return { success: true, data: resultado }
+                } catch (error) {
+                    return {
+                        success: false,
+                        error: error instanceof Error ? error.message : 'Error ejecutando operación'
+                    }
                 }
+            })
 
-                const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
-                const tipoLogin = config.metodoAuth ?? 'contrasena'
-
-                const onProgreso = (mensaje: string) => {
-                    BrowserWindow.getAllWindows()[0]?.webContents.send('progreso-constancia', mensaje)
+            ipcMain.handle(`${portalId}-cerrar-sesion`, async () => {
+                try {
+                    const operationService = this.operationServices[portalId]
+                    if (operationService) await operationService.cerrarSesion()
+                    return { success: true }
+                } catch (error) {
+                    return { success: false, error: String(error) }
                 }
-
-                const operationService = this.operationServices['constancia']
-                if (!operationService) {
-                    throw new Error('No hay servicio registrado para constancia')
-                }
-
-                const credencialesFinal = this.prepararCredenciales(data, tipoLogin, config)
-                const paginaAutenticada = await this.autenticar('constancia', tipoLogin, credencialesFinal)
-                const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
-                    carpetaTemp,
-                    onProgreso
-                })
-
-                return { success: true, data: resultado }
-            } catch (error) {
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : 'Error ejecutando operación'
-                }
-            }
-        })
-
-        ipcMain.handle('constancia-cerrar-sesion', async () => {
-            try {
-                const operationService = this.operationServices['constancia']
-                if (operationService) await operationService.cerrarSesion()
-                return { success: true }
-            } catch (error) {
-                return { success: false, error: String(error) }
-            }
-        })
-
-        // Cumplimiento
-        ipcMain.handle('cumplimiento-obtener-captcha', async () => {
-            try {
-                this.validarPortal('cumplimiento')
-                const captcha = await this.authService.obtenerCaptcha('cumplimiento')
-                return { success: true, data: captcha }
-            } catch (error) {
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : 'Error obteniendo captcha'
-                }
-            }
-        })
-
-        ipcMain.handle('cumplimiento-obtener-opinion', async (_, data: { captcha?: string }) => {
-            try {
-                this.validarPortal('cumplimiento')
-                const config = this.configuracionService.obtener()
-                if (!config?.rfc) {
-                    return { success: false, error: 'No hay RFC configurado' }
-                }
-
-                const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
-                const tipoLogin = config.metodoAuth ?? 'contrasena'
-
-                const onProgreso = (mensaje: string) => {
-                    BrowserWindow.getAllWindows()[0]?.webContents.send('progreso-cumplimiento', mensaje)
-                }
-
-                const operationService = this.operationServices['cumplimiento']
-                if (!operationService) {
-                    throw new Error('No hay servicio registrado para cumplimiento')
-                }
-
-                const credencialesFinal = this.prepararCredenciales(data, tipoLogin, config)
-                const paginaAutenticada = await this.autenticar('cumplimiento', tipoLogin, credencialesFinal)
-                const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
-                    carpetaTemp,
-                    onProgreso
-                })
-
-                return { success: true, data: resultado }
-            } catch (error) {
-                return {
-                    success: false,
-                    error: error instanceof Error ? error.message : 'Error ejecutando operación'
-                }
-            }
-        })
-
-        ipcMain.handle('cumplimiento-cerrar-sesion', async () => {
-            try {
-                const operationService = this.operationServices['cumplimiento']
-                if (operationService) await operationService.cerrarSesion()
-                return { success: true }
-            } catch (error) {
-                return { success: false, error: String(error) }
-            }
-        })
+            })
+        }
     }
 
     private prepararCredenciales(credenciales: any, tipoLogin: string, config: any): any {

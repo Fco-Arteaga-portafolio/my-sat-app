@@ -21,9 +21,14 @@ export class PdfService {
     }
 
     private async construirHtml(parseada: FacturaParseada, uuid: string, plantilla: Plantilla): Promise<string> {
-        const templatePath = app.isPackaged
-            ? join(__dirname, 'templates', `${plantilla}.html`)
-            : join(app.getAppPath(), 'src', 'main', 'templates', `${plantilla}.html`)
+        let templatePath: string
+
+        if (app.isPackaged) {
+          templatePath = join(app.getAppPath(), 'src', 'main', 'templates', `${plantilla}.html`)
+        } else {
+          templatePath = join(app.getAppPath(), 'src', 'main', 'templates', `${plantilla}.html`)
+        }
+
         let html = fs.readFileSync(templatePath, 'utf-8')
 
         const fmt = (n: number) => (n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })

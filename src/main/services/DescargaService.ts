@@ -7,17 +7,24 @@ import { FacturaRepository } from '../database/repositories/FacturaRepository'
 import { DescargaPendienteRepository } from '../database/repositories/DescargaPendienteRepository'
 import { Configuracion } from './ConfiguracionService'
 import { ParametrosBusqueda, ProgresoDescarga } from '../scraper/SatTypes'
-import { Page } from 'playwright'
+import { AuthHelper } from './AuthHelper'
+import { DescargaHelper } from './DescargaHelper'
 
 export class DescargaService {
+  private authHelper: AuthHelper
+  private descargaHelper: DescargaHelper
+
   constructor(
-    private readonly authService: SatAuthService,
+    authService: SatAuthService,
     private readonly busquedaService: SatBusquedaService,
     private readonly descargaService: SatDescargaService,
     private readonly guardadoService: CfdiGuardadoService,
     private readonly facturaRepository: FacturaRepository,
     private readonly pendienteRepository: DescargaPendienteRepository
-  ) { }
+  ) {
+    this.authHelper = new AuthHelper(authService)
+    this.descargaHelper = new DescargaHelper(guardadoService)
+  }
 
   async descargar(
     config: Configuracion,
@@ -25,7 +32,7 @@ export class DescargaService {
     captcha?: string,
     onProgreso?: (progreso: ProgresoDescarga) => void
   ): Promise<{ total: number; errores: { uuid: string; error: string }[] }> {
-    const page = await this.login(config, captcha)
+    const page = await this.authHelper.login(config, captcha)
     const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
     const tipoDes = params.tipo === 'recibidas' ? 'recibida' : 'emitida'
 
@@ -41,17 +48,7 @@ export class DescargaService {
       (descargadas, totalFacturas, uuid) => onProgreso?.({ etapa: 'descargando', descargadas, totalFacturas, uuid })
     )
 
-    let guardadas = 0
-    const errores: { uuid: string; error: string }[] = []
-
-    for (const { rutaTemp, meta } of exitosas) {
-      try {
-        this.guardadoService.guardarDesdeRuta(rutaTemp, meta)
-        guardadas++
-      } catch (err: any) {
-        errores.push({ uuid: meta.uuid, error: err.message })
-      }
-    }
+    const { guardadas, errores } = await this.descargaHelper.procesarDescargas(exitosas)
 
     for (const e of erroresDescarga) {
       this.guardadoService.guardarPendiente({
@@ -72,13 +69,6 @@ export class DescargaService {
     onProgreso?.({ etapa: 'completado', totalFacturas: guardadas })
 
     return { total: guardadas, errores: [...errores, ...erroresDescarga.map(e => ({ uuid: e.uuid, error: e.error }))] }
-  }
-
-  async login(config: Configuracion, captcha?: string): Promise<Page> {
-    if (config.metodoAuth === 'contrasena') {
-      return this.authService.loginConContrasena(config.rfc, config.contrasena!, captcha!)
-    }
-    return this.authService.loginConEfirma(config.rutaCer!, config.rutaKey!, config.contrasenaFiel!)
   }
 
   obtenerFacturas() { return this.facturaRepository.obtenerTodas() }

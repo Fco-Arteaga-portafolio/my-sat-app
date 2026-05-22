@@ -6,6 +6,8 @@ import { CfdiGuardadoService } from './CfdiGuardadoService'
 import { FacturaRepository } from '../database/repositories/FacturaRepository'
 import { ConciliacionRepository } from '../database/repositories/ConciliacionRepository'
 import { Configuracion } from './ConfiguracionService'
+import { AuthHelper } from './AuthHelper'
+import { DescargaHelper } from './DescargaHelper'
 
 export interface ParametrosConciliacion {
   tipo: 'emitidas' | 'recibidas'
@@ -30,14 +32,20 @@ export interface ResumenConciliacion {
 }
 
 export class ConciliacionService {
+  private authHelper: AuthHelper
+  private descargaHelper: DescargaHelper
+
   constructor(
-    private readonly authService: SatAuthService,
+    authService: SatAuthService,
     private readonly busquedaService: SatBusquedaService,
     private readonly descargaService: SatDescargaService,
     private readonly guardadoService: CfdiGuardadoService,
     private readonly facturaRepository: FacturaRepository,
     private readonly conciliacionRepository: ConciliacionRepository
-  ) { }
+  ) {
+    this.authHelper = new AuthHelper(authService)
+    this.descargaHelper = new DescargaHelper(guardadoService)
+  }
 
   async conciliar(
     config: Configuracion,
@@ -51,8 +59,7 @@ export class ConciliacionService {
     const tipoDes = params.tipo === 'recibidas' ? 'recibida' : 'emitida'
     const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
 
-    // 1. Login
-    const page = await this.login(config, params.captcha)
+    const page = await this.authHelper.login(config, params.captcha)
 
     // 2. Consultar SAT
     onProgreso?.({ etapa: 'consultando' })
@@ -79,21 +86,15 @@ export class ConciliacionService {
 
     if (faltantes.length > 0) {
       onProgreso?.({ etapa: 'descargando', descargadas: 0, totalFaltantes: faltantes.length })
-
       const filasConTipo = faltantes.map(f => ({ ...f, tipo_descarga: tipoDes }))
       const { exitosas, errores: erroresDescarga } = await this.descargaService.descargarEnLote(
         page, filasConTipo, carpetaTemp,
         (desc, _total, _uuid) => onProgreso?.({ etapa: 'descargando', descargadas: desc, totalFaltantes: faltantes.length })
       )
 
-      for (const { rutaTemp, meta } of exitosas) {
-        try {
-          this.guardadoService.guardarDesdeRuta(rutaTemp, meta)
-          descargadas++
-        } catch (err: any) {
-          errores.push({ uuid: meta.uuid, error: err.message })
-        }
-      }
+      const { guardadas, errores: erroresGuardado } = await this.descargaHelper.procesarDescargas(exitosas)
+      descargadas = guardadas
+      errores.push(...erroresGuardado)
 
       for (const e of erroresDescarga) {
         errores.push({ uuid: e.uuid, error: e.error })
@@ -130,13 +131,6 @@ export class ConciliacionService {
     onProgreso?.({ etapa: 'completado' })
 
     return { totalSat, totalLocal, descargadas, actualizadas, errores }
-  }
-
-  private async login(config: Configuracion, captcha?: string) {
-    if (config.metodoAuth === 'contrasena') {
-      return this.authService.loginConContrasena(config.rfc, config.contrasena!, captcha!)
-    }
-    return this.authService.loginConEfirma(config.rutaCer!, config.rutaKey!, config.contrasenaFiel!)
   }
 
   obtenerUltima(tipo: string, ejercicio: string, periodo: string) {
