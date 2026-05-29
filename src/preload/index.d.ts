@@ -213,6 +213,9 @@ declare global {
       obtenerLogs(): Promise<{ success: boolean; logs?: any[]; error?: string }>
       obtenerRutaLogs(): Promise<{ success: boolean; ruta?: string; error?: string }>
       limpiarLogs(): Promise<{ success: boolean; error?: string }>
+
+
+      obtenerCaptchaDinamico(portalId: string): Promise<{ success: boolean; data?: { imagenBase64: string } }>
     }
   }
 }

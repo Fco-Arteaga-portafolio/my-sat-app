@@ -1,22 +1,18 @@
 import { ipcMain } from 'electron'
-import { ConciliacionService, ParametrosConciliacion } from '../services/ConciliacionService'
+import { CfdiService, ParametrosConciliacion } from '../services/CfdiService'
 import { ConfiguracionService } from '../services/ConfiguracionService'
-import { SatAuthService } from '../scraper/SatAuthService'
 import { manejarErrorSat } from './satErrores'
 import BetterSqlite3 from 'better-sqlite3'
 import { LicenseService } from '../services/LicenseService'
 import { LicenseRepository } from '../database/repositories/LicenseRepository'
 import { LicenseHelper } from '../services/LicenseHelper'
-import { AuthHelper } from '../services/AuthHelper'
 
 export class ConciliacionHandler {
   private licenseHelper?: LicenseHelper
-  private authHelper: AuthHelper
 
   constructor(
-    private readonly conciliacionService: ConciliacionService,
+    private readonly cfdiService: CfdiService,
     private readonly configuracionService: ConfiguracionService,
-    authService: SatAuthService,
     db?: BetterSqlite3.Database
   ) {
     if (db) {
@@ -24,7 +20,6 @@ export class ConciliacionHandler {
       const licenseService = new LicenseService(licenseRepository)
       this.licenseHelper = new LicenseHelper(licenseService, db)
     }
-    this.authHelper = new AuthHelper(authService)
   }
 
   registrar(): void {
@@ -38,26 +33,24 @@ export class ConciliacionHandler {
         const config = this.configuracionService.obtener()
         if (!config) throw new Error('No hay configuración guardada')
 
-        const resumen = await this.conciliacionService.conciliar(
+        const resumen = await this.cfdiService.conciliar(
           config, params,
           (progreso) => event.sender.send('progreso-conciliacion', progreso)
         )
 
-        if (this.licenseHelper && resumen && resumen.errores.length === 0) {
+        if (this.licenseHelper && resumen.errores.length === 0) {
           this.licenseHelper.incrementCounter('consolidaciones')
         }
 
         return { success: true, resumen }
       } catch (error) {
         return { success: false, error: manejarErrorSat(error) }
-      } finally {
-        await this.authHelper.logout()
       }
     })
 
     ipcMain.handle('obtener-ultima-conciliacion', (_, params: { tipo: string; ejercicio: string; periodo: string }) => {
       try {
-        return { success: true, ultima: this.conciliacionService.obtenerUltima(params.tipo, params.ejercicio, params.periodo) }
+        return { success: true, ultima: this.cfdiService.obtenerUltimaConciliacion(params.tipo, params.ejercicio, params.periodo) }
       } catch (error) {
         return { success: false, error: String(error) }
       }
@@ -65,7 +58,7 @@ export class ConciliacionHandler {
 
     ipcMain.handle('obtener-historial-conciliaciones', () => {
       try {
-        return { success: true, historial: this.conciliacionService.obtenerHistorial() }
+        return { success: true, historial: this.cfdiService.obtenerHistorialConciliaciones() }
       } catch (error) {
         return { success: false, error: String(error) }
       }

@@ -78,6 +78,7 @@ const ConciliacionPage = () => {
 
         {configuracion?.metodoAuth === 'contrasena' && (
           <CaptchaInput
+            portalId="facturas"
             ref={captchaRef}
             disabled={loading}
             onCaptchaChange={(texto, listo) => {

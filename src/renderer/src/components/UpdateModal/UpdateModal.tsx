@@ -8,6 +8,8 @@ const UpdateModal = () => {
   const [progress, setProgress] = useState(0)
 
   useEffect(() => {
+    if (!window.electronUpdater) return // ← esta línea
+
     window.electronUpdater.onStatus((s) => {
       setStatus(s)
       if (s === 'available' || s === 'downloading' || s === 'downloaded') {
@@ -22,15 +24,15 @@ const UpdateModal = () => {
   }, [])
 
   const handleDescargar = () => {
-    window.electronUpdater.download() // ← ver nota abajo
+    window.electronUpdater?.download() // ← ver nota abajo
   }
 
   const handleLater = () => {
-    window.electronUpdater.postpone()
+    window.electronUpdater?.postpone()
   }
 
   const handleInstall = () => {
-    window.electronUpdater.install()
+    window.electronUpdater?.install()
   }
 
   return (

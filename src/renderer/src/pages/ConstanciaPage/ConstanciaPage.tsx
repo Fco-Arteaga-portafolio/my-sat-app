@@ -1,27 +1,28 @@
-import { Button, Card, Input, Spin, Alert } from 'antd'
+import { useRef } from 'react'
+import { Button, Card, Spin, Alert } from 'antd'
 import {
   DownloadOutlined,
-  ReloadOutlined,
   CheckCircleOutlined,
   LoadingOutlined,
   FileTextOutlined
 } from '@ant-design/icons'
 import PageHeader from '../../components/PageHeader/PageHeader'
+import CaptchaInput, { CaptchaInputRef } from '../../components/CaptchaInput/CaptchaInput'
 import { useConstanciaPage } from './ConstanciaPage.hook'
 import './ConstanciaPage.css'
 
 export default function ConstanciaPage() {
+  const captchaRef = useRef<CaptchaInputRef>(null)
+
   const {
-    captchaBase64,
-    captchaInput,
-    setCaptchaInput,
+    setCaptcha,
+    setCaptchaListo,
     loading,
     progreso,
     resultado,
     error,
     tipoLogin,
     puedeEnviar,
-    cargarCaptcha,
     obtenerConstancia,
     reiniciar,
     abrirArchivo
@@ -31,19 +32,16 @@ export default function ConstanciaPage() {
     return (
       <div className="constancia-container">
         <PageHeader title="Constancia de Situación Fiscal" backTo="/cumplimiento" />
-
         <Card className="constancia-resultado-card">
           <div className="constancia-resultado-header">
             <CheckCircleOutlined className="constancia-icono-exito" />
             <h2 className="constancia-resultado-titulo">Constancia Generada</h2>
           </div>
-
           <div className="constancia-info">
             <div className="constancia-info-fila">
               <span className="constancia-info-label">RFC</span>
               <span className="constancia-info-valor">{resultado.rfc}</span>
             </div>
-
             <div className="constancia-info-fila">
               <span className="constancia-info-label">Fecha de emisión</span>
               <span className="constancia-info-valor">
@@ -54,13 +52,11 @@ export default function ConstanciaPage() {
                 })}
               </span>
             </div>
-
             <div className="constancia-info-fila">
               <span className="constancia-info-label">Descripción</span>
               <span className="constancia-info-valor">{resultado.descripcion}</span>
             </div>
           </div>
-
           <div className="constancia-resultado-acciones">
             <Button onClick={reiniciar}>Generar otra</Button>
             {resultado.rutaArchivo && (
@@ -77,44 +73,18 @@ export default function ConstanciaPage() {
   return (
     <div className="constancia-container">
       <PageHeader title="Constancia de Situación Fiscal" backTo="/cumplimiento" />
-
       <Card className="constancia-card">
         <Spin spinning={loading}>
           {tipoLogin === 'ciec' && (
-            <div className="constancia-captcha-seccion">
-              {captchaBase64 ? (
-                <>
-                  <div className="constancia-captcha-imagen-wrapper">
-                    <img
-                      className="constancia-captcha-imagen"
-                      src={captchaBase64}
-                      alt="Captcha SAT"
-                    />
-                    <Button
-                      type="text"
-                      icon={<ReloadOutlined />}
-                      onClick={cargarCaptcha}
-                      disabled={loading}
-                    >
-                      Recargar
-                    </Button>
-                  </div>
-
-                  <Input
-                    className="constancia-captcha-input"
-                    placeholder="Texto del captcha"
-                    value={captchaInput}
-                    onChange={(e) => setCaptchaInput(e.target.value.toUpperCase())}
-                    maxLength={6}
-                    autoComplete="off"
-                  />
-                </>
-              ) : (
-                <Button onClick={cargarCaptcha} loading={loading} block>
-                  Cargar captcha del SAT
-                </Button>
-              )}
-            </div>
+            <CaptchaInput
+              ref={captchaRef}
+              portalId="constancia"
+              disabled={loading}
+              onCaptchaChange={(texto, listo) => {
+                setCaptcha(texto)
+                setCaptchaListo(listo)
+              }}
+            />
           )}
 
           {tipoLogin === 'fiel' && (

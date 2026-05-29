@@ -4,6 +4,7 @@ import { app } from 'electron'
 import { FacturaParseada } from '../../renderer/src/utils/xmlParser'
 import { regimenFiscal, usoCFDI, formaPago, metodoPago, impuesto, tipoPercepcion, tipoDeduccion, cat } from '../../renderer/src/utils/catalogosSat'
 import { BrowserManager } from '../scraper/BrowserManager'
+import { logger } from './LoggerService'
 
 export type Plantilla = 'clasica' | 'moderna' | 'minimalista'
 
@@ -16,11 +17,28 @@ export class PdfService {
         plantilla: Plantilla,
         rutaDestino: string
     ): Promise<void> {
-        const html = await this.construirHtml(parseada, uuid, plantilla)
-        await this.htmlAPdf(html, rutaDestino)
+        logger.log('PdfService', 'Iniciando generación de PDF', {
+            uuid,
+            plantilla,
+            rutaDestino,
+            rfcEmisor: parseada.rfcEmisor,
+            total: parseada.total
+        })
+
+        try {
+            const html = await this.construirHtml(parseada, uuid, plantilla)
+            logger.debug('PdfService', 'HTML construido', { uuid, tamaño: html.length })
+
+            await this.htmlAPdf(html, rutaDestino)
+            logger.log('PdfService', '✓ PDF generado exitosamente', { uuid, rutaDestino })
+        } catch (err) {
+            logger.error('PdfService', 'Error generando PDF', { uuid, error: err })
+            throw err
+        }
     }
 
     private async construirHtml(parseada: FacturaParseada, uuid: string, plantilla: Plantilla): Promise<string> {
+        logger.debug('PdfService', 'Construyendo HTML', { uuid, plantilla })
         let templatePath: string
 
         if (app.isPackaged) {
@@ -29,6 +47,7 @@ export class PdfService {
           templatePath = join(app.getAppPath(), 'src', 'main', 'templates', `${plantilla}.html`)
         }
 
+        logger.debug('PdfService', 'Cargando plantilla', { plantilla, templatePath })
         let html = fs.readFileSync(templatePath, 'utf-8')
 
         const fmt = (n: number) => (n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })

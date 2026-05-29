@@ -1,3 +1,4 @@
+import './Perfilespage.css'
 import { Button, Modal, Space, Popconfirm, Alert, Tag, Avatar } from 'antd'
 import { UserOutlined, DeleteOutlined, LoginOutlined } from '@ant-design/icons'
 import { usePerfilesPage } from './PerfilesPage.hook'
@@ -6,7 +7,6 @@ import ModalLicencia from '../../components/ModalLicencia/ModalLicencia'
 import ModalSoporte from '../../components/ModalSoporte/ModalSoporte'
 import logoIcon from '../../assets/icon.png'
 import { useEffect, useState } from 'react'
-import './PerfilesPage.css'
 
 const PerfilesPage = ({
   onPerfilSeleccionado

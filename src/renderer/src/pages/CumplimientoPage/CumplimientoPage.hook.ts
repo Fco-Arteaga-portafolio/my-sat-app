@@ -9,8 +9,8 @@ export interface OpinionCumplimiento {
 }
 
 export function useCumplimientoPage() {
-    const [captchaBase64, setCaptchaBase64] = useState<string>('')
-    const [captchaInput, setCaptchaInput] = useState<string>('')
+    const [captcha, setCaptcha] = useState('')
+    const [captchaListo, setCaptchaListo] = useState(false)
     const [loading, setLoading] = useState(false)
     const [progreso, setProgreso] = useState<string>('')
     const [resultado, setResultado] = useState<OpinionCumplimiento | null>(null)
@@ -23,44 +23,20 @@ export function useCumplimientoPage() {
                 setTipoLogin(res.config.metodoAuth === 'efirma' ? 'fiel' : 'ciec')
             }
         })
+        window.api.onProgresoCumplimiento((mensaje: string) => setProgreso(mensaje))
     }, [])
 
-    useEffect(() => {
-        window.api.onProgresoCumplimiento((mensaje: string) => {
-            setProgreso(mensaje)
-        })
-    }, [])
-
-    const cargarCaptcha = async () => {
-        setLoading(true)
-        setError('')
-        try {
-            const res = await window.api.cumplimientoObtenerCaptcha()
-            if (res.success) {
-                setCaptchaBase64(res.data?.imagenBase64 || '')
-            } else {
-                setError(res.error ?? 'Error cargando captcha')
-            }
-        } catch {
-            setError('Error de conexión al cargar captcha')
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    const obtenerOpinion = async () => {
+    const obtenerOpinion = async (limpiarCaptcha: () => void) => {
         setLoading(true)
         setError('')
         setProgreso('')
         try {
             const res = await window.api.obtenerOpinion({
-                captcha: tipoLogin === 'ciec' ? captchaInput : undefined
+                captcha: tipoLogin === 'ciec' ? captcha : undefined
             })
-
             if (res.success) {
                 setResultado(res.data)
-                setCaptchaInput('')
-                setCaptchaBase64('')
+                limpiarCaptcha()
             } else {
                 setError(res.error ?? 'Error al obtener la opinión')
             }
@@ -73,35 +49,30 @@ export function useCumplimientoPage() {
         }
     }
 
-    const reiniciar = async () => {
+    const reiniciar = async (limpiarCaptcha: () => void) => {
         setResultado(null)
         setError('')
         setProgreso('')
-        setCaptchaBase64('')
-        setCaptchaInput('')
+        limpiarCaptcha()
         await window.api.cerrarSesion().catch(() => null)
     }
 
     const abrirArchivo = () => {
-        if (resultado?.rutaArchivo) {
-            window.api.abrirArchivo(resultado.rutaArchivo)
-        }
+        if (resultado?.rutaArchivo) window.api.abrirArchivo(resultado.rutaArchivo)
     }
 
-    const puedeEnviar =
-        tipoLogin === 'fiel' || (captchaBase64 !== '' && captchaInput.trim().length > 0)
+    const puedeEnviar = tipoLogin === 'fiel' || captchaListo
 
     return {
-        captchaBase64,
-        captchaInput,
-        setCaptchaInput,
+        captchaListo,
+        setCaptcha,
+        setCaptchaListo,
         loading,
         progreso,
         resultado,
         error,
         tipoLogin,
         puedeEnviar,
-        cargarCaptcha,
         obtenerOpinion,
         reiniciar,
         abrirArchivo

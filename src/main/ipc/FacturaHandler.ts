@@ -1,7 +1,4 @@
-import { DescargaService } from '../services/DescargaService'
-import { PendientesService } from '../services/PendientesService'
 import { ConfiguracionService } from '../services/ConfiguracionService'
-import { SatAuthService } from '../scraper/SatAuthService'
 import { ParametrosBusqueda } from '../scraper/SatTypes'
 import { PdfService } from '../services/PdfService'
 import { PagoComplementoRepository } from '../database/repositories/PagoComplementoRepository'
@@ -11,6 +8,8 @@ import { LicenseRepository } from '../database/repositories/LicenseRepository'
 import { IpcWrapper } from './IpcWrapper'
 import { LicenseHelper } from '../services/LicenseHelper'
 import { logger } from '../services/LoggerService'
+import { CfdiService } from '../services/CfdiService'
+import { SatUnifiedAuthService } from '../scraper/SatUnifiedAuthService'
 
 export class FacturaHandler {
   private readonly pagoComplementoRepository: PagoComplementoRepository
@@ -18,24 +17,22 @@ export class FacturaHandler {
   private readonly licenseHelper: LicenseHelper
 
   constructor(
-    private readonly descargaService: DescargaService,
-    private readonly pendientesService: PendientesService,
+    private readonly cfdiService: CfdiService,
+    private readonly authService: SatUnifiedAuthService,
     private readonly configuracionService: ConfiguracionService,
-    private readonly authService: SatAuthService,
     db: BetterSqlite3.Database
   ) {
     this.pagoComplementoRepository = new PagoComplementoRepository(db)
     const licenseRepository = new LicenseRepository(db)
     this.licenseService = new LicenseService(licenseRepository)
     this.licenseHelper = new LicenseHelper(this.licenseService, db)
-    new AuthHelper(authService)
   }
 
   registrar(): void {
     IpcWrapper.handle('obtener-captcha', async () => {
       logger.log('FacturaHandler', 'Solicitando captcha')
-      const imagenBase64 = await this.authService.obtenerCaptcha()
-      return { imagenBase64: imagenBase64.imagenBase64 }
+      const captcha = await this.authService.obtenerCaptcha('facturas')
+      return { imagenBase64: captcha.imagenBase64 }
     })
 
     IpcWrapper.handle('descargar-facturas', async (event, datos: {
@@ -49,7 +46,7 @@ export class FacturaHandler {
       const config = this.configuracionService.obtener()
       if (!config) throw new Error('No hay configuración guardada')
 
-      const resultado = await this.descargaService.descargar(
+      const resultado = await this.cfdiService.descargar(
         config, datos.params, datos.captcha,
         (progreso) => event.sender.send('progreso-descarga', progreso)
       )
@@ -70,7 +67,7 @@ export class FacturaHandler {
       const config = this.configuracionService.obtener()
       if (!config) throw new Error('No hay configuración guardada')
 
-      const resultado = await this.pendientesService.reintentar(
+      const resultado = await this.cfdiService.reintentar(
         config, datos.captcha,
         (progreso) => event.sender.send('progreso-descarga', progreso)
       )
@@ -84,11 +81,11 @@ export class FacturaHandler {
     })
 
     IpcWrapper.handle('obtener-facturas', () => ({
-      facturas: this.descargaService.obtenerFacturas()
+      facturas: this.cfdiService.obtenerFacturas()
     }))
 
     IpcWrapper.handle('obtener-facturas-por-tipo', async (_, datos: any) => ({
-      facturas: this.descargaService.obtenerFacturasPorTipo(datos.tipoDescarga, datos.filtros ?? {})
+      facturas: this.cfdiService.obtenerFacturasPorTipo(datos.tipoDescarga, datos.filtros ?? {})
     }))
 
     IpcWrapper.handle('obtener-pago-complemento', async (_, uuid_rep: string) => {
@@ -99,7 +96,7 @@ export class FacturaHandler {
     })
 
     IpcWrapper.handle('eliminar-factura', async (_, uuid: string) => {
-      this.descargaService.eliminarFactura(uuid)
+      this.cfdiService.eliminarFactura(uuid)
       this.pagoComplementoRepository.eliminar(uuid)
       return {}
     })
@@ -124,20 +121,20 @@ export class FacturaHandler {
     })
 
     IpcWrapper.handle('obtener-pendientes', () => ({
-      pendientes: this.descargaService.obtenerPendientes()
+      pendientes: this.cfdiService.obtenerPendientes()
     }))
 
     IpcWrapper.handle('contar-pendientes', () => ({
-      total: this.descargaService.contarPendientes()
+      total: this.cfdiService.contarPendientes()
     }))
 
     IpcWrapper.handle('limpiar-pendientes', () => {
-      this.descargaService.limpiarPendientes()
+      this.cfdiService.limpiarPendientes()
       return {}
     })
 
     IpcWrapper.handle('facturas-drill-down', async (_, rfc: string) => ({
-      data: this.descargaService.obtenerDrillDown(rfc)
+      data: this.cfdiService.obtenerDrillDown(rfc)
     }))
 
     IpcWrapper.handle('obtener-pdf-factura', async (_, datos: any) => {

@@ -1,4 +1,5 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Component, ReactNode } from 'react'
 import { useContribuyente, ContribuyenteProvider } from './context/ContribuyenteContext'
 import AppLayout from './components/Layout/AppLayout'
 import ConfiguracionPage from './pages/ConfiguracionPage/ConfiguracionPage'
@@ -25,7 +26,25 @@ import CumplimientoPage from './pages/CumplimientoPage/CumplimientoPage'
 import ConstanciaPage from './pages/ConstanciaPage/ConstanciaPage'
 import Radar69BPage from './pages/Radar69BPage/Radar69BPage'
 
-const RutaProtegida = ({ children }: { children: React.ReactNode }) => {
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null }
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, color: 'red', fontFamily: 'monospace', background: '#fff' }}>
+          <h2>Error en renderer</h2>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{(this.state.error as Error).stack}</pre>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+const RutaProtegida = ({ children }: { children: ReactNode }) => {
   const { perfil } = useContribuyente()
   if (perfil === null) return <Navigate to="/perfiles" replace />
   return <>{children}</>
@@ -119,12 +138,14 @@ const AppRoutes = () => {
 
 const App = () => {
   return (
-    <ContribuyenteProvider>
-      <UpdateModal />
-      <HashRouter>
-        <AppRoutes />
-      </HashRouter>
-    </ContribuyenteProvider>
+    <ErrorBoundary>
+      <ContribuyenteProvider>
+        <UpdateModal />
+        <HashRouter>
+          <AppRoutes />
+        </HashRouter>
+      </ContribuyenteProvider>
+    </ErrorBoundary>
   )
 }
 

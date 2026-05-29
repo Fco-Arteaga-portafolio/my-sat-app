@@ -49,6 +49,7 @@ const createFacturaApi = () => {
     obtenerFacturasPorTipo: (datos) => electron.ipcRenderer.invoke("obtener-facturas-por-tipo", datos),
     eliminarFactura: (uuid) => electron.ipcRenderer.invoke("eliminar-factura", uuid),
     obtenerCaptcha: () => electron.ipcRenderer.invoke("obtener-captcha"),
+    obtenerCaptchaDinamico: (portalId) => electron.ipcRenderer.invoke("obtener-captcha-dinamico", { portalId }),
     reintentarPendientes: (datos) => electron.ipcRenderer.invoke("reintentar-pendientes", datos),
     obtenerPendientes: () => electron.ipcRenderer.invoke("obtener-pendientes"),
     contarPendientes: () => electron.ipcRenderer.invoke("contar-pendientes"),

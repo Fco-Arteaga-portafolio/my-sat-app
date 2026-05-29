@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
+import { CaptchaInputRef } from '../../components/CaptchaInput/CaptchaInput'
 
 export interface ConstanciaSituacionFiscal {
   rfc: string
@@ -8,8 +9,9 @@ export interface ConstanciaSituacionFiscal {
 }
 
 export function useConstanciaPage() {
-  const [captchaBase64, setCaptchaBase64] = useState<string>('')
-  const [captchaInput, setCaptchaInput] = useState<string>('')
+  const captchaRef = useRef<CaptchaInputRef>(null)
+  const [captcha, setCaptcha] = useState('')
+  const [captchaListo, setCaptchaListo] = useState(false)
   const [loading, setLoading] = useState(false)
   const [progreso, setProgreso] = useState<string>('')
   const [resultado, setResultado] = useState<ConstanciaSituacionFiscal | null>(null)
@@ -22,30 +24,8 @@ export function useConstanciaPage() {
         setTipoLogin(res.config.metodoAuth === 'efirma' ? 'fiel' : 'ciec')
       }
     })
+    window.api.onProgresoConstancia((mensaje: string) => setProgreso(mensaje))
   }, [])
-
-  useEffect(() => {
-    window.api.onProgresoConstancia((mensaje: string) => {
-      setProgreso(mensaje)
-    })
-  }, [])
-
-  const cargarCaptcha = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const res = await window.api.constanciaObtenerCaptcha()
-      if (res.success) {
-        setCaptchaBase64(res.data.imagenBase64)
-      } else {
-        setError(res.error ?? 'Error cargando captcha')
-      }
-    } catch {
-      setError('Error de conexión al cargar captcha')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const obtenerConstancia = async () => {
     setLoading(true)
@@ -53,13 +33,11 @@ export function useConstanciaPage() {
     setProgreso('')
     try {
       const res = await window.api.constanciaObtenerConstancia({
-        captcha: tipoLogin === 'ciec' ? captchaInput : undefined
+        captcha: tipoLogin === 'ciec' ? captcha : undefined
       })
-
       if (res.success) {
         setResultado(res.data)
-        setCaptchaInput('')
-        setCaptchaBase64('')
+        captchaRef.current?.limpiar()
       } else {
         setError(res.error ?? 'Error al obtener la constancia')
       }
@@ -68,7 +46,7 @@ export function useConstanciaPage() {
     } finally {
       setLoading(false)
       setProgreso('')
-      await window.api.cerrarSesion().catch(() => null)
+      await window.api.constanciaCerrarSesion().catch(() => null)
     }
   }
 
@@ -76,31 +54,27 @@ export function useConstanciaPage() {
     setResultado(null)
     setError('')
     setProgreso('')
-    setCaptchaBase64('')
-    setCaptchaInput('')
+    captchaRef.current?.limpiar()
     await window.api.constanciaCerrarSesion().catch(() => null)
   }
 
   const abrirArchivo = () => {
-    if (resultado?.rutaArchivo) {
-      window.api.abrirArchivo(resultado.rutaArchivo)
-    }
+    if (resultado?.rutaArchivo) window.api.abrirArchivo(resultado.rutaArchivo)
   }
 
-  const puedeEnviar =
-    tipoLogin === 'fiel' || (captchaBase64 !== '' && captchaInput.trim().length > 0)
+  const puedeEnviar = tipoLogin === 'fiel' || captchaListo
 
   return {
-    captchaBase64,
-    captchaInput,
-    setCaptchaInput,
+    captchaRef,
+    captchaListo,
+    setCaptcha,
+    setCaptchaListo,
     loading,
     progreso,
     resultado,
     error,
     tipoLogin,
     puedeEnviar,
-    cargarCaptcha,
     obtenerConstancia,
     reiniciar,
     abrirArchivo

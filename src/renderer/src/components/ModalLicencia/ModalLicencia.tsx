@@ -149,7 +149,7 @@ const ModalLicencia = ({ onClose }: { onClose: () => void }) => {
                   </div>
                 ))}
               </div>
-              <div className="lic-info amber">
+              <div className="amber">
                 🏷 Precio de fundador: 40% de descuento el primer año. Solo por tiempo limitado.
               </div>
             </>
@@ -158,7 +158,7 @@ const ModalLicencia = ({ onClose }: { onClose: () => void }) => {
           {/* Step 2 — Datos */}
           {step === 2 && (
             <>
-              <div className="lic-info">
+              <div className="">
                 Este RFC y la huella de esta máquina quedarán vinculados a tu licencia.
               </div>
               <Input
@@ -232,14 +232,14 @@ const ModalLicencia = ({ onClose }: { onClose: () => void }) => {
               )}
 
               {metodoPago === 'spei' && (
-                <div className="lic-info">
+                <div className="">
                   Al continuar se generará una CLABE interbancaria. Tendrás 48 horas para realizar
                   la transferencia. Tu licencia se activará automáticamente al recibir el pago.
                 </div>
               )}
 
               {metodoPago === 'oxxo' && (
-                <div className="lic-info">
+                <div className="">
                   Al continuar se generará un código de barras para pago en OXXO. Tendrás 24 horas
                   para realizar el pago. Tu licencia se activará automáticamente.
                 </div>
@@ -263,7 +263,7 @@ const ModalLicencia = ({ onClose }: { onClose: () => void }) => {
                 Tu licencia quedó vinculada a este dispositivo y RFC
               </div>
               {licenseKeyGenerada && <div className="lic-key-box">{licenseKeyGenerada}</div>}
-              <div className="lic-info green">
+              <div className="green">
                 Guarda esta clave. También la enviamos a tu correo. Si cambias de equipo, úsala para
                 reactivar.
               </div>
@@ -283,7 +283,7 @@ const ModalLicencia = ({ onClose }: { onClose: () => void }) => {
             </div>
           ) : (
             <>
-              <div className="lic-info">
+              <div className=" ">
                 Ingresa la license key que recibiste por correo al comprar tu licencia.
               </div>
               <Input
@@ -298,7 +298,7 @@ const ModalLicencia = ({ onClose }: { onClose: () => void }) => {
                 onChange={(e) => cambiarActivar('rfc', e.target.value.toUpperCase())}
                 style={{ marginBottom: 12 }}
               />
-              <div className="lic-info amber">
+              <div className="amber">
                 ⚠️ Esta máquina quedará registrada como un dispositivo activo de tu licencia.
               </div>
             </>

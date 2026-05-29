@@ -128,6 +128,7 @@ const PendientesPage = () => {
             <div className="pendientes-reintentar-row">
               {configuracion?.metodoAuth === 'contrasena' && (
                 <CaptchaInput
+                  portalId="facturas"
                   ref={captchaRef}
                   disabled={reintentando}
                   onCaptchaChange={(texto, listo) => {

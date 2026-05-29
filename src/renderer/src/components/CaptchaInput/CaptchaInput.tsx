@@ -9,13 +9,15 @@ export interface CaptchaInputRef {
 }
 
 interface CaptchaInputProps {
+  portalId: string
   disabled?: boolean
   onCaptchaChange?: (texto: string, listo: boolean) => void
 }
 
 const CaptchaInput = forwardRef<CaptchaInputRef, CaptchaInputProps>(
-  ({ disabled, onCaptchaChange }, ref) => {
-    const { captchaImg, captchaTexto, setCaptchaTexto, loading, error, cargarCaptcha, limpiar } = useCaptchaInput()
+  ({ portalId, disabled, onCaptchaChange }, ref) => {
+    const { captchaImg, captchaTexto, setCaptchaTexto, loading, error, cargarCaptcha, limpiar } =
+      useCaptchaInput(portalId)
 
     useImperativeHandle(ref, () => ({ limpiar }), [])
 
@@ -31,10 +33,11 @@ const CaptchaInput = forwardRef<CaptchaInputRef, CaptchaInputProps>(
 
         <div className="captcha-input-row">
           <div className="captcha-input-img-wrap">
-            {captchaImg
-              ? <img src={captchaImg} alt="Captcha" className="captcha-input-img" />
-              : <div className="captcha-input-placeholder">Sin captcha</div>
-            }
+            {captchaImg ? (
+              <img src={captchaImg} alt="Captcha" className="captcha-input-img" />
+            ) : (
+              <div className="captcha-input-placeholder">Sin captcha</div>
+            )}
             <Button
               icon={<ReloadOutlined />}
               onClick={cargarCaptcha}
@@ -54,7 +57,9 @@ const CaptchaInput = forwardRef<CaptchaInputRef, CaptchaInputProps>(
                 placeholder="Escribe el captcha"
                 maxLength={6}
                 disabled={disabled}
-                onPressEnter={() => onCaptchaChange?.(captchaTexto, !!captchaImg && !!captchaTexto.trim())}
+                onPressEnter={() =>
+                  onCaptchaChange?.(captchaTexto, !!captchaImg && !!captchaTexto.trim())
+                }
               />
             </div>
           )}

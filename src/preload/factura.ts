@@ -22,6 +22,7 @@ export const createFacturaApi = () => {
         }) => ipcRenderer.invoke('obtener-facturas-por-tipo', datos),
         eliminarFactura: (uuid: string) => ipcRenderer.invoke('eliminar-factura', uuid),
         obtenerCaptcha: () => ipcRenderer.invoke('obtener-captcha'),
+        obtenerCaptchaDinamico: (portalId: string) => ipcRenderer.invoke('obtener-captcha-dinamico', { portalId }),
         reintentarPendientes: (datos: { captcha?: string }) => ipcRenderer.invoke('reintentar-pendientes', datos),
         obtenerPendientes: () => ipcRenderer.invoke('obtener-pendientes'),
         contarPendientes: () => ipcRenderer.invoke('contar-pendientes'),

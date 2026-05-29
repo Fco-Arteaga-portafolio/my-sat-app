@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export const useCaptchaInput = () => {
+export const useCaptchaInput = (portalId: string) => {
   const [captchaImg, setCaptchaImg] = useState<string | null>(null)
   const [captchaTexto, setCaptchaTexto] = useState('')
   const [loading, setLoading] = useState(false)
@@ -10,9 +10,9 @@ export const useCaptchaInput = () => {
     setLoading(true)
     setError(null)
     setCaptchaTexto('')
-    const res = await window.api.obtenerCaptcha()
-    if (res.success && res.imagenBase64) {
-      setCaptchaImg(res.imagenBase64)
+    const res = await window.api.obtenerCaptchaDinamico(portalId)
+    if (res.success && res.data?.imagenBase64) {
+      setCaptchaImg(res.data.imagenBase64)
     } else {
       setError('No se pudo cargar el captcha. Intenta de nuevo.')
     }

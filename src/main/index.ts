@@ -1,7 +1,5 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
-
-
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { Database } from './database/Database'
@@ -19,47 +17,41 @@ import { DescargaPendienteRepository } from './database/repositories/DescargaPen
 import { ConciliacionRepository } from './database/repositories/ConciliacionRepository'
 import { ProfileManager } from './database/ProfileManager'
 import { BrowserManager } from './scraper/BrowserManager'
-import { SatAuthService } from './scraper/SatAuthService'
 import { SatBusquedaService } from './scraper/SatBusquedaService'
 import { SatDescargaService } from './scraper/SatDescargaService'
 import { ConfiguracionService } from './services/ConfiguracionService'
 import { CfdiGuardadoService } from './services/CfdiGuardadoService'
-import { DescargaService } from './services/DescargaService'
-import { PendientesService } from './services/PendientesService'
-import { ConciliacionService } from './services/ConciliacionService'
+import { CfdiService } from './services/CfdiService'
 import { UpdaterService } from './window/UpdaterService'
 import { LicenseHandler } from './ipc/LicenseHandler'
 import { EfosRepository } from './database/repositories/EfosRepository'
 import { Lista69BService } from './services/Lista69BService'
 import { Lista69BHandler } from './ipc/Lista69BHandler'
 import { LoggerHandler } from './ipc/LoggerHandler'
-
-// Nuevos servicios unificados
 import { UnifiedSatHandler } from './ipc/UnifiedSatHandler'
 import { PortalConfigProvider } from './scraper/PortalConfigProvider'
 import { SatUnifiedAuthService } from './scraper/SatUnifiedAuthService'
 import { SatConstanciaOperationService } from './scraper/SatConstanciaOperationService'
 import { SatCumplimientoOperationService } from './scraper/SatCumplimientoOperationService'
 
-let mainWindow: BrowserWindow;
+let mainWindow: BrowserWindow
 
-/**
- * Implementar single instance lock
- * Solo permite una instancia del programa al mismo tiempo
- */
+process.on('uncaughtException', (err) => {
+  dialog.showErrorBox('Error fatal', err.stack ?? err.message)
+})
+
+process.on('unhandledRejection', (reason: any) => {
+  dialog.showErrorBox('Error async', reason?.stack ?? String(reason))
+})
+
 const gotLock = app.requestSingleInstanceLock()
 
 if (!gotLock) {
-  // No pudimos obtener el lock, significa que ya hay otra instancia corriendo
   app.quit()
 } else {
-  // Escuchar cuando otra instancia intenta iniciar
   app.on('second-instance', () => {
-    // Si ya existe una ventana, enfocarla
     if (mainWindow) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore()
-      }
+      if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()
     }
   })
@@ -67,9 +59,8 @@ if (!gotLock) {
 
 function initDatabase(): void {
   const db = Database.getInstance()
-  const migrationRunner = new MigrationRunner(db)
   try {
-    migrationRunner.run()
+    new MigrationRunner(db).run()
   } catch (err) {
     console.error('Error en migraciones:', err)
   }
@@ -108,89 +99,89 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.electron')
+  try {
+    electronApp.setAppUserModelId('com.electron')
+    app.on('browser-window-created', (_, window) => { optimizer.watchWindowShortcuts(window) })
 
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
+    initDatabase()
+    const db = Database.getInstance()
 
-  initDatabase()
-  const db = Database.getInstance()
+    // ── Auth unificado ─────────────────────────────────────────────────────
+    const configProvider = new PortalConfigProvider()
+    const sharedAuthService = new SatUnifiedAuthService(configProvider)
 
-  // Scraper — piezas base
-  const authService = new SatAuthService()
-  const busquedaService = new SatBusquedaService()
-  const satDescargaService = new SatDescargaService()
+    // ── Scraper ────────────────────────────────────────────────────────────
+    const busquedaService = new SatBusquedaService()
+    const satDescargaService = new SatDescargaService()
 
-  // Repositorios
-  const facturaRepository = new FacturaRepository(db)
-  const pendienteRepository = new DescargaPendienteRepository(db)
-  const conciliacionRepository = new ConciliacionRepository(db)
+    // ── Repositorios ───────────────────────────────────────────────────────
+    const facturaRepository = new FacturaRepository(db)
+    const pendienteRepository = new DescargaPendienteRepository(db)
+    const conciliacionRepository = new ConciliacionRepository(db)
+    const efosRepository = new EfosRepository(db)
 
-  // Servicios base
-  const configuracionService = new ConfiguracionService(db)
-  const guardadoService = new CfdiGuardadoService(facturaRepository, pendienteRepository, db)
-  const efosRepository = new EfosRepository(db)
+    // ── Servicios base ─────────────────────────────────────────────────────
+    const configuracionService = new ConfiguracionService(db)
+    const guardadoService = new CfdiGuardadoService(facturaRepository, pendienteRepository, db)
+    const lista69BService = new Lista69BService(efosRepository)
 
-  // Flujos
-  const descargaService = new DescargaService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, pendienteRepository)
-  const pendientesService = new PendientesService(authService, busquedaService, satDescargaService, guardadoService, pendienteRepository)
-  const conciliacionService = new ConciliacionService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, conciliacionRepository)
-  const lista69BService = new Lista69BService(efosRepository)
+    // ── Servicio unificado CFDI ────────────────────────────────────────────
+    const cfdiService = new CfdiService(
+      sharedAuthService,
+      busquedaService,
+      satDescargaService,
+      guardadoService,
+      facturaRepository,
+      pendienteRepository,
+      conciliacionRepository
+    )
 
-  // Handlers
-  const profileManager = new ProfileManager(db)
-  new PerfilHandler(profileManager, db).registrar()
-  new FacturaHandler(descargaService, pendientesService, configuracionService, authService, db).registrar()
-  new ConciliacionHandler(conciliacionService, configuracionService, authService, db).registrar()
-  new ImportacionHandler(guardadoService, db).registrar()
-  new ConfiguracionHandler(db).registrar()
-  new DashboardHandler(db).registrar()
-  new CatalogoHandler(db).registrar()
-  new LicenseHandler(db).registrar()
-  new ExportacionHandler(db).registrar()
-  new Lista69BHandler(lista69BService).registrar()
-  new LoggerHandler().registrar()
+    // ── Handlers CFDI ──────────────────────────────────────────────────────
+    const profileManager = new ProfileManager(db)
+    new PerfilHandler(profileManager, db).registrar()
+    new FacturaHandler(cfdiService, sharedAuthService, configuracionService, db).registrar()
+    new ConciliacionHandler(cfdiService, configuracionService, db).registrar()
+    new ImportacionHandler(guardadoService, db).registrar()
+    new ConfiguracionHandler(db).registrar()
+    new DashboardHandler(db).registrar()
+    new CatalogoHandler(db).registrar()
+    new LicenseHandler(db).registrar()
+    new ExportacionHandler(db).registrar()
+    new Lista69BHandler(lista69BService).registrar()
+    new LoggerHandler().registrar()
 
-  // Servicios unificados para SAT
-  const configProvider = new PortalConfigProvider()
+    // ── Handlers Cumplimiento / Constancia ─────────────────────────────────
+    const constanciaService = new SatConstanciaOperationService(configProvider, sharedAuthService)
+    const cumplimientoService = new SatCumplimientoOperationService(configProvider, sharedAuthService)
 
-  // Crear instancia ÚNICA de authService que será compartida por todos
-  const sharedAuthService = new SatUnifiedAuthService(configProvider)
-
-  // Pasar la MISMA instancia de authService a los servicios de operación
-  const constanciaService = new SatConstanciaOperationService(configProvider, sharedAuthService)
-  const cumplimientoService = new SatCumplimientoOperationService(configProvider, sharedAuthService)
-
-  // Handler unificado con compatibilidad hacia atrás
-  const unifiedHandler = new UnifiedSatHandler(
-    configuracionService,
-    {
-      constancia: {
-        obtenerCaptcha: () => constanciaService.obtenerCaptcha(),
-        ejecutar: (page, cred, opts) => constanciaService.ejecutar(page, cred, opts), // ← page primero
-        cerrarSesion: () => constanciaService.cerrarSesion()
+    new UnifiedSatHandler(
+      configuracionService,
+      {
+        constancia: {
+          obtenerCaptcha: () => constanciaService.obtenerCaptcha(),
+          ejecutar: (page, cred, opts) => constanciaService.ejecutar(page, cred, opts),
+          cerrarSesion: () => constanciaService.cerrarSesion()
+        },
+        cumplimiento: {
+          obtenerCaptcha: () => cumplimientoService.obtenerCaptcha(),
+          ejecutar: (page, cred, opts) => cumplimientoService.ejecutar(page, cred, opts),
+          cerrarSesion: () => cumplimientoService.cerrarSesion()
+        }
       },
-      cumplimiento: {
-        obtenerCaptcha: () => cumplimientoService.obtenerCaptcha(),
-        ejecutar: (page, cred, opts) => cumplimientoService.ejecutar(page, cred, opts), // ← page primero
-        cerrarSesion: () => cumplimientoService.cerrarSesion()
-      }
-    },
-    sharedAuthService,
-    configProvider   // ← cuarto argumento, antes faltaba
-  )
-  unifiedHandler.registrar()
-  // ✅ Handlers legacy ya están registrados dentro de unifiedHandler.registrar()
+      sharedAuthService,
+      configProvider
+    ).registrar()
 
-  createWindow()
-  if (!is.dev) {
-    new UpdaterService(mainWindow).iniciar()
+    createWindow()
+    if (!is.dev) new UpdaterService(mainWindow).iniciar()
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+
+  } catch (err: any) {
+    dialog.showErrorBox('Error en arranque', err.stack ?? err.message)
   }
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
 })
 
 app.on('window-all-closed', () => {
@@ -201,7 +192,4 @@ app.on('window-all-closed', () => {
   }
 })
 
-
-ipcMain.handle('app-version', () => {
-  return app.getVersion()
-})
+ipcMain.handle('app-version', () => app.getVersion())

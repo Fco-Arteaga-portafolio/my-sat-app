@@ -1052,18 +1052,167 @@ class BrowserManager {
     }
   }
 }
+class LoggerService {
+  logFile;
+  logsDir;
+  logs = [];
+  maxLogs = 5e3;
+  lastDate;
+  constructor() {
+    this.logsDir = path__namespace.join(electron.app.getPath("userData"), "logs");
+    if (!fs__namespace.existsSync(this.logsDir)) fs__namespace.mkdirSync(this.logsDir, { recursive: true });
+    this.lastDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    this.logFile = this.getLogFilePath(this.lastDate);
+    this.loadLogs();
+    this.setupConsoleInterception();
+  }
+  getLogFilePath(fecha) {
+    return path__namespace.join(this.logsDir, `app-${fecha}.log`);
+  }
+  checkAndRotateFile() {
+    const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    if (today !== this.lastDate) {
+      this.lastDate = today;
+      this.logFile = this.getLogFilePath(today);
+      this.logs = [];
+      this.loadLogs();
+    }
+  }
+  loadLogs() {
+    try {
+      if (fs__namespace.existsSync(this.logFile)) {
+        const content = fs__namespace.readFileSync(this.logFile, "utf-8");
+        this.logs = content.split("\n").filter(Boolean).map((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        }).filter(Boolean);
+      }
+    } catch (err) {
+      console.error("Error loading logs:", err);
+    }
+  }
+  write(entry) {
+    this.checkAndRotateFile();
+    this.logs.push(entry);
+    if (this.logs.length > this.maxLogs) {
+      this.logs.shift();
+    }
+    try {
+      fs__namespace.appendFileSync(this.logFile, JSON.stringify(entry) + "\n");
+    } catch (err) {
+      console.error("Error writing to log file:", err);
+    }
+  }
+  setupConsoleInterception() {
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+    console.log = (...args) => {
+      originalLog(...args);
+      const mensaje = args.map((a) => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
+      this.log("console", mensaje);
+    };
+    console.error = (...args) => {
+      originalError(...args);
+      const mensaje = args.map((a) => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
+      this.error("console", mensaje);
+    };
+    console.warn = (...args) => {
+      originalWarn(...args);
+      const mensaje = args.map((a) => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
+      this.warn("console", mensaje);
+    };
+  }
+  log(module, message, data) {
+    const entry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level: "info",
+      module,
+      message,
+      data
+    };
+    this.write(entry);
+  }
+  error(module, message, data) {
+    const entry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level: "error",
+      module,
+      message,
+      data: data instanceof Error ? { message: data.message, stack: data.stack } : data
+    };
+    this.write(entry);
+  }
+  warn(module, message, data) {
+    const entry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level: "warn",
+      module,
+      message,
+      data
+    };
+    this.write(entry);
+  }
+  debug(module, message, data) {
+    const entry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level: "debug",
+      module,
+      message,
+      data
+    };
+    this.write(entry);
+  }
+  getLogs() {
+    return [...this.logs];
+  }
+  getLogFile() {
+    return this.logFile;
+  }
+  clearLogs() {
+    this.logs = [];
+    try {
+      fs__namespace.writeFileSync(this.logFile, "");
+    } catch (err) {
+      console.error("Error clearing logs:", err);
+    }
+  }
+  getLogsDir() {
+    return this.logsDir;
+  }
+}
+const logger = new LoggerService();
 class PdfService {
   async generarPdf(_xmlContenido, parseada, uuid, plantilla, rutaDestino) {
-    const html = await this.construirHtml(parseada, uuid, plantilla);
-    await this.htmlAPdf(html, rutaDestino);
+    logger.log("PdfService", "Iniciando generación de PDF", {
+      uuid,
+      plantilla,
+      rutaDestino,
+      rfcEmisor: parseada.rfcEmisor,
+      total: parseada.total
+    });
+    try {
+      const html = await this.construirHtml(parseada, uuid, plantilla);
+      logger.debug("PdfService", "HTML construido", { uuid, tamaño: html.length });
+      await this.htmlAPdf(html, rutaDestino);
+      logger.log("PdfService", "✓ PDF generado exitosamente", { uuid, rutaDestino });
+    } catch (err) {
+      logger.error("PdfService", "Error generando PDF", { uuid, error: err });
+      throw err;
+    }
   }
   async construirHtml(parseada, uuid, plantilla) {
+    logger.debug("PdfService", "Construyendo HTML", { uuid, plantilla });
     let templatePath;
     if (electron.app.isPackaged) {
       templatePath = path.join(electron.app.getAppPath(), "src", "main", "templates", `${plantilla}.html`);
     } else {
       templatePath = path.join(electron.app.getAppPath(), "src", "main", "templates", `${plantilla}.html`);
     }
+    logger.debug("PdfService", "Cargando plantilla", { plantilla, templatePath });
     let html = fs__namespace.readFileSync(templatePath, "utf-8");
     const fmt = (n) => (n || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
     html = this.reemplazar(html, "UUID", uuid);
@@ -1891,26 +2040,11 @@ class LicenseHelper {
     increments[counter]();
   }
 }
-class AuthHelper {
-  constructor(authService) {
-    this.authService = authService;
-  }
-  async login(config, captcha) {
-    if (config.metodoAuth === "contrasena") {
-      return this.authService.loginConContrasena(config.rfc, config.contrasena, captcha);
-    }
-    return this.authService.loginConEfirma(config.rutaCer, config.rutaKey, config.contrasenaFiel);
-  }
-  async logout() {
-    return this.authService.cerrarSesion();
-  }
-}
 class FacturaHandler {
-  constructor(descargaService, pendientesService, configuracionService, authService, db) {
-    this.descargaService = descargaService;
-    this.pendientesService = pendientesService;
-    this.configuracionService = configuracionService;
+  constructor(cfdiService, authService, configuracionService, db) {
+    this.cfdiService = cfdiService;
     this.authService = authService;
+    this.configuracionService = configuracionService;
     this.pagoComplementoRepository = new PagoComplementoRepository(db);
     const licenseRepository = new LicenseRepository(db);
     this.licenseService = new LicenseService(licenseRepository);
@@ -1921,15 +2055,17 @@ class FacturaHandler {
   licenseHelper;
   registrar() {
     IpcWrapper.handle("obtener-captcha", async () => {
-      const imagenBase64 = await this.authService.obtenerCaptcha();
-      return { imagenBase64: imagenBase64.imagenBase64 };
+      logger.log("FacturaHandler", "Solicitando captcha");
+      const captcha = await this.authService.obtenerCaptcha("facturas");
+      return { imagenBase64: captcha.imagenBase64 };
     });
     IpcWrapper.handle("descargar-facturas", async (event, datos) => {
+      logger.log("FacturaHandler", "Iniciando descarga de facturas", { params: datos.params });
       const validacion = this.licenseHelper.validateFeature("descarga");
       if (!validacion.valido) throw new Error(validacion.motivo);
       const config = this.configuracionService.obtener();
       if (!config) throw new Error("No hay configuración guardada");
-      const resultado = await this.descargaService.descargar(
+      const resultado = await this.cfdiService.descargar(
         config,
         datos.params,
         datos.captcha,
@@ -1938,14 +2074,16 @@ class FacturaHandler {
       if (resultado.total > 0 && !resultado.errores.length) {
         this.licenseHelper.incrementCounter("descargas");
       }
+      logger.log("FacturaHandler", "Descarga completada", { total: resultado.total, errores: resultado.errores.length });
       return { total: resultado.total, errores: resultado.errores };
     });
     IpcWrapper.handle("reintentar-pendientes", async (event, datos) => {
+      logger.log("FacturaHandler", "Reintentando facturas pendientes");
       const validacion = this.licenseHelper.validateFeature("descarga");
       if (!validacion.valido) throw new Error(validacion.motivo);
       const config = this.configuracionService.obtener();
       if (!config) throw new Error("No hay configuración guardada");
-      const resultado = await this.pendientesService.reintentar(
+      const resultado = await this.cfdiService.reintentar(
         config,
         datos.captcha,
         (progreso) => event.sender.send("progreso-descarga", progreso)
@@ -1953,13 +2091,14 @@ class FacturaHandler {
       if (resultado.total > 0 && !resultado.errores.length) {
         this.licenseHelper.incrementCounter("descargas");
       }
+      logger.log("FacturaHandler", "Reintento completado", { total: resultado.total });
       return { total: resultado.total, errores: resultado.errores };
     });
     IpcWrapper.handle("obtener-facturas", () => ({
-      facturas: this.descargaService.obtenerFacturas()
+      facturas: this.cfdiService.obtenerFacturas()
     }));
     IpcWrapper.handle("obtener-facturas-por-tipo", async (_, datos) => ({
-      facturas: this.descargaService.obtenerFacturasPorTipo(datos.tipoDescarga, datos.filtros ?? {})
+      facturas: this.cfdiService.obtenerFacturasPorTipo(datos.tipoDescarga, datos.filtros ?? {})
     }));
     IpcWrapper.handle("obtener-pago-complemento", async (_, uuid_rep) => {
       const pago = this.pagoComplementoRepository.obtenerPorUuidRep(uuid_rep);
@@ -1968,7 +2107,7 @@ class FacturaHandler {
       };
     });
     IpcWrapper.handle("eliminar-factura", async (_, uuid) => {
-      this.descargaService.eliminarFactura(uuid);
+      this.cfdiService.eliminarFactura(uuid);
       this.pagoComplementoRepository.eliminar(uuid);
       return {};
     });
@@ -1989,17 +2128,17 @@ class FacturaHandler {
       return {};
     });
     IpcWrapper.handle("obtener-pendientes", () => ({
-      pendientes: this.descargaService.obtenerPendientes()
+      pendientes: this.cfdiService.obtenerPendientes()
     }));
     IpcWrapper.handle("contar-pendientes", () => ({
-      total: this.descargaService.contarPendientes()
+      total: this.cfdiService.contarPendientes()
     }));
     IpcWrapper.handle("limpiar-pendientes", () => {
-      this.descargaService.limpiarPendientes();
+      this.cfdiService.limpiarPendientes();
       return {};
     });
     IpcWrapper.handle("facturas-drill-down", async (_, rfc) => ({
-      data: this.descargaService.obtenerDrillDown(rfc)
+      data: this.cfdiService.obtenerDrillDown(rfc)
     }));
     IpcWrapper.handle("obtener-pdf-factura", async (_, datos) => {
       const fs2 = require("fs");
@@ -2197,18 +2336,16 @@ function manejarErrorSat(error) {
   return mensaje;
 }
 class ConciliacionHandler {
-  constructor(conciliacionService, configuracionService, authService, db) {
-    this.conciliacionService = conciliacionService;
+  constructor(cfdiService, configuracionService, db) {
+    this.cfdiService = cfdiService;
     this.configuracionService = configuracionService;
     if (db) {
       const licenseRepository = new LicenseRepository(db);
       const licenseService = new LicenseService(licenseRepository);
       this.licenseHelper = new LicenseHelper(licenseService, db);
     }
-    this.authHelper = new AuthHelper(authService);
   }
   licenseHelper;
-  authHelper;
   registrar() {
     electron.ipcMain.handle("iniciar-conciliacion", async (event, params) => {
       try {
@@ -2218,31 +2355,29 @@ class ConciliacionHandler {
         }
         const config = this.configuracionService.obtener();
         if (!config) throw new Error("No hay configuración guardada");
-        const resumen = await this.conciliacionService.conciliar(
+        const resumen = await this.cfdiService.conciliar(
           config,
           params,
           (progreso) => event.sender.send("progreso-conciliacion", progreso)
         );
-        if (this.licenseHelper && resumen && resumen.errores.length === 0) {
+        if (this.licenseHelper && resumen.errores.length === 0) {
           this.licenseHelper.incrementCounter("consolidaciones");
         }
         return { success: true, resumen };
       } catch (error) {
         return { success: false, error: manejarErrorSat(error) };
-      } finally {
-        await this.authHelper.logout();
       }
     });
     electron.ipcMain.handle("obtener-ultima-conciliacion", (_, params) => {
       try {
-        return { success: true, ultima: this.conciliacionService.obtenerUltima(params.tipo, params.ejercicio, params.periodo) };
+        return { success: true, ultima: this.cfdiService.obtenerUltimaConciliacion(params.tipo, params.ejercicio, params.periodo) };
       } catch (error) {
         return { success: false, error: String(error) };
       }
     });
     electron.ipcMain.handle("obtener-historial-conciliaciones", () => {
       try {
-        return { success: true, historial: this.conciliacionService.obtenerHistorial() };
+        return { success: true, historial: this.cfdiService.obtenerHistorialConciliaciones() };
       } catch (error) {
         return { success: false, error: String(error) };
       }
@@ -3236,126 +3371,6 @@ class ConciliacionRepository {
     `).all(limite);
   }
 }
-const MAX_REINTENTOS$1 = 3;
-const ESPERA_ENTRE_REINTENTOS_MS$1 = 5e3;
-class SatAuthService {
-  context = null;
-  paginaLogin = null;
-  async getContext() {
-    if (!this.context) {
-      this.context = await BrowserManager.newContext();
-    }
-    return this.context;
-  }
-  async obtenerCaptcha() {
-    if (this.paginaLogin) {
-      await this.paginaLogin.close().catch(() => null);
-      this.paginaLogin = null;
-    }
-    const context = await this.getContext();
-    this.paginaLogin = await context.newPage();
-    await this.paginaLogin.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
-    await this.paginaLogin.waitForSelector("#divCaptcha", { timeout: 15e3 });
-    const imagenBase64 = await this.paginaLogin.$eval(
-      "#divCaptcha img",
-      (img) => img.src
-    );
-    return { imagenBase64 };
-  }
-  async loginConContrasena(rfc, password, captcha) {
-    if (!this.paginaLogin) {
-      throw new Error("Primero debes cargar el captcha");
-    }
-    const page = this.paginaLogin;
-    this.paginaLogin = null;
-    await page.fill("#rfc", rfc);
-    await page.fill("#password", password);
-    await page.fill("#userCaptcha", captcha.toUpperCase());
-    await this.intentarLogin(page, () => page.click("#submit", { timeout: 9e4 }), "contrasena");
-    return page;
-  }
-  async loginConEfirma(rutaCer, rutaKey, contrasenaFiel) {
-    const context = await this.getContext();
-    const page = this.paginaLogin ?? await context.newPage();
-    this.paginaLogin = null;
-    if (!page.url().includes("portalcfdi")) {
-      await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
-    }
-    await page.waitForSelector("#buttonFiel", { timeout: 15e3 });
-    await page.click("#buttonFiel");
-    await page.waitForSelector("#fileCertificate", { timeout: 1e4 });
-    await page.setInputFiles("#fileCertificate", rutaCer);
-    await page.setInputFiles("#filePrivateKey", rutaKey);
-    await page.fill("#privateKeyPassword", contrasenaFiel);
-    await this.intentarLogin(page, () => page.click("#submit", { timeout: 9e4 }), "efirma");
-    return page;
-  }
-  async cerrarSesion() {
-    if (this.paginaLogin) {
-      await this.paginaLogin.close().catch(() => null);
-      this.paginaLogin = null;
-    }
-    if (this.context) {
-      await this.context.close().catch(() => null);
-      this.context = null;
-    }
-    await BrowserManager.cerrar();
-  }
-  async intentarLogin(page, accion, metodoAuth, intento = 1) {
-    try {
-      await this.esperarLoginExitoso(page, accion);
-    } catch (error) {
-      const esTimeout = error.message?.includes("Timeout") || error.message?.includes("timeout");
-      const esCaptchaInvalido = error.message?.includes("CAPTCHA_INVALIDO");
-      const esSaturado = error.message?.includes("SAT_SATURADO");
-      if (esCaptchaInvalido || esSaturado) throw error;
-      if (esTimeout && metodoAuth === "contrasena") {
-        throw new Error("SAT_TIMEOUT");
-      }
-      if (esTimeout && intento < MAX_REINTENTOS$1) {
-        console.log(`Login timeout (intento ${intento}/${MAX_REINTENTOS$1}), reintentando en ${ESPERA_ENTRE_REINTENTOS_MS$1 / 1e3}s...`);
-        await page.waitForTimeout(ESPERA_ENTRE_REINTENTOS_MS$1);
-        await page.goto("https://portalcfdi.facturaelectronica.sat.gob.mx/");
-        await page.waitForSelector("#divCaptcha", { timeout: 15e3 });
-        return this.intentarLogin(page, accion, metodoAuth, intento + 1);
-      }
-      if (esTimeout) throw new Error("SAT_TIMEOUT");
-      throw error;
-    }
-  }
-  async esperarLoginExitoso(page, accion) {
-    await Promise.all([
-      page.waitForNavigation({ timeout: 9e4 }).catch(() => null),
-      accion()
-    ]);
-    await page.waitForTimeout(4e3);
-    const url = page.url();
-    console.log("URL después de login:", url);
-    const esPaginaError = await page.$("text=Ha ocurrido un error al procesar").catch(() => null);
-    if (esPaginaError) throw new Error("SAT_SATURADO");
-    const errorCaptcha = await page.$("#divCapError, .alert-danger, .mensaje-error").catch(() => null);
-    if (errorCaptcha) {
-      const textoError = await errorCaptcha.textContent().catch(() => "");
-      throw new Error(`CAPTCHA_INVALIDO: ${textoError?.trim()}`);
-    }
-    const llegamosAlPortal = url.includes("portalcfdi.facturaelectronica.sat.gob.mx") && !url.includes("login") && !url.includes("Login");
-    if (!llegamosAlPortal) {
-      const mensajeError = await page.$eval(
-        '.alert, .error, [class*="error"], [class*="Error"]',
-        (el) => el.textContent?.trim()
-      ).catch(() => null);
-      throw new Error(mensajeError || "Login fallido: no se pudo acceder al portal");
-    }
-    console.log("Login exitoso");
-  }
-  async logout(page) {
-    try {
-      await page.click("#salir");
-    } finally {
-      await page.close();
-    }
-  }
-}
 class SatBusquedaService {
   async buscarPorParametros(page, params, onProgreso) {
     if (params.buscarPor === "folio") {
@@ -4075,54 +4090,205 @@ class DescargaHelper {
     return { guardadas, errores };
   }
 }
-class DescargaService {
-  constructor(authService, busquedaService, descargaService, guardadoService, facturaRepository, pendienteRepository) {
+const PORTAL_FACTURAS = "facturas";
+class CfdiService {
+  constructor(authService, busquedaService, descargaService, guardadoService, facturaRepository, pendienteRepository, conciliacionRepository) {
+    this.authService = authService;
     this.busquedaService = busquedaService;
     this.descargaService = descargaService;
     this.guardadoService = guardadoService;
     this.facturaRepository = facturaRepository;
     this.pendienteRepository = pendienteRepository;
-    this.authHelper = new AuthHelper(authService);
+    this.conciliacionRepository = conciliacionRepository;
     this.descargaHelper = new DescargaHelper(guardadoService);
   }
-  authHelper;
   descargaHelper;
-  async descargar(config, params, captcha, onProgreso) {
-    const page = await this.authHelper.login(config, captcha);
-    const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
-    const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
-    onProgreso?.({ etapa: "buscando" });
-    const filas = await this.busquedaService.buscarPorParametros(
-      page,
-      params,
-      (mesActual, totalMeses) => onProgreso?.({ etapa: "buscando", mesActual, totalMeses })
-    );
-    const filasConTipo = filas.map((f) => ({ ...f, tipo_descarga: tipoDes }));
-    const { exitosas, errores: erroresDescarga } = await this.descargaService.descargarEnLote(
-      page,
-      filasConTipo,
-      carpetaTemp,
-      (descargadas, totalFacturas, uuid) => onProgreso?.({ etapa: "descargando", descargadas, totalFacturas, uuid })
-    );
-    const { guardadas, errores } = await this.descargaHelper.procesarDescargas(exitosas);
-    for (const e of erroresDescarga) {
-      this.guardadoService.guardarPendiente({
-        uuid: e.uuid,
-        rfc_emisor: e.fila.rfc_emisor,
-        nombre_emisor: e.fila.nombre_emisor,
-        rfc_receptor: e.fila.rfc_receptor,
-        nombre_receptor: e.fila.nombre_receptor,
-        fecha_emision: e.fila.fecha_emision,
-        total: e.fila.total,
-        tipo_comprobante: e.fila.tipo_comprobante,
-        estado: e.fila.estado,
-        tipo_descarga: tipoDes
-      }, e.error);
+  // ─── Auth privado ──────────────────────────────────────────────────────────
+  async login(config, captcha) {
+    if (config.metodoAuth === "contrasena") {
+      const creds2 = {
+        rfc: config.rfc,
+        password: config.contrasena,
+        captcha
+      };
+      return this.authService.loginCiec(PORTAL_FACTURAS, creds2);
     }
-    this.guardadoService.sincronizarCatalogos();
-    onProgreso?.({ etapa: "completado", totalFacturas: guardadas });
-    return { total: guardadas, errores: [...errores, ...erroresDescarga.map((e) => ({ uuid: e.uuid, error: e.error }))] };
+    const creds = {
+      rutaCer: config.rutaCer,
+      rutaKey: config.rutaKey,
+      contrasenaFiel: config.contrasenaFiel
+    };
+    return this.authService.loginFiel(PORTAL_FACTURAS, creds);
   }
+  // ─── Descarga por rango de fechas ──────────────────────────────────────────
+  async descargar(config, params, captcha, onProgreso) {
+    logger.log("CfdiService", "Iniciando descarga", { rfc: config.rfc, tipo: params.tipo });
+    try {
+      const page = await this.login(config, captcha);
+      const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+      const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
+      onProgreso?.({ etapa: "buscando" });
+      const filas = await this.busquedaService.buscarPorParametros(
+        page,
+        params,
+        (mesActual, totalMeses) => onProgreso?.({ etapa: "buscando", mesActual, totalMeses })
+      );
+      logger.log("CfdiService", `${filas.length} facturas encontradas`);
+      const { exitosas, errores: erroresDescarga } = await this.descargaService.descargarEnLote(
+        page,
+        filas.map((f) => ({ ...f, tipo_descarga: tipoDes })),
+        carpetaTemp,
+        (descargadas, totalFacturas, uuid) => onProgreso?.({ etapa: "descargando", descargadas, totalFacturas, uuid })
+      );
+      const { guardadas, errores } = await this.descargaHelper.procesarDescargas(exitosas);
+      for (const e of erroresDescarga) {
+        this.guardadoService.guardarPendiente({
+          uuid: e.uuid,
+          rfc_emisor: e.fila.rfc_emisor,
+          nombre_emisor: e.fila.nombre_emisor,
+          rfc_receptor: e.fila.rfc_receptor,
+          nombre_receptor: e.fila.nombre_receptor,
+          fecha_emision: e.fila.fecha_emision,
+          total: e.fila.total,
+          tipo_comprobante: e.fila.tipo_comprobante,
+          estado: e.fila.estado,
+          tipo_descarga: tipoDes
+        }, e.error);
+      }
+      this.guardadoService.sincronizarCatalogos();
+      onProgreso?.({ etapa: "completado", totalFacturas: guardadas });
+      return {
+        total: guardadas,
+        errores: [...errores, ...erroresDescarga.map((e) => ({ uuid: e.uuid, error: e.error }))]
+      };
+    } finally {
+      await this.authService.cerrarSesion();
+    }
+  }
+  // ─── Reintentar pendientes por UUID ───────────────────────────────────────
+  async reintentar(config, captcha, onProgreso) {
+    const pendientes = this.pendienteRepository.obtenerTodas();
+    if (!pendientes.length) return { total: 0, errores: [] };
+    try {
+      const page = await this.login(config, captcha);
+      const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+      let guardadas = 0;
+      const errores = [];
+      for (let i = 0; i < pendientes.length; i++) {
+        const pendiente = pendientes[i];
+        onProgreso?.({ etapa: "descargando", descargadas: i, totalFacturas: pendientes.length, uuid: pendiente.uuid });
+        try {
+          const tipoBusqueda = pendiente.tipo_descarga === "recibida" ? "recibidas" : "emitidas";
+          const filas = await this.busquedaService.buscarEnPagina(page, {
+            tipo: tipoBusqueda,
+            buscarPor: "folio",
+            folioFiscal: pendiente.uuid
+          });
+          if (!filas.length || !filas[0].urlDescarga) {
+            errores.push({ uuid: pendiente.uuid, error: "No encontrado en el portal" });
+            continue;
+          }
+          const rutaTemp = await this.descargaService.descargarUnoConPlaywright(
+            page,
+            filas[0].urlDescarga,
+            pendiente.uuid,
+            carpetaTemp
+          );
+          if (!rutaTemp) {
+            errores.push({ uuid: pendiente.uuid, error: "No se pudo descargar el archivo" });
+            continue;
+          }
+          this.guardadoService.guardarDesdeRuta(rutaTemp, {
+            uuid: pendiente.uuid,
+            rfc_emisor: pendiente.rfc_emisor,
+            nombre_emisor: pendiente.nombre_emisor,
+            rfc_receptor: pendiente.rfc_receptor,
+            nombre_receptor: pendiente.nombre_receptor,
+            fecha_emision: pendiente.fecha_emision,
+            total: pendiente.total,
+            tipo_comprobante: pendiente.tipo_comprobante,
+            estado: pendiente.estado,
+            tipo_descarga: pendiente.tipo_descarga
+          });
+          guardadas++;
+        } catch (err) {
+          errores.push({ uuid: pendiente.uuid, error: err.message });
+        }
+      }
+      this.guardadoService.sincronizarCatalogos();
+      onProgreso?.({ etapa: "completado", totalFacturas: guardadas });
+      return { total: guardadas, errores };
+    } finally {
+      await this.authService.cerrarSesion();
+    }
+  }
+  // ─── Conciliación por mes ──────────────────────────────────────────────────
+  async conciliar(config, params, onProgreso) {
+    const mes = params.periodo.padStart(2, "0");
+    const ultimoDia = new Date(parseInt(params.ejercicio), parseInt(mes), 0).getDate();
+    const fechaInicio = `01/${mes}/${params.ejercicio}`;
+    const fechaFin = `${ultimoDia}/${mes}/${params.ejercicio}`;
+    const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
+    const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
+    try {
+      const page = await this.login(config, params.captcha);
+      onProgreso?.({ etapa: "consultando" });
+      const filasSat = await this.busquedaService.buscarEnPagina(page, {
+        tipo: params.tipo,
+        buscarPor: "fecha",
+        fechaInicio,
+        fechaFin
+      });
+      onProgreso?.({ etapa: "comparando" });
+      const faltantes = filasSat.filter((f) => !this.facturaRepository.obtenerPorUuid(f.uuid));
+      const aActualizar = filasSat.filter((f) => {
+        const local = this.facturaRepository.obtenerPorUuid(f.uuid);
+        return local?.estado === "vigente" && f.estado === "cancelado";
+      });
+      let descargadas = 0;
+      const errores = [];
+      if (faltantes.length) {
+        onProgreso?.({ etapa: "descargando", descargadas: 0, totalFaltantes: faltantes.length });
+        const { exitosas, errores: erroresDescarga } = await this.descargaService.descargarEnLote(
+          page,
+          faltantes.map((f) => ({ ...f, tipo_descarga: tipoDes })),
+          carpetaTemp,
+          (desc) => onProgreso?.({ etapa: "descargando", descargadas: desc, totalFaltantes: faltantes.length })
+        );
+        const { guardadas, errores: erroresGuardado } = await this.descargaHelper.procesarDescargas(exitosas);
+        descargadas = guardadas;
+        errores.push(...erroresGuardado, ...erroresDescarga.map((e) => ({ uuid: e.uuid, error: e.error })));
+      }
+      let actualizadas = 0;
+      if (aActualizar.length) {
+        onProgreso?.({ etapa: "actualizando" });
+        for (const f of aActualizar) {
+          try {
+            this.guardadoService.actualizarEstado(f.uuid, "cancelado");
+            actualizadas++;
+          } catch (err) {
+            errores.push({ uuid: f.uuid, error: err.message });
+          }
+        }
+      }
+      this.conciliacionRepository.insertar({
+        tipo: params.tipo,
+        ejercicio: params.ejercicio,
+        periodo: params.periodo,
+        total_sat: filasSat.length,
+        total_local: filasSat.length - faltantes.length,
+        descargadas,
+        actualizadas,
+        errores: errores.length
+      });
+      this.guardadoService.sincronizarCatalogos();
+      onProgreso?.({ etapa: "completado" });
+      return { totalSat: filasSat.length, totalLocal: filasSat.length - faltantes.length, descargadas, actualizadas, errores };
+    } finally {
+      await this.authService.cerrarSesion();
+    }
+  }
+  // ─── Queries (sin cambio de lógica) ───────────────────────────────────────
   obtenerFacturas() {
     return this.facturaRepository.obtenerTodas();
   }
@@ -4135,6 +4301,9 @@ class DescargaService {
   obtenerDrillDown(rfc) {
     return this.facturaRepository.obtenerDrillDown(rfc);
   }
+  obtenerFacturasPorTipo(tipoDescarga, filtros) {
+    return this.facturaRepository.obtenerPorTipoDescarga(tipoDescarga, filtros);
+  }
   obtenerPendientes() {
     return this.pendienteRepository.obtenerTodas();
   }
@@ -4144,163 +4313,10 @@ class DescargaService {
   limpiarPendientes() {
     return this.pendienteRepository.limpiar();
   }
-  obtenerFacturasPorTipo(tipoDescarga, filtros) {
-    return this.facturaRepository.obtenerPorTipoDescarga(tipoDescarga, filtros);
-  }
-  obtenerConteos() {
-    return this.facturaRepository.contarPorTipoDescarga();
-  }
-}
-class PendientesService {
-  constructor(authService, busquedaService, descargaService, guardadoService, pendienteRepository) {
-    this.busquedaService = busquedaService;
-    this.descargaService = descargaService;
-    this.guardadoService = guardadoService;
-    this.pendienteRepository = pendienteRepository;
-    this.authHelper = new AuthHelper(authService);
-  }
-  authHelper;
-  async reintentar(config, captcha, onProgreso) {
-    const pendientes = this.pendienteRepository.obtenerTodas();
-    if (pendientes.length === 0) return { total: 0, errores: [] };
-    const page = await this.authHelper.login(config, captcha);
-    const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
-    let guardadas = 0;
-    const errores = [];
-    for (let i = 0; i < pendientes.length; i++) {
-      const pendiente = pendientes[i];
-      onProgreso?.({
-        etapa: "descargando",
-        descargadas: i,
-        totalFacturas: pendientes.length,
-        uuid: pendiente.uuid
-      });
-      try {
-        const tipoBusqueda = pendiente.tipo_descarga === "recibida" ? "recibidas" : "emitidas";
-        const filas = await this.busquedaService.buscarEnPagina(page, {
-          tipo: tipoBusqueda,
-          buscarPor: "folio",
-          folioFiscal: pendiente.uuid
-        });
-        if (!filas.length || !filas[0].urlDescarga) {
-          errores.push({ uuid: pendiente.uuid, error: "No encontrado en el portal" });
-          continue;
-        }
-        const rutaTemp = await this.descargaService.descargarUnoConPlaywright(
-          page,
-          filas[0].urlDescarga,
-          pendiente.uuid,
-          carpetaTemp
-        );
-        if (!rutaTemp) {
-          errores.push({ uuid: pendiente.uuid, error: "No se pudo descargar el archivo" });
-          continue;
-        }
-        this.guardadoService.guardarDesdeRuta(rutaTemp, {
-          uuid: pendiente.uuid,
-          rfc_emisor: pendiente.rfc_emisor,
-          nombre_emisor: pendiente.nombre_emisor,
-          rfc_receptor: pendiente.rfc_receptor,
-          nombre_receptor: pendiente.nombre_receptor,
-          fecha_emision: pendiente.fecha_emision,
-          total: pendiente.total,
-          tipo_comprobante: pendiente.tipo_comprobante,
-          estado: pendiente.estado,
-          tipo_descarga: pendiente.tipo_descarga
-        });
-        guardadas++;
-      } catch (err) {
-        errores.push({ uuid: pendiente.uuid, error: err.message });
-      }
-    }
-    this.guardadoService.sincronizarCatalogos();
-    onProgreso?.({ etapa: "completado", totalFacturas: guardadas });
-    return { total: guardadas, errores };
-  }
-}
-class ConciliacionService {
-  constructor(authService, busquedaService, descargaService, guardadoService, facturaRepository, conciliacionRepository) {
-    this.busquedaService = busquedaService;
-    this.descargaService = descargaService;
-    this.guardadoService = guardadoService;
-    this.facturaRepository = facturaRepository;
-    this.conciliacionRepository = conciliacionRepository;
-    this.authHelper = new AuthHelper(authService);
-    this.descargaHelper = new DescargaHelper(guardadoService);
-  }
-  authHelper;
-  descargaHelper;
-  async conciliar(config, params, onProgreso) {
-    const mes = params.periodo.padStart(2, "0");
-    const ultimoDia = new Date(parseInt(params.ejercicio), parseInt(mes), 0).getDate();
-    const fechaInicio = `01/${mes}/${params.ejercicio}`;
-    const fechaFin = `${ultimoDia}/${mes}/${params.ejercicio}`;
-    const tipoDes = params.tipo === "recibidas" ? "recibida" : "emitida";
-    const carpetaTemp = config.carpetaDescarga || electron.app.getPath("downloads");
-    const page = await this.authHelper.login(config, params.captcha);
-    onProgreso?.({ etapa: "consultando" });
-    const filasSat = await this.busquedaService.buscarEnPagina(page, {
-      tipo: params.tipo,
-      buscarPor: "fecha",
-      fechaInicio,
-      fechaFin
-    });
-    const totalSat = filasSat.length;
-    onProgreso?.({ etapa: "comparando" });
-    const faltantes = filasSat.filter((f) => !this.facturaRepository.obtenerPorUuid(f.uuid));
-    const aActualizar = filasSat.filter((f) => {
-      const local = this.facturaRepository.obtenerPorUuid(f.uuid);
-      return local && local.estado === "vigente" && f.estado === "cancelado";
-    });
-    const totalLocal = totalSat - faltantes.length;
-    let descargadas = 0;
-    const errores = [];
-    if (faltantes.length > 0) {
-      onProgreso?.({ etapa: "descargando", descargadas: 0, totalFaltantes: faltantes.length });
-      const filasConTipo = faltantes.map((f) => ({ ...f, tipo_descarga: tipoDes }));
-      const { exitosas, errores: erroresDescarga } = await this.descargaService.descargarEnLote(
-        page,
-        filasConTipo,
-        carpetaTemp,
-        (desc, _total, _uuid) => onProgreso?.({ etapa: "descargando", descargadas: desc, totalFaltantes: faltantes.length })
-      );
-      const { guardadas, errores: erroresGuardado } = await this.descargaHelper.procesarDescargas(exitosas);
-      descargadas = guardadas;
-      errores.push(...erroresGuardado);
-      for (const e of erroresDescarga) {
-        errores.push({ uuid: e.uuid, error: e.error });
-      }
-    }
-    let actualizadas = 0;
-    if (aActualizar.length > 0) {
-      onProgreso?.({ etapa: "actualizando" });
-      for (const f of aActualizar) {
-        try {
-          this.guardadoService.actualizarEstado(f.uuid, "cancelado");
-          actualizadas++;
-        } catch (err) {
-          errores.push({ uuid: f.uuid, error: err.message });
-        }
-      }
-    }
-    this.conciliacionRepository.insertar({
-      tipo: params.tipo,
-      ejercicio: params.ejercicio,
-      periodo: params.periodo,
-      total_sat: totalSat,
-      total_local: totalLocal,
-      descargadas,
-      actualizadas,
-      errores: errores.length
-    });
-    this.guardadoService.sincronizarCatalogos();
-    onProgreso?.({ etapa: "completado" });
-    return { totalSat, totalLocal, descargadas, actualizadas, errores };
-  }
-  obtenerUltima(tipo, ejercicio, periodo) {
+  obtenerUltimaConciliacion(tipo, ejercicio, periodo) {
     return this.conciliacionRepository.obtenerUltima(tipo, ejercicio, periodo);
   }
-  obtenerHistorial() {
+  obtenerHistorialConciliaciones() {
     return this.conciliacionRepository.obtenerHistorial();
   }
 }
@@ -4650,103 +4666,6 @@ class Lista69BHandler {
     });
   }
 }
-class LoggerService {
-  logFile;
-  logs = [];
-  maxLogs = 1e3;
-  constructor() {
-    const logsDir = path__namespace.join(electron.app.getPath("userData"), "logs");
-    if (!fs__namespace.existsSync(logsDir)) fs__namespace.mkdirSync(logsDir, { recursive: true });
-    const fecha = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-    this.logFile = path__namespace.join(logsDir, `app-${fecha}.log`);
-    this.loadLogs();
-  }
-  loadLogs() {
-    try {
-      if (fs__namespace.existsSync(this.logFile)) {
-        const content = fs__namespace.readFileSync(this.logFile, "utf-8");
-        this.logs = content.split("\n").filter(Boolean).map((line) => {
-          try {
-            return JSON.parse(line);
-          } catch {
-            return null;
-          }
-        }).filter(Boolean);
-      }
-    } catch (err) {
-      console.error("Error loading logs:", err);
-    }
-  }
-  write(entry) {
-    this.logs.push(entry);
-    if (this.logs.length > this.maxLogs) {
-      this.logs.shift();
-    }
-    try {
-      fs__namespace.appendFileSync(this.logFile, JSON.stringify(entry) + "\n");
-    } catch (err) {
-      console.error("Error writing to log file:", err);
-    }
-  }
-  log(module, message, data) {
-    const entry = {
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      level: "info",
-      module,
-      message,
-      data
-    };
-    this.write(entry);
-    console.log(`[${module}] ${message}`, data || "");
-  }
-  error(module, message, data) {
-    const entry = {
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      level: "error",
-      module,
-      message,
-      data
-    };
-    this.write(entry);
-    console.error(`[${module}] ERROR: ${message}`, data || "");
-  }
-  warn(module, message, data) {
-    const entry = {
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      level: "warn",
-      module,
-      message,
-      data
-    };
-    this.write(entry);
-    console.warn(`[${module}] WARN: ${message}`, data || "");
-  }
-  debug(module, message, data) {
-    const entry = {
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      level: "debug",
-      module,
-      message,
-      data
-    };
-    this.write(entry);
-  }
-  getLogs() {
-    return [...this.logs];
-  }
-  getLogFile() {
-    return this.logFile;
-  }
-  clearLogs() {
-    this.logs = [];
-    try {
-      fs__namespace.writeFileSync(this.logFile, "");
-    } catch (err) {
-      console.error("Error clearing logs:", err);
-    }
-  }
-}
-const logger = new LoggerService();
 class LoggerHandler {
   registrar() {
     IpcWrapper.handle("obtener-logs", () => {
@@ -5448,24 +5367,27 @@ class SatCumplimientoOperationService extends SatPortalOperationService {
   }
 }
 let mainWindow;
+process.on("uncaughtException", (err) => {
+  electron.dialog.showErrorBox("Error fatal", err.stack ?? err.message);
+});
+process.on("unhandledRejection", (reason) => {
+  electron.dialog.showErrorBox("Error async", reason?.stack ?? String(reason));
+});
 const gotLock = electron.app.requestSingleInstanceLock();
 if (!gotLock) {
   electron.app.quit();
 } else {
   electron.app.on("second-instance", () => {
     if (mainWindow) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
+      if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
   });
 }
 function initDatabase() {
   const db = Database.getInstance();
-  const migrationRunner = new MigrationRunner(db);
   try {
-    migrationRunner.run();
+    new MigrationRunner(db).run();
   } catch (err) {
     console.error("Error en migraciones:", err);
   }
@@ -5498,69 +5420,72 @@ function createWindow() {
   }
 }
 electron.app.whenReady().then(async () => {
-  utils.electronApp.setAppUserModelId("com.electron");
-  electron.app.on("browser-window-created", (_, window2) => {
-    utils.optimizer.watchWindowShortcuts(window2);
-  });
-  initDatabase();
-  const db = Database.getInstance();
-  const authService = new SatAuthService();
-  const busquedaService = new SatBusquedaService();
-  const satDescargaService = new SatDescargaService();
-  const facturaRepository = new FacturaRepository(db);
-  const pendienteRepository = new DescargaPendienteRepository(db);
-  const conciliacionRepository = new ConciliacionRepository(db);
-  const configuracionService = new ConfiguracionService(db);
-  const guardadoService = new CfdiGuardadoService(facturaRepository, pendienteRepository, db);
-  const efosRepository = new EfosRepository(db);
-  const descargaService = new DescargaService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, pendienteRepository);
-  const pendientesService = new PendientesService(authService, busquedaService, satDescargaService, guardadoService, pendienteRepository);
-  const conciliacionService = new ConciliacionService(authService, busquedaService, satDescargaService, guardadoService, facturaRepository, conciliacionRepository);
-  const lista69BService = new Lista69BService(efosRepository);
-  const profileManager = new ProfileManager(db);
-  new PerfilHandler(profileManager, db).registrar();
-  new FacturaHandler(descargaService, pendientesService, configuracionService, authService, db).registrar();
-  new ConciliacionHandler(conciliacionService, configuracionService, authService, db).registrar();
-  new ImportacionHandler(guardadoService, db).registrar();
-  new ConfiguracionHandler(db).registrar();
-  new DashboardHandler(db).registrar();
-  new CatalogoHandler(db).registrar();
-  new LicenseHandler(db).registrar();
-  new ExportacionHandler(db).registrar();
-  new Lista69BHandler(lista69BService).registrar();
-  new LoggerHandler().registrar();
-  const configProvider = new PortalConfigProvider();
-  const sharedAuthService = new SatUnifiedAuthService(configProvider);
-  const constanciaService = new SatConstanciaOperationService(configProvider, sharedAuthService);
-  const cumplimientoService = new SatCumplimientoOperationService(configProvider, sharedAuthService);
-  const unifiedHandler = new UnifiedSatHandler(
-    configuracionService,
-    {
-      constancia: {
-        obtenerCaptcha: () => constanciaService.obtenerCaptcha(),
-        ejecutar: (page, cred, opts) => constanciaService.ejecutar(page, cred, opts),
-        // ← page primero
-        cerrarSesion: () => constanciaService.cerrarSesion()
+  try {
+    utils.electronApp.setAppUserModelId("com.electron");
+    electron.app.on("browser-window-created", (_, window2) => {
+      utils.optimizer.watchWindowShortcuts(window2);
+    });
+    initDatabase();
+    const db = Database.getInstance();
+    const configProvider = new PortalConfigProvider();
+    const sharedAuthService = new SatUnifiedAuthService(configProvider);
+    const busquedaService = new SatBusquedaService();
+    const satDescargaService = new SatDescargaService();
+    const facturaRepository = new FacturaRepository(db);
+    const pendienteRepository = new DescargaPendienteRepository(db);
+    const conciliacionRepository = new ConciliacionRepository(db);
+    const efosRepository = new EfosRepository(db);
+    const configuracionService = new ConfiguracionService(db);
+    const guardadoService = new CfdiGuardadoService(facturaRepository, pendienteRepository, db);
+    const lista69BService = new Lista69BService(efosRepository);
+    const cfdiService = new CfdiService(
+      sharedAuthService,
+      busquedaService,
+      satDescargaService,
+      guardadoService,
+      facturaRepository,
+      pendienteRepository,
+      conciliacionRepository
+    );
+    const profileManager = new ProfileManager(db);
+    new PerfilHandler(profileManager, db).registrar();
+    new FacturaHandler(cfdiService, sharedAuthService, configuracionService, db).registrar();
+    new ConciliacionHandler(cfdiService, configuracionService, db).registrar();
+    new ImportacionHandler(guardadoService, db).registrar();
+    new ConfiguracionHandler(db).registrar();
+    new DashboardHandler(db).registrar();
+    new CatalogoHandler(db).registrar();
+    new LicenseHandler(db).registrar();
+    new ExportacionHandler(db).registrar();
+    new Lista69BHandler(lista69BService).registrar();
+    new LoggerHandler().registrar();
+    const constanciaService = new SatConstanciaOperationService(configProvider, sharedAuthService);
+    const cumplimientoService = new SatCumplimientoOperationService(configProvider, sharedAuthService);
+    new UnifiedSatHandler(
+      configuracionService,
+      {
+        constancia: {
+          obtenerCaptcha: () => constanciaService.obtenerCaptcha(),
+          ejecutar: (page, cred, opts) => constanciaService.ejecutar(page, cred, opts),
+          cerrarSesion: () => constanciaService.cerrarSesion()
+        },
+        cumplimiento: {
+          obtenerCaptcha: () => cumplimientoService.obtenerCaptcha(),
+          ejecutar: (page, cred, opts) => cumplimientoService.ejecutar(page, cred, opts),
+          cerrarSesion: () => cumplimientoService.cerrarSesion()
+        }
       },
-      cumplimiento: {
-        obtenerCaptcha: () => cumplimientoService.obtenerCaptcha(),
-        ejecutar: (page, cred, opts) => cumplimientoService.ejecutar(page, cred, opts),
-        // ← page primero
-        cerrarSesion: () => cumplimientoService.cerrarSesion()
-      }
-    },
-    sharedAuthService,
-    configProvider
-    // ← cuarto argumento, antes faltaba
-  );
-  unifiedHandler.registrar();
-  createWindow();
-  if (!utils.is.dev) {
-    new UpdaterService(mainWindow).iniciar();
+      sharedAuthService,
+      configProvider
+    ).registrar();
+    createWindow();
+    if (!utils.is.dev) new UpdaterService(mainWindow).iniciar();
+    electron.app.on("activate", () => {
+      if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  } catch (err) {
+    electron.dialog.showErrorBox("Error en arranque", err.stack ?? err.message);
   }
-  electron.app.on("activate", () => {
-    if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
 });
 electron.app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
@@ -5569,6 +5494,4 @@ electron.app.on("window-all-closed", () => {
     electron.app.quit();
   }
 });
-electron.ipcMain.handle("app-version", () => {
-  return electron.app.getVersion();
-});
+electron.ipcMain.handle("app-version", () => electron.app.getVersion());

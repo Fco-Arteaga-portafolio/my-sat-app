@@ -160,6 +160,7 @@ const DescargaPage = () => {
           {configuracion?.metodoAuth === 'contrasena' && (
             <Card title="Verificación de seguridad" size="small" className="descarga-card">
               <CaptchaInput
+                portalId="facturas"
                 ref={captchaRef}
                 disabled={loading}
                 onCaptchaChange={(texto, listo) => {
