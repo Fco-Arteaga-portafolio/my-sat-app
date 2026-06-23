@@ -146,7 +146,9 @@ export class FacturaHandler {
         const plantilla = this.configuracionService.obtener()?.plantillaDefault ?? 'clasica'
         await pdfService.generarPdf(xmlContenido, datos.parseada, datos.uuid, plantilla as any, rutaPdf)
       }
-      return { base64: fs.readFileSync(rutaPdf).toString('base64'), rutaPdf }
+      const base64 = fs.readFileSync(rutaPdf).toString('base64')
+      logger.log('FacturaHandler', 'PDF base64 generado', { rutaPdf, tamaño: base64.length }) // 👈
+      return { base64, rutaPdf }
     })
 
     IpcWrapper.handle('imprimir-pdf', async (event) => {

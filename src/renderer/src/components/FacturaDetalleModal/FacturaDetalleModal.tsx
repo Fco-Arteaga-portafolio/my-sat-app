@@ -9,7 +9,7 @@ import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
 import './FacturaDetalleModal.css'
 
-pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.mjs', window.location.href).toString()
 
 interface Props {
   factura: Factura | null

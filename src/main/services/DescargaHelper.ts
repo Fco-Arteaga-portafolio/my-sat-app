@@ -1,3 +1,4 @@
+import * as fs from 'fs'
 import { CfdiGuardadoService } from './CfdiGuardadoService'
 
 export class DescargaHelper {
@@ -13,6 +14,9 @@ export class DescargaHelper {
         guardadas++
       } catch (err: any) {
         errores.push({ uuid: meta.uuid, error: err.message })
+      }
+      finally {
+        fs.unlink(rutaTemp, () => null)
       }
     }
 

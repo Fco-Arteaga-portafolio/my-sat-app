@@ -42,9 +42,9 @@ export class PdfService {
         let templatePath: string
 
         if (app.isPackaged) {
-          templatePath = join(app.getAppPath(), 'src', 'main', 'templates', `${plantilla}.html`)
+            templatePath = join(process.resourcesPath, 'templates', `${plantilla}.html`)
         } else {
-          templatePath = join(app.getAppPath(), 'src', 'main', 'templates', `${plantilla}.html`)
+            templatePath = join(app.getAppPath(), 'src', 'main', 'templates', `${plantilla}.html`)
         }
 
         logger.debug('PdfService', 'Cargando plantilla', { plantilla, templatePath })

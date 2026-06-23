@@ -1208,7 +1208,7 @@ class PdfService {
     logger.debug("PdfService", "Construyendo HTML", { uuid, plantilla });
     let templatePath;
     if (electron.app.isPackaged) {
-      templatePath = path.join(electron.app.getAppPath(), "src", "main", "templates", `${plantilla}.html`);
+      templatePath = path.join(process.resourcesPath, "templates", `${plantilla}.html`);
     } else {
       templatePath = path.join(electron.app.getAppPath(), "src", "main", "templates", `${plantilla}.html`);
     }
@@ -2149,7 +2149,9 @@ class FacturaHandler {
         const plantilla = this.configuracionService.obtener()?.plantillaDefault ?? "clasica";
         await pdfService.generarPdf(xmlContenido, datos.parseada, datos.uuid, plantilla, rutaPdf);
       }
-      return { base64: fs2.readFileSync(rutaPdf).toString("base64"), rutaPdf };
+      const base64 = fs2.readFileSync(rutaPdf).toString("base64");
+      logger.log("FacturaHandler", "PDF base64 generado", { rutaPdf, tamaño: base64.length });
+      return { base64, rutaPdf };
     });
     IpcWrapper.handle("imprimir-pdf", async (event) => {
       event.sender.print({}, (success, reason) => {
@@ -4085,6 +4087,8 @@ class DescargaHelper {
         guardadas++;
       } catch (err) {
         errores.push({ uuid: meta.uuid, error: err.message });
+      } finally {
+        fs__namespace.unlink(rutaTemp, () => null);
       }
     }
     return { guardadas, errores };
@@ -5408,7 +5412,9 @@ function createWindow() {
   mainWindow.webContents.on("did-finish-load", () => {
     mainWindow.setTitle("IFRAT - Inteligencia Fiscal para la Revisión y Administración Tributaria");
   });
-  mainWindow.on("ready-to-show", () => mainWindow.show());
+  mainWindow.on("ready-to-show", () => {
+    mainWindow.show();
+  });
   mainWindow.webContents.setWindowOpenHandler((details) => {
     electron.shell.openExternal(details.url);
     return { action: "deny" };
