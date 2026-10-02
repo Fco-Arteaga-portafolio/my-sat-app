@@ -4,6 +4,7 @@ import { SatUnifiedAuthService } from '../scraper/SatUnifiedAuthService'
 import { ConfiguracionService } from '../services/ConfiguracionService'
 import { CaptchaData, SatOperationResult, CiecCredentials, FielCredentials } from '../scraper/SatPortalConfig'
 import { IPortalConfigProvider } from '../scraper/SatPortalConfig'
+import { manejarErrorSat } from './satErrores'
 
 interface IOperationServiceRegistry {
     [portalId: string]: {
@@ -38,7 +39,7 @@ export class UnifiedSatHandler {
                 console.error(`[UnifiedSatHandler] Error obteniendo captcha para ${portalId}:`, error)
                 return {
                     success: false,
-                    error: error instanceof Error ? error.message : 'Error obteniendo captcha'
+                    error: manejarErrorSat(error)
                 }
             }
         })
@@ -83,7 +84,7 @@ export class UnifiedSatHandler {
                 console.error(`[UnifiedSatHandler] Error ejecutando operación en ${portalId}:`, error)
                 return {
                     success: false,
-                    error: error instanceof Error ? error.message : 'Error ejecutando operación'
+                    error: manejarErrorSat(error)
                 }
             }
         })
@@ -128,7 +129,7 @@ export class UnifiedSatHandler {
                 } catch (error) {
                     return {
                         success: false,
-                        error: error instanceof Error ? error.message : 'Error obteniendo captcha'
+                        error: manejarErrorSat(error)
                     }
                 }
             })
@@ -165,7 +166,7 @@ export class UnifiedSatHandler {
                 } catch (error) {
                     return {
                         success: false,
-                        error: error instanceof Error ? error.message : 'Error ejecutando operación'
+                        error: manejarErrorSat(error)
                     }
                 }
             })

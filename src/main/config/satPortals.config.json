@@ -37,9 +37,10 @@
         "passwordField": "#password",
         "captchaField": "input[type=\"text\"][placeholder*=\"captcha\"], #userCaptcha, input[name*=\"captcha\"]",
         "submitButton": "#submit",
-        "cerFileInput": "input[accept*=\".cer\"]",
-        "keyFileInput": "input[accept*=\".key\"]",
-        "fielPasswordField": "input[type=\"password\"]",
+        "fielButton": "#buttonFiel",
+        "cerFileInput": "#fileCertificate",
+        "keyFileInput": "#filePrivateKey",
+        "fielPasswordField": "#privateKeyPassword",
         "generateButton": "button:has-text(\"Generar Constancia\"), input[value=\"Generar Constancia\"]",
         "iframe": "#iframetoload"
       }
@@ -60,9 +61,10 @@
         "passwordField": "#password",
         "captchaField": "input[type=\"text\"][placeholder*=\"captcha\"], #userCaptcha, input[name*=\"captcha\"]",
         "submitButton": "#submit",
-        "cerFileInput": "input[accept*=\".cer\"]",
-        "keyFileInput": "input[accept*=\".key\"]",
-        "fielPasswordField": "input[type=\"password\"]"
+        "fielButton": "#buttonFiel",
+        "cerFileInput": "#fileCertificate",
+        "keyFileInput": "#filePrivateKey",
+        "fielPasswordField": "#privateKeyPassword"
       }
     }
   ]

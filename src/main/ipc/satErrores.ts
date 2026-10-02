@@ -7,6 +7,9 @@ export function manejarErrorSat(error: unknown): string {
     if (mensaje.includes('CAPTCHA_INVALIDO')) {
         return 'El captcha es incorrecto. Recarga el captcha e intenta de nuevo.'
     }
+    if (mensaje.includes('CREDENCIALES_INVALIDAS')) {
+        return 'El RFC o la contraseña son incorrectos. Verifica tus datos en Configuración.'
+    }
     if (mensaje.includes('SAT_TIMEOUT')) {
         return 'El servicio del SAT parece inestable en este momento. Intenta de nuevo en 5 minutos.'
     }

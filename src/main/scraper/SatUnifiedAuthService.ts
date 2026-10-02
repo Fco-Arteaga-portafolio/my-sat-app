@@ -52,7 +52,10 @@ export class SatUnifiedAuthService implements ISatAuthService {
         }
 
         try {
-            await pagina.goto(config.loginUrl, { waitUntil: 'networkidle', timeout: 30000 })
+            // domcontentloaded basta: el formulario es HTML del servidor y el
+            // captcha viene inline (data:image). networkidle puede "no resolver"
+            // nunca si el SAT mantiene conexiones abiertas.
+            await pagina.goto(config.loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
 
             // Esperar a que cargue el captcha
             await pagina.waitForSelector(config.selectors.captchaImage, { timeout: 15000 })
@@ -143,16 +146,39 @@ export class SatUnifiedAuthService implements ISatAuthService {
         }
 
         try {
-            await pagina.goto(config.loginUrl, { waitUntil: 'networkidle', timeout: 30000 })
+            await pagina.goto(config.loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
 
-            // Algunos portales tienen botón específico para FIEL
-            if (config.selectors.fielButton) {
-                try {
-                    await pagina.click(config.selectors.fielButton, { timeout: 10000 })
-                    await pagina.waitForTimeout(500)
-                } catch {
-                    // Continuar si no existe el botón
+            // Cambio a e.firma con reintentos: el botón del SAT se habilita por JS
+            // asíncrono y un clic antes de que cargue no surte efecto (no navega al
+            // formulario e.firma). Se verifica que el formulario realmente aparezca.
+            const hayFormularioFiel = (): Promise<boolean> =>
+                pagina
+                    .waitForSelector(config.selectors.cerFileInput, { state: 'attached', timeout: 3500 })
+                    .then(() => true)
+                    .catch(() => false)
+
+            if (!(await hayFormularioFiel()) && config.selectors.fielButton) {
+                const MAX_INTENTOS_FIEL = 4
+                for (let i = 0; i < MAX_INTENTOS_FIEL; i++) {
+                    try {
+                        await pagina.click(config.selectors.fielButton, { timeout: 8000 })
+                    } catch {
+                        // El clic puede no surtir efecto si el JS del SAT aún no carga;
+                        // el siguiente intento del bucle lo repite.
+                    }
+                    await pagina.waitForTimeout(1200)
+                    if (await hayFormularioFiel()) break
                 }
+            }
+
+            const formularioFiel = await pagina
+                .waitForSelector(config.selectors.cerFileInput, { state: 'attached', timeout: 5000 })
+                .catch(() => null)
+            if (!formularioFiel) {
+                throw new Error(
+                    'No se encontró el formulario de e.firma. El SAT pudo haber cambiado su página de acceso o haberse ' +
+                    'reiniciado; verifica tu configuración de e.firma (.cer/.key) y vuelve a intentar.'
+                )
             }
 
             // Cargar certificados
@@ -254,18 +280,38 @@ export class SatUnifiedAuthService implements ISatAuthService {
         intento: number = 1
     ): Promise<void> {
         try {
-            await this.esperarLoginExitoso(pagina, config, accion)
+            await this.esperarLoginExitoso(pagina, config, accion, metodoAuth)
         } catch (error: any) {
             const esTimeout = error.message?.includes('Timeout') || error.message?.includes('timeout')
             const esCaptchaInvalido = error.message?.includes('CAPTCHA_INVALIDO')
 
-            if ((esTimeout || esCaptchaInvalido) && intento < MAX_REINTENTOS) {
+            // Un captcha incorrecto rellena el MISMO texto sobre una imagen nueva:
+            // reintentar es fútil, y el goto intermedio puede incluso enviar un
+            // formulario en blanco al SAT ("campos requeridos"). Se falla rápido
+            // para que el usuario recargue el captcha e intente de nuevo.
+            if (esCaptchaInvalido) {
+                throw error
+            }
+
+            // e.firma: NO reintentar con el goto genérico. Ese reintento navega a la
+            // página CIEC y re-ejecuta el clic sobre un formulario vacío (basura).
+            // El primer intento ya tiene un tope generoso; si el SAT no respondió,
+            // fallar con un mensaje claro y dejar que el usuario reintente la descarga.
+            if (esTimeout && metodoAuth === 'fiel') {
+                throw new Error(
+                    'El SAT tardó demasiado en responder el inicio de sesión con e.firma ' +
+                    '(el SAT puede estar saturado). Cierra la ventana del navegador que se abrió ' +
+                    'y vuelve a intentar la descarga.'
+                )
+            }
+
+            if (esTimeout && intento < MAX_REINTENTOS) {
                 console.log(
                     `[SatUnifiedAuthService] ${metodoAuth.toUpperCase()} intento ${intento}/${MAX_REINTENTOS}, reintentando en ${ESPERA_ENTRE_REINTENTOS_MS / 1000}s...`
                 )
 
                 await pagina.waitForTimeout(ESPERA_ENTRE_REINTENTOS_MS)
-                await pagina.goto(config.loginUrl, { waitUntil: 'networkidle' })
+                await pagina.goto(config.loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
                 return this.intentarLogin(pagina, config, accion, metodoAuth, intento + 1)
             }
 
@@ -275,55 +321,122 @@ export class SatUnifiedAuthService implements ISatAuthService {
 
     /**
      * Espera a que el login sea exitoso.
+     *
+     * Por qué NO se usa waitForURL('**') para detectar "hubo navegación":
+     * waitForURL con un glob que ya coincide con la URL actual resuelve al
+     * instante (~4ms), ANTES de que el SAT responda el POST del login. Eso hacía
+     * que el login "terminara" sin haber terminado y la operación posterior
+     * muriera con timeout esperando el dominio del portal.
+     *
+     * El criterio es determinista:
+     * - EXITO  → la URL llega al dominio del portal (el login del SAT ocurre en
+     *            loginda/login.siat/cfdiau, NUNCA en el dominio del portal).
+     * - ERROR  → el SAT recarga la página de login mostrando #msgError/.alert.
      * @private
      */
     private async esperarLoginExitoso(
         pagina: Page,
-        _config: SatPortalConfig,
-        accion: () => Promise<void>
+        config: SatPortalConfig,
+        accion: () => Promise<void>,
+        metodoAuth: AuthMethod = 'ciec'
     ): Promise<void> {
-        const loginTimeoutPromise = new Promise<void>((resolve, reject) => {
-            pagina.once('framenavigated', () => {
-                resolve()
-            })
-            setTimeout(() => {
-                reject(new Error('Timeout esperando respuesta del servidor'))
-            }, 120000)
-        })
+        // El SAT e.firma tarda más que CIEC en firmar y redirigir; con el SAT lento,
+        // un tope corto mataría un login que SÍ iba a completarse. La detección de
+        // errores reales es inmediata (rama de error), así que el tope largo solo
+        // aplica a logins estancados.
+        const TIEMPO_LOGIN = metodoAuth === 'fiel' ? 300000 : 120000
 
-        await accion()
+        const dominioDestino = config.portalDomain || config.loginDomain
+        // El logueo del SAT ocurre en loginda/login.siat/cfdiau, NUNCA en el host
+        // del portal. Pero la URL del login SÍ contiene el host del portal dentro
+        // del parámetro encodificado target/redirect_uri (ej. loginda...?...,
+        // &target=...ptsc32d.clouda.sat.gob.mx...), por lo que un glob
+        // ('**dominio**') da falsos "éxito". Se ancla al INICIO de la URL: solo
+        // cuenta como éxito cuando la página YA tiene al portal como host real.
+        const hostExito = new RegExp(
+            `^https?://${dominioDestino.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[/:?#]|$)`,
+            'i'
+        )
 
-        try {
-            await Promise.race([
-                loginTimeoutPromise,
-                pagina.waitForNavigation({ timeout: 120000 }).catch(() => null),
-                pagina.waitForURL('**', { timeout: 120000 }).catch(() => null)
-            ])
-        } catch {
-            // Continuar incluso si hay error
+        // Disparar la acción SIN bloquear la detección: el clic en "Enviar" del SAT
+        // puede quedarse esperando actionability (overlay de carga) mientras la página
+        // procesa la firma; el resultado del login NO debe depender de que ese clic
+        // "termine". Si el clic falla, la carrera de detección decide el resultado.
+        Promise.resolve().then(accion).catch(() => false)
+
+        const espera = await Promise.race([
+            // Éxito: la URL llega al portal tras el login (redirección OAuth, dashboard)
+            pagina
+                .waitForURL(hostExito, { timeout: TIEMPO_LOGIN })
+                .then(() => 'exito' as const)
+                .catch(() => 'timeout' as const),
+            // Éxito alterno: el formulario de login desapareció y la ruta ya no es la
+            // del IDP (/nidp/). Cubre portales donde el destino NO cambia de host
+            // (cfdiau) sin caer en falsos éxitos: un reload por errores sigue en /nidp/
+            // y mantiene #submit.
+            pagina
+                .waitForFunction(
+                    ({ selLogin, pathNidp }) => {
+                        if (document.querySelector(selLogin)) return false
+                        return !location.pathname.startsWith(pathNidp)
+                    },
+                    { selLogin: '#submit', pathNidp: '/nidp' },
+                    { timeout: TIEMPO_LOGIN, polling: 500 }
+                )
+                .then(() => 'exito' as const)
+                .catch(() => 'timeout' as const),
+            // Error REAL: mensaje visible con contenido de error. Un .alert-danger
+            // vacío o transitorio (la página e.firma de cfdiau muestra uno mientras
+            // valida la firma) NO cuenta como fallo.
+            pagina
+                .waitForFunction(
+                    ({ selErrores, rxErrores }) => {
+                        for (const sel of selErrores) {
+                            const el = document.querySelector(sel)
+                            if (!el) continue
+                            const r = (el as HTMLElement).getBoundingClientRect()
+                            if (r.width <= 0 || r.height <= 0) continue
+                            const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
+                            if (t && rxErrores.test(t.toLowerCase())) {
+                                return t
+                            }
+                        }
+                        return null
+                    },
+                    {
+                        selErrores: ['#msgError', '.alert-danger', '#pnlError', '.error'],
+                        rxErrores:
+                            /captcha|contrase|password|rfc|clave|llave|credencial|usuario|incorrect|invál|no válid|vigencia|caduc|firma|certificado|imagen|no es correct|requerid|obligator/
+                    },
+                    { timeout: TIEMPO_LOGIN, polling: 500 }
+                )
+                .then(async (handle) => {
+                    const texto = handle ? String((await handle.jsonValue()) || '') : ''
+                    return { tipo: 'error' as const, texto }
+                })
+                .catch(() => 'timeout' as const),
+            new Promise<'timeout'>((resolve) =>
+                setTimeout(() => resolve('timeout' as const), TIEMPO_LOGIN)
+            )
+        ])
+
+        if (espera === 'exito') return
+        if (espera === 'timeout') {
+            throw new Error('Timeout esperando respuesta del servidor')
         }
 
-        // Validar si hubo error de captcha o credenciales
-        try {
-            const msgError = await pagina.evaluate(() => {
-                const textos = [
-                    document.body.innerText,
-                    document.querySelector('.alert')?.textContent,
-                    document.querySelector('.error')?.textContent,
-                    document.querySelector('#msgError')?.textContent
-                ].filter(t => t)
-
-                return textos.join(' ').toLowerCase()
-            })
-
-            if (msgError.includes('captcha')) {
-                throw new Error('CAPTCHA_INVALIDO')
-            }
-            if (msgError.includes('rfc') || msgError.includes('contraseña') || msgError.includes('acceso')) {
-                throw new Error('CREDENCIALES_INVALIDAS')
-            }
-        } catch (error: any) {
-            if (error.message?.includes('INVALIDO')) throw error
+        const texto = (espera.texto || '').toLowerCase()
+        if (texto.includes('captcha')) {
+            throw new Error('CAPTCHA_INVALIDO')
         }
+        if (
+            texto.includes('rfc') ||
+            texto.includes('contraseña') ||
+            texto.includes('password') ||
+            texto.includes('acceso')
+        ) {
+            throw new Error('CREDENCIALES_INVALIDAS')
+        }
+        throw new Error(`El SAT rechazó el inicio de sesión: ${espera.texto}`)
     }
 }

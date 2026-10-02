@@ -58,6 +58,7 @@ export class CfdiService {
     // ─── Auth privado ──────────────────────────────────────────────────────────
 
     private async login(config: Configuracion, captcha?: string) {
+        logger.log('CfdiService', 'Login iniciado', { metodo: config.metodoAuth, rfc: config.rfc })
         if (config.metodoAuth === 'contrasena') {
             const creds: CiecCredentials = {
                 rfc: config.rfc,

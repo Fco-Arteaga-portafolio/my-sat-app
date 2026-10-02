@@ -1,42 +1,99 @@
-import { readdirSync, existsSync } from 'original-fs';
-import { app } from 'electron';
-import { join } from 'path/win32';
+import { readdirSync, existsSync } from 'original-fs'
+import { app } from 'electron'
+import { join } from 'path'
 import { chromium, BrowserContext, Browser } from 'playwright'
 
 export class BrowserManager {
     private static browser: Browser | null = null
-    private static headless = app.isPackaged // ← un solo lugar para cambiar
 
+    /**
+     * Único punto de control de la visibilidad del navegador.
+     * - Producción (app empaquetada): headless → el usuario nunca ve una ventana.
+     * - Desarrollo: ventana visible, para poder depurar el scraping.
+     * - IFRAT_HEADLESS=0 fuerza ventana visible incluso en producción.
+     */
+    private static headless = process.env.IFRAT_HEADLESS === '0' ? false : app.isPackaged
+
+    /**
+     * Rutas relativas del ejecutable de Chromium dentro de su carpeta, por plataforma.
+     * Refleja el layout que produce `npx playwright install`
+     * (ver registry de playwright-core/lib/server/registry).
+     */
+    private static exeCandidates(base: string): string[] {
+        switch (process.platform) {
+            case 'win32':
+                return [join(base, 'chrome-win64', 'chrome.exe')]
+            case 'darwin': {
+                const dir = process.arch === 'arm64' ? 'chrome-mac-arm64' : 'chrome-mac-x64'
+                return [
+                    join(base, dir, 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+                    join(base, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium')
+                ]
+            }
+            default: {
+                const dir = process.arch === 'arm64' ? 'chrome-linux' : 'chrome-linux64'
+                return [
+                    join(base, dir, 'chrome'),
+                    join(base, 'chrome-linux64', 'chrome'),
+                    join(base, 'chrome-linux', 'chrome')
+                ]
+            }
+        }
+    }
+
+    /** Devuelve la carpeta chromium-<versión> más reciente, ignorando el headless shell. */
+    private static pickChromiumDir(dirs: string[]): string | undefined {
+        const candidatos = dirs
+            .filter(d => d.startsWith('chromium-') && !d.includes('headless'))
+            .sort((a, b) => {
+                const va = parseInt(a.split('-').pop() || '0', 10)
+                const vb = parseInt(b.split('-').pop() || '0', 10)
+                return vb - va
+            })
+        return candidatos[0]
+    }
 
     // Método para calcular la ruta del ejecutable según el entorno
     private static findBundledChromium(): string | undefined {
         if (!app.isPackaged) return undefined
 
         const browsersPath = join(process.resourcesPath, 'playwright-browsers')
-        console.log('[BrowserManager] buscando chromium en:', browsersPath)
-        console.log('[BrowserManager] existe:', existsSync(browsersPath))
 
-        if (!existsSync(browsersPath)) return undefined
+        if (!existsSync(browsersPath)) {
+            console.warn('[BrowserManager] no existe el navegador empaquetado en:', browsersPath)
+            return undefined
+        }
 
         const dirs = readdirSync(browsersPath)
-        console.log('[BrowserManager] carpetas encontradas:', dirs)
+        const chromiumDir = this.pickChromiumDir(dirs)
 
-        const chromiumDir = dirs.find(d => d.startsWith('chromium-') && !d.includes('headless'))
-        if (!chromiumDir) return undefined
+        if (!chromiumDir) {
+            console.warn('[BrowserManager] no se encontró ninguna carpeta chromium-* en:', browsersPath)
+            return undefined
+        }
 
-        const exePath = join(browsersPath, chromiumDir, 'chrome-win64', 'chrome.exe')
-        console.log('[BrowserManager] exePath:', exePath, '| existe:', existsSync(exePath))
+        for (const candidate of this.exeCandidates(join(browsersPath, chromiumDir))) {
+            if (existsSync(candidate)) {
+                console.log('[BrowserManager] chromium:', candidate)
+                return candidate
+            }
+        }
 
-        return existsSync(exePath) ? exePath : undefined
+        console.warn('[BrowserManager] no se encontró el ejecutable en', chromiumDir, '· plataforma:', process.platform)
+        return undefined
     }
 
     static setHeadless(value: boolean): void {
         this.headless = value
     }
 
+    static isHeadless(): boolean {
+        return this.headless
+    }
+
     static async getBrowser(): Promise<Browser> {
         if (!this.browser) {
-            const exePath = this.findBundledChromium();
+            const exePath = this.findBundledChromium()
 
             this.browser = await chromium.launch({
                 headless: this.headless,
@@ -49,7 +106,6 @@ export class BrowserManager {
                     '--allow-running-insecure-content',
                     '--disable-features=IsolateOrigins,site-per-process' // Ayuda a capturar buffers en frames
                 ]
-
             })
         }
         return this.browser
