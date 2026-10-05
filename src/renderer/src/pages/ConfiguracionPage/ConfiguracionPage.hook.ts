@@ -36,9 +36,13 @@ export const useConfiguracionPage = () => {
   const [guardado, setGuardado] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [config, setConfig] = useState<Configuracion>(configVacia())
+  const [iniciada, setIniciada] = useState(false)
 
   useEffect(() => {
     cargarConfiguracion()
+    window.api.obtenerEstadoSesion().then((res) => {
+      if (res.success) setIniciada(!!res.iniciada)
+    })
   }, [])
 
   const cargarConfiguracion = async () => {
@@ -123,8 +127,13 @@ export const useConfiguracionPage = () => {
     cambiarCampo(campo, slots)
   }
 
+  const cerrarSesion = async (): Promise<void> => {
+    await window.api.cerrarSesion()
+  }
+
   return {
     config, loading, guardado, error,
+    iniciada, cerrarSesion,
     guardar, cambiarMetodo, cambiarCampo,
     seleccionarCer, seleccionarKey, seleccionarCarpeta,
     seleccionarCarpetaEmitidos, seleccionarCarpetaRecibidos,

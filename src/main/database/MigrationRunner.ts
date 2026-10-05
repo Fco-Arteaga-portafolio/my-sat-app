@@ -13,9 +13,14 @@ import { migration011 } from './migrations/011_isr_tarifas'
 import { migration012 } from './migrations/012_nuevos_campos_cfdi'
 import { migration013 } from './migrations/013_licencias'
 import { migration014 } from './migrations/014_efos'
+import { migration015 } from './migrations/015_vinculacion'
+import { migration016 } from './migrations/016_limites_pendientes_cumplimiento'
+import { migration017 } from './migrations/017_limite_cumplimiento'
+import { migration018 } from './migrations/018_limites_conciliacion_constancia'
+import { migration019 } from './migrations/019_sesion'
 
 export class MigrationRunner {
-  constructor(private readonly db: BetterSqlite3.Database) { }
+  constructor(private readonly db: BetterSqlite3.Database) {}
 
   run(): void {
     this.createMigrationsTable()
@@ -47,7 +52,12 @@ export class MigrationRunner {
       { nombre: '011_isr_tarifas', fn: migration011 },
       { nombre: '012_nuevos_campos_cfdi', fn: migration012 },
       { nombre: '013_licencias', fn: migration013 },
-      { nombre: '014_efos', fn: migration014 }
+      { nombre: '014_efos', fn: migration014 },
+      { nombre: '015_vinculacion', fn: migration015 },
+      { nombre: '016_limites_pendientes_cumplimiento', fn: migration016 },
+      { nombre: '017_limite_cumplimiento', fn: migration017 },
+      { nombre: '018_limites_conciliacion_constancia', fn: migration018 },
+      { nombre: '019_sesion', fn: migration019 }
     ]
 
     for (const migration of migrations) {
@@ -57,9 +67,7 @@ export class MigrationRunner {
 
       if (!yaEjecutada) {
         migration.fn(this.db)
-        this.db
-          .prepare('INSERT INTO migrations (nombre) VALUES (?)')
-          .run(migration.nombre)
+        this.db.prepare('INSERT INTO migrations (nombre) VALUES (?)').run(migration.nombre)
         console.log(`Migración ejecutada: ${migration.nombre}`)
       }
     }

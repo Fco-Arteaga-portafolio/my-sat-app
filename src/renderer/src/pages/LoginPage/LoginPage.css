@@ -1,0 +1,55 @@
+.login-pantalla {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #f5f7fa;
+  padding: 16px;
+}
+
+.login-tarjeta {
+  width: 100%;
+  max-width: 420px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.login-titulo {
+  text-align: center;
+  margin-bottom: 4px !important;
+}
+
+.login-subtitulo {
+  text-align: center;
+  color: #666;
+  margin-bottom: 8px !important;
+}
+
+.login-label {
+  display: block;
+  margin: 14px 0 6px;
+  font-weight: 600;
+  color: #333;
+}
+
+.login-error {
+  margin-top: 14px;
+}
+
+.login-verificar-correo {
+  margin-top: 8px;
+}
+
+.login-boton {
+  margin-top: 22px;
+}
+
+.login-cargando {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: #999;
+  font-family: monospace;
+}

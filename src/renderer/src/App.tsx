@@ -1,7 +1,8 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Component, ReactNode } from 'react'
+import { Component, ReactNode, useEffect, useState } from 'react'
 import { useContribuyente, ContribuyenteProvider } from './context/ContribuyenteContext'
 import AppLayout from './components/Layout/AppLayout'
+import LoginPage from './pages/LoginPage/LoginPage'
 import ConfiguracionPage from './pages/ConfiguracionPage/ConfiguracionPage'
 import DescargaPage from './pages/DescargaPage/DescargaPage'
 import PendientesPage from './pages/PendientesPage/PendientesPage'
@@ -47,6 +48,32 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 const RutaProtegida = ({ children }: { children: ReactNode }) => {
   const { perfil } = useContribuyente()
   if (perfil === null) return <Navigate to="/perfiles" replace />
+  return <>{children}</>
+}
+
+/**
+ * Bloquea toda la app hasta que haya sesión iniciada (login directo).
+ * Al arrancar renueva la sesión con el refreshToken; si el backend rechaza el
+ * token en cualquier operación, regresa a la pantalla de login.
+ */
+const SesionGate = ({ children }: { children: ReactNode }): ReactNode => {
+  const [iniciada, setIniciada] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    window.api.renovarSesion().then((res) => {
+      setIniciada(res.success ? !!res.iniciada : false)
+    })
+    window.api.onTokenRechazado(() => setIniciada(false))
+  }, [])
+
+  if (iniciada === null) {
+    return <div className="login-cargando">Cargando…</div>
+  }
+
+  if (!iniciada) {
+    return <LoginPage onIniciada={() => setIniciada(true)} />
+  }
+
   return <>{children}</>
 }
 
@@ -142,7 +169,9 @@ const App = () => {
       <ContribuyenteProvider>
         <UpdateModal />
         <HashRouter>
-          <AppRoutes />
+          <SesionGate>
+            <AppRoutes />
+          </SesionGate>
         </HashRouter>
       </ContribuyenteProvider>
     </ErrorBoundary>

@@ -146,6 +146,30 @@ declare global {
       validarConsolidacion(): Promise<{ success: boolean; valido?: boolean; motivo?: string; usos_restantes?: number; error?: string }>
       incrementarConsolidacion(): Promise<{ success: boolean; error?: string }>
 
+      // Sesión de cuenta (login directo, igual que la web)
+      obtenerEstadoSesion(): Promise<{ success: boolean; iniciada?: boolean; error?: string }>
+      renovarSesion(): Promise<{
+        success: boolean
+        iniciada?: boolean
+        nombre?: string
+        email?: string
+        error?: string
+      }>
+      iniciarSesion(email: string, password: string): Promise<{
+        success: boolean
+        iniciada?: boolean
+        nombre?: string
+        email?: string
+        error?: string
+      }>
+      cerrarSesion(): Promise<{ success: boolean; error?: string }>
+      obtenerCuenta(): Promise<{
+        success: boolean
+        cuenta?: { nombre: string; email: string } | null
+        error?: string
+      }>
+      onTokenRechazado(callback: () => void): void
+
       // Exportación
       obtenerPreview(filtros: {
         tipoDescarga: 'emitida' | 'recibida'

@@ -24,6 +24,14 @@ import { CfdiGuardadoService } from './services/CfdiGuardadoService'
 import { CfdiService } from './services/CfdiService'
 import { UpdaterService } from './window/UpdaterService'
 import { LicenseHandler } from './ipc/LicenseHandler'
+import { SesionHandler } from './ipc/SesionHandler'
+import { SesionRepository } from './database/repositories/SesionRepository'
+import { SesionService } from './services/SesionService'
+import { BackendService } from './services/BackendService'
+import { LimiteUsoService } from './services/LimiteUsoService'
+import { LicenseService } from './services/LicenseService'
+import { LicenseRepository } from './database/repositories/LicenseRepository'
+import { LicenseHelper } from './services/LicenseHelper'
 import { EfosRepository } from './database/repositories/EfosRepository'
 import { Lista69BService } from './services/Lista69BService'
 import { Lista69BHandler } from './ipc/Lista69BHandler'
@@ -138,12 +146,20 @@ app.whenReady().then(async () => {
       conciliacionRepository
     )
 
+    // ── Sesión de cuenta y límites de uso ──────────────────────────────────
+    const sesionRepository = new SesionRepository(db)
+    const backendService = new BackendService()
+    const sesionService = new SesionService(sesionRepository, backendService)
+    const licenseHelper = new LicenseHelper(new LicenseService(new LicenseRepository(db)), db)
+    const limiteUsoService = new LimiteUsoService(sesionService, licenseHelper, backendService)
+    new SesionHandler(sesionService, backendService).registrar()
+
     // ── Handlers CFDI ──────────────────────────────────────────────────────
     const profileManager = new ProfileManager(db)
     new PerfilHandler(profileManager, db).registrar()
-    new FacturaHandler(cfdiService, sharedAuthService, configuracionService, db).registrar()
-    new ConciliacionHandler(cfdiService, configuracionService, db).registrar()
-    new ImportacionHandler(guardadoService, db).registrar()
+    new FacturaHandler(cfdiService, sharedAuthService, configuracionService, limiteUsoService, db).registrar()
+    new ConciliacionHandler(cfdiService, configuracionService, limiteUsoService).registrar()
+    new ImportacionHandler(guardadoService, configuracionService, limiteUsoService).registrar()
     new ConfiguracionHandler(db).registrar()
     new DashboardHandler(db).registrar()
     new CatalogoHandler(db).registrar()
@@ -171,7 +187,8 @@ app.whenReady().then(async () => {
         }
       },
       sharedAuthService,
-      configProvider
+      configProvider,
+      limiteUsoService
     ).registrar()
 
     createWindow()

@@ -169,6 +169,18 @@ function createLoggerApi() {
     limpiarLogs: async () => electron.ipcRenderer.invoke("limpiar-logs")
   };
 }
+const createSesionApi = () => {
+  return {
+    obtenerEstadoSesion: () => electron.ipcRenderer.invoke("obtener-estado-sesion"),
+    renovarSesion: () => electron.ipcRenderer.invoke("renovar-sesion"),
+    iniciarSesion: (email, password) => electron.ipcRenderer.invoke("iniciar-sesion", { email, password }),
+    cerrarSesion: () => electron.ipcRenderer.invoke("cerrar-sesion"),
+    obtenerCuenta: () => electron.ipcRenderer.invoke("obtener-cuenta"),
+    onTokenRechazado: (callback) => {
+      electron.ipcRenderer.on("sesion-token-rechazado", () => callback());
+    }
+  };
+};
 if (process.contextIsolated) {
   try {
     electron.contextBridge.exposeInMainWorld("electron", preload.electronAPI);
@@ -186,6 +198,7 @@ if (process.contextIsolated) {
       ...createConstanciaApi(),
       ...createLista69BApi(),
       ...createLoggerApi(),
+      ...createSesionApi(),
       ...createMiscApi()
     });
     electron.contextBridge.exposeInMainWorld("electronUpdater", createElectronUpdater());
@@ -209,6 +222,7 @@ if (process.contextIsolated) {
     ...createConstanciaApi(),
     ...createLista69BApi(),
     ...createLoggerApi(),
+    ...createSesionApi(),
     ...createMiscApi()
   };
   window.electronUpdater = createElectronUpdater();

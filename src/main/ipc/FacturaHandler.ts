@@ -3,29 +3,23 @@ import { ParametrosBusqueda } from '../scraper/SatTypes'
 import { PdfService } from '../services/PdfService'
 import { PagoComplementoRepository } from '../database/repositories/PagoComplementoRepository'
 import BetterSqlite3 from 'better-sqlite3'
-import { LicenseService } from '../services/LicenseService'
-import { LicenseRepository } from '../database/repositories/LicenseRepository'
 import { IpcWrapper } from './IpcWrapper'
-import { LicenseHelper } from '../services/LicenseHelper'
+import { LimiteUsoService } from '../services/LimiteUsoService'
 import { logger } from '../services/LoggerService'
 import { CfdiService } from '../services/CfdiService'
 import { SatUnifiedAuthService } from '../scraper/SatUnifiedAuthService'
 
 export class FacturaHandler {
   private readonly pagoComplementoRepository: PagoComplementoRepository
-  private readonly licenseService: LicenseService
-  private readonly licenseHelper: LicenseHelper
 
   constructor(
     private readonly cfdiService: CfdiService,
     private readonly authService: SatUnifiedAuthService,
     private readonly configuracionService: ConfiguracionService,
+    private readonly limiteUsoService: LimiteUsoService,
     db: BetterSqlite3.Database
   ) {
     this.pagoComplementoRepository = new PagoComplementoRepository(db)
-    const licenseRepository = new LicenseRepository(db)
-    this.licenseService = new LicenseService(licenseRepository)
-    this.licenseHelper = new LicenseHelper(this.licenseService, db)
   }
 
   registrar(): void {
@@ -40,11 +34,11 @@ export class FacturaHandler {
       params: ParametrosBusqueda
     }) => {
       logger.log('FacturaHandler', 'Iniciando descarga de facturas', { params: datos.params })
-      const validacion = this.licenseHelper.validateFeature('descarga')
-      if (!validacion.valido) throw new Error(validacion.motivo)
-
       const config = this.configuracionService.obtener()
       if (!config) throw new Error('No hay configuración guardada')
+
+      const validacion = await this.limiteUsoService.validar('descarga_cfdi', config.rfc)
+      if (!validacion.valido) throw new Error(validacion.motivo)
 
       const resultado = await this.cfdiService.descargar(
         config, datos.params, datos.captcha,
@@ -52,7 +46,7 @@ export class FacturaHandler {
       )
 
       if (resultado.total > 0 && !resultado.errores.length) {
-        this.licenseHelper.incrementCounter('descargas')
+        await this.limiteUsoService.consumir('descarga_cfdi', config.rfc)
       }
 
       logger.log('FacturaHandler', 'Descarga completada', { total: resultado.total, errores: resultado.errores.length })
@@ -61,11 +55,11 @@ export class FacturaHandler {
 
     IpcWrapper.handle('reintentar-pendientes', async (event, datos: { captcha?: string }) => {
       logger.log('FacturaHandler', 'Reintentando facturas pendientes')
-      const validacion = this.licenseHelper.validateFeature('descarga')
-      if (!validacion.valido) throw new Error(validacion.motivo)
-
       const config = this.configuracionService.obtener()
       if (!config) throw new Error('No hay configuración guardada')
+
+      const validacion = await this.limiteUsoService.validar('pendientes', config.rfc)
+      if (!validacion.valido) throw new Error(validacion.motivo)
 
       const resultado = await this.cfdiService.reintentar(
         config, datos.captcha,
@@ -73,7 +67,7 @@ export class FacturaHandler {
       )
 
       if (resultado.total > 0 && !resultado.errores.length) {
-        this.licenseHelper.incrementCounter('descargas')
+        await this.limiteUsoService.consumir('pendientes', config.rfc)
       }
 
       logger.log('FacturaHandler', 'Reintento completado', { total: resultado.total })

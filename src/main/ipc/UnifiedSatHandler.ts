@@ -2,206 +2,249 @@ import { ipcMain, app, BrowserWindow } from 'electron'
 import { Page } from 'playwright'
 import { SatUnifiedAuthService } from '../scraper/SatUnifiedAuthService'
 import { ConfiguracionService } from '../services/ConfiguracionService'
-import { CaptchaData, SatOperationResult, CiecCredentials, FielCredentials } from '../scraper/SatPortalConfig'
+import {
+  CaptchaData,
+  SatOperationResult,
+  CiecCredentials,
+  FielCredentials
+} from '../scraper/SatPortalConfig'
 import { IPortalConfigProvider } from '../scraper/SatPortalConfig'
 import { manejarErrorSat } from './satErrores'
+import { LimiteUsoService } from '../services/LimiteUsoService'
 
 interface IOperationServiceRegistry {
-    [portalId: string]: {
-        obtenerCaptcha: () => Promise<CaptchaData>
-        ejecutar: (page: Page, credenciales: any, options: any) => Promise<SatOperationResult>
-        cerrarSesion: () => Promise<void>
-    }
+  [portalId: string]: {
+    obtenerCaptcha: () => Promise<CaptchaData>
+    ejecutar: (page: Page, credenciales: any, options: any) => Promise<SatOperationResult>
+    cerrarSesion: () => Promise<void>
+  }
 }
 
 export class UnifiedSatHandler {
-    constructor(
-        private configuracionService: ConfiguracionService,
-        private operationServices: IOperationServiceRegistry,
-        private authService: SatUnifiedAuthService,
-        private configProvider: IPortalConfigProvider   // ← estaba faltando
-    ) { }
+  constructor(
+    private configuracionService: ConfiguracionService,
+    private operationServices: IOperationServiceRegistry,
+    private authService: SatUnifiedAuthService,
+    private configProvider: IPortalConfigProvider, // ← estaba faltando
+    private limiteUsoService: LimiteUsoService
+  ) {}
 
-    registrarServicioOperacion(
-        portalId: string,
-        servicio: IOperationServiceRegistry[string]
-    ): void {
-        this.operationServices[portalId] = servicio
-    }
+  registrarServicioOperacion(portalId: string, servicio: IOperationServiceRegistry[string]): void {
+    this.operationServices[portalId] = servicio
+  }
 
-    registrar(): void {
-        ipcMain.handle('obtener-captcha-dinamico', async (_, { portalId }: { portalId: string }) => {
-            try {
-                this.validarPortal(portalId)
-                const captcha = await this.authService.obtenerCaptcha(portalId)
-                return { success: true, data: captcha }
-            } catch (error) {
-                console.error(`[UnifiedSatHandler] Error obteniendo captcha para ${portalId}:`, error)
-                return {
-                    success: false,
-                    error: manejarErrorSat(error)
-                }
-            }
-        })
-
-        ipcMain.handle('ejecutar-operacion-dinamica', async (_event, { portalId, credenciales }: {
-            portalId: string
-            credenciales: any
-        }) => {
-            try {
-                this.validarPortal(portalId)
-
-                const config = this.configuracionService.obtener()
-                if (!config?.rfc) {
-                    return { success: false, error: 'No hay RFC configurado. Ve a Configuración primero.' }
-                }
-
-                const operationService = this.operationServices[portalId]
-                if (!operationService) {
-                    throw new Error(`No hay servicio de operación registrado para ${portalId}`)
-                }
-
-                const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
-                const tipoLogin = config.metodoAuth ?? 'contrasena'
-
-                const onProgreso = (mensaje: string) => {
-                    BrowserWindow.getAllWindows()[0]?.webContents.send(`progreso-${portalId}`, mensaje)
-                }
-
-                const credencialesFinal = this.prepararCredenciales(credenciales, tipoLogin, config)
-
-                // ✅ El handler hace el login — reutiliza la página donde ya cargó el captcha
-                const paginaAutenticada = await this.autenticar(portalId, tipoLogin, credencialesFinal)
-
-                // ✅ Pasa la página lista al operation service — ya no abre nada nuevo
-                const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
-                    carpetaTemp,
-                    onProgreso
-                })
-
-                return { success: true, data: resultado }
-            } catch (error) {
-                console.error(`[UnifiedSatHandler] Error ejecutando operación en ${portalId}:`, error)
-                return {
-                    success: false,
-                    error: manejarErrorSat(error)
-                }
-            }
-        })
-
-        ipcMain.handle('cerrar-sesion-dinamica', async (_, { portalId }: { portalId: string }) => {
-            try {
-                const operationService = this.operationServices[portalId]
-                if (operationService) {
-                    await operationService.cerrarSesion()
-                }
-                return { success: true }
-            } catch (error) {
-                console.error(`[UnifiedSatHandler] Error cerrando sesión en ${portalId}:`, error)
-                return { success: false, error: String(error) }
-            }
-        })
-
-        this.registrarHandlersLegacy()
-    }
-
-    private async autenticar(
-        portalId: string,
-        tipoLogin: string,
-        credenciales: any
-    ): Promise<Page> {
-        if (tipoLogin === 'efirma') {
-            return this.authService.loginFiel(portalId, credenciales as FielCredentials)
-        } else {
-            return this.authService.loginCiec(portalId, credenciales as CiecCredentials)
+  registrar(): void {
+    ipcMain.handle('obtener-captcha-dinamico', async (_, { portalId }: { portalId: string }) => {
+      try {
+        this.validarPortal(portalId)
+        const captcha = await this.authService.obtenerCaptcha(portalId)
+        return { success: true, data: captcha }
+      } catch (error) {
+        console.error(`[UnifiedSatHandler] Error obteniendo captcha para ${portalId}:`, error)
+        return {
+          success: false,
+          error: manejarErrorSat(error)
         }
-    }
+      }
+    })
 
-    private registrarHandlersLegacy(): void {
-        const portales = ['constancia', 'cumplimiento']
-
-        for (const portalId of portales) {
-            ipcMain.handle(`${portalId}-obtener-captcha`, async () => {
-                try {
-                    this.validarPortal(portalId)
-                    const captcha = await this.authService.obtenerCaptcha(portalId)
-                    return { success: true, data: captcha }
-                } catch (error) {
-                    return {
-                        success: false,
-                        error: manejarErrorSat(error)
-                    }
-                }
-            })
-
-            const operacionKey = portalId === 'constancia' ? 'obtener-constancia' : 'obtener-opinion'
-            ipcMain.handle(`${portalId}-${operacionKey}`, async (_, data: { captcha?: string }) => {
-                try {
-                    this.validarPortal(portalId)
-                    const config = this.configuracionService.obtener()
-                    if (!config?.rfc) {
-                        return { success: false, error: 'No hay RFC configurado' }
-                    }
-
-                    const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
-                    const tipoLogin = config.metodoAuth ?? 'contrasena'
-
-                    const onProgreso = (mensaje: string) => {
-                        BrowserWindow.getAllWindows()[0]?.webContents.send(`progreso-${portalId}`, mensaje)
-                    }
-
-                    const operationService = this.operationServices[portalId]
-                    if (!operationService) {
-                        throw new Error(`No hay servicio registrado para ${portalId}`)
-                    }
-
-                    const credencialesFinal = this.prepararCredenciales(data, tipoLogin, config)
-                    const paginaAutenticada = await this.autenticar(portalId, tipoLogin, credencialesFinal)
-                    const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
-                        carpetaTemp,
-                        onProgreso
-                    })
-
-                    return { success: true, data: resultado }
-                } catch (error) {
-                    return {
-                        success: false,
-                        error: manejarErrorSat(error)
-                    }
-                }
-            })
-
-            ipcMain.handle(`${portalId}-cerrar-sesion`, async () => {
-                try {
-                    const operationService = this.operationServices[portalId]
-                    if (operationService) await operationService.cerrarSesion()
-                    return { success: true }
-                } catch (error) {
-                    return { success: false, error: String(error) }
-                }
-            })
+    ipcMain.handle(
+      'ejecutar-operacion-dinamica',
+      async (
+        _event,
+        {
+          portalId,
+          credenciales
+        }: {
+          portalId: string
+          credenciales: any
         }
-    }
+      ) => {
+        try {
+          this.validarPortal(portalId)
 
-    private prepararCredenciales(credenciales: any, tipoLogin: string, config: any): any {
-        if (tipoLogin === 'efirma') {
-            return {
-                rutaCer: config.rutaCer ?? '',
-                rutaKey: config.rutaKey ?? '',
-                contrasenaFiel: config.contrasenaFiel ?? ''
+          const modulo = this.moduloUsoPortal(portalId)
+          const config = this.configuracionService.obtener()
+          if (modulo) {
+            const validacion = await this.limiteUsoService.validar(modulo, config?.rfc)
+            if (!validacion.valido) {
+              return { success: false, error: validacion.motivo }
             }
-        } else {
-            return {
-                rfc: config.rfc ?? '',
-                password: config.contrasena ?? '',
-                captcha: credenciales.captcha ?? ''
-            }
-        }
-    }
+          }
 
-    private validarPortal(portalId: string): void {
-        if (!this.configProvider.existePortal(portalId)) {
-            throw new Error(`Portal ${portalId} no existe`)
+          if (!config?.rfc) {
+            return { success: false, error: 'No hay RFC configurado. Ve a Configuración primero.' }
+          }
+
+          const operationService = this.operationServices[portalId]
+          if (!operationService) {
+            throw new Error(`No hay servicio de operación registrado para ${portalId}`)
+          }
+
+          const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
+          const tipoLogin = config.metodoAuth ?? 'contrasena'
+
+          const onProgreso = (mensaje: string) => {
+            BrowserWindow.getAllWindows()[0]?.webContents.send(`progreso-${portalId}`, mensaje)
+          }
+
+          const credencialesFinal = this.prepararCredenciales(credenciales, tipoLogin, config)
+
+          // ✅ El handler hace el login — reutiliza la página donde ya cargó el captcha
+          const paginaAutenticada = await this.autenticar(portalId, tipoLogin, credencialesFinal)
+
+          // ✅ Pasa la página lista al operation service — ya no abre nada nuevo
+          const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
+            carpetaTemp,
+            onProgreso
+          })
+
+          // Solo se consume el uso cuando la operación realmente produjo el archivo
+          if (modulo && resultado?.rutaArchivo) {
+            await this.limiteUsoService.consumir(modulo, config.rfc)
+          }
+
+          return { success: true, data: resultado }
+        } catch (error) {
+          console.error(`[UnifiedSatHandler] Error ejecutando operación en ${portalId}:`, error)
+          return {
+            success: false,
+            error: manejarErrorSat(error)
+          }
         }
+      }
+    )
+
+    ipcMain.handle('cerrar-sesion-dinamica', async (_, { portalId }: { portalId: string }) => {
+      try {
+        const operationService = this.operationServices[portalId]
+        if (operationService) {
+          await operationService.cerrarSesion()
+        }
+        return { success: true }
+      } catch (error) {
+        console.error(`[UnifiedSatHandler] Error cerrando sesión en ${portalId}:`, error)
+        return { success: false, error: String(error) }
+      }
+    })
+
+    this.registrarHandlersLegacy()
+  }
+
+  private async autenticar(portalId: string, tipoLogin: string, credenciales: any): Promise<Page> {
+    if (tipoLogin === 'efirma') {
+      return this.authService.loginFiel(portalId, credenciales as FielCredentials)
+    } else {
+      return this.authService.loginCiec(portalId, credenciales as CiecCredentials)
     }
+  }
+
+  private registrarHandlersLegacy(): void {
+    const portales = ['constancia', 'cumplimiento']
+
+    for (const portalId of portales) {
+      ipcMain.handle(`${portalId}-obtener-captcha`, async () => {
+        try {
+          this.validarPortal(portalId)
+          const captcha = await this.authService.obtenerCaptcha(portalId)
+          return { success: true, data: captcha }
+        } catch (error) {
+          return {
+            success: false,
+            error: manejarErrorSat(error)
+          }
+        }
+      })
+
+      const operacionKey = portalId === 'constancia' ? 'obtener-constancia' : 'obtener-opinion'
+      ipcMain.handle(`${portalId}-${operacionKey}`, async (_, data: { captcha?: string }) => {
+        try {
+          this.validarPortal(portalId)
+          const modulo = this.moduloUsoPortal(portalId)
+          const config = this.configuracionService.obtener()
+          if (modulo) {
+            const validacion = await this.limiteUsoService.validar(modulo, config?.rfc)
+            if (!validacion.valido) {
+              return { success: false, error: validacion.motivo }
+            }
+          }
+          if (!config?.rfc) {
+            return { success: false, error: 'No hay RFC configurado' }
+          }
+
+          const carpetaTemp = config.carpetaDescarga || app.getPath('downloads')
+          const tipoLogin = config.metodoAuth ?? 'contrasena'
+
+          const onProgreso = (mensaje: string) => {
+            BrowserWindow.getAllWindows()[0]?.webContents.send(`progreso-${portalId}`, mensaje)
+          }
+
+          const operationService = this.operationServices[portalId]
+          if (!operationService) {
+            throw new Error(`No hay servicio registrado para ${portalId}`)
+          }
+
+          const credencialesFinal = this.prepararCredenciales(data, tipoLogin, config)
+          const paginaAutenticada = await this.autenticar(portalId, tipoLogin, credencialesFinal)
+          const resultado = await operationService.ejecutar(paginaAutenticada, credencialesFinal, {
+            carpetaTemp,
+            onProgreso
+          })
+
+          // Solo se consume el uso cuando la operación realmente produjo el archivo
+          if (modulo && resultado?.rutaArchivo) {
+            await this.limiteUsoService.consumir(modulo, config.rfc)
+          }
+
+          return { success: true, data: resultado }
+        } catch (error) {
+          return {
+            success: false,
+            error: manejarErrorSat(error)
+          }
+        }
+      })
+
+      ipcMain.handle(`${portalId}-cerrar-sesion`, async () => {
+        try {
+          const operationService = this.operationServices[portalId]
+          if (operationService) await operationService.cerrarSesion()
+          return { success: true }
+        } catch (error) {
+          return { success: false, error: String(error) }
+        }
+      })
+    }
+  }
+
+  private prepararCredenciales(credenciales: any, tipoLogin: string, config: any): any {
+    if (tipoLogin === 'efirma') {
+      return {
+        rutaCer: config.rutaCer ?? '',
+        rutaKey: config.rutaKey ?? '',
+        contrasenaFiel: config.contrasenaFiel ?? ''
+      }
+    } else {
+      return {
+        rfc: config.rfc ?? '',
+        password: config.contrasena ?? '',
+        captcha: credenciales.captcha ?? ''
+      }
+    }
+  }
+
+  private validarPortal(portalId: string): void {
+    if (!this.configProvider.existePortal(portalId)) {
+      throw new Error(`Portal ${portalId} no existe`)
+    }
+  }
+
+  /**
+   * Mapea un portal SAT a su módulo de uso (null si el portal no consume uso).
+   */
+  private moduloUsoPortal(portalId: string): 'cumplimiento' | 'constancia' | null {
+    if (portalId === 'cumplimiento') return 'cumplimiento'
+    if (portalId === 'constancia') return 'constancia'
+    return null
+  }
 }

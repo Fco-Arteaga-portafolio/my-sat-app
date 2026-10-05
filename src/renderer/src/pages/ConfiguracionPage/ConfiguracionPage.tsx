@@ -9,6 +9,7 @@ import './ConfiguracionPage.css'
 const ConfiguracionPage = () => {
   const {
     config, loading, guardado, error, guardar, cambiarCampo,
+    iniciada, cerrarSesion,
     seleccionarCer, seleccionarKey,
     seleccionarCarpetaEmitidos, seleccionarCarpetaRecibidos,
     moverSlot, toggleSlot
@@ -56,6 +57,22 @@ const ConfiguracionPage = () => {
       <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={guardar} size="large">
         Guardar configuración
       </Button>
+
+      <Card title="Cuenta de IFRAT" className="configuracion-cuenta-card">
+        {iniciada ? (
+          <>
+            <p className="configuracion-hint">
+              Has iniciado sesión con tu cuenta de IFRAT. Los límites de uso de los módulos
+              dependen de tu licencia en ifrat.ar-sa.com.mx.
+            </p>
+            <Button danger onClick={cerrarSesion}>
+              Cerrar sesión
+            </Button>
+          </>
+        ) : (
+          <p className="configuracion-hint">No hay una sesión de IFRAT iniciada en esta máquina.</p>
+        )}
+      </Card>
     </div>
   )
 }

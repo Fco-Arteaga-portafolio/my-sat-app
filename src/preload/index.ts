@@ -14,6 +14,7 @@ import { createMiscApi, createElectronUpdater, createAppInfo } from './misc'
 import { createConstanciaApi } from './constancia'
 import { createLista69BApi } from './lista69b'
 import { createLoggerApi } from './logger'
+import { createSesionApi } from './sesion'
 
 if (process.contextIsolated) {
   try {
@@ -32,6 +33,7 @@ if (process.contextIsolated) {
       ...createConstanciaApi(),
       ...createLista69BApi(),
       ...createLoggerApi(),
+      ...createSesionApi(),
       ...createMiscApi(),
     })
     contextBridge.exposeInMainWorld('electronUpdater', createElectronUpdater())
@@ -57,6 +59,7 @@ if (process.contextIsolated) {
     ...createConstanciaApi(),
     ...createLista69BApi(),
     ...createLoggerApi(),
+    ...createSesionApi(),
     ...createMiscApi(),
   }
   // @ts-ignore (define in dts)
