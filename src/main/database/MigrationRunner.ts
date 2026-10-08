@@ -18,6 +18,7 @@ import { migration016 } from './migrations/016_limites_pendientes_cumplimiento'
 import { migration017 } from './migrations/017_limite_cumplimiento'
 import { migration018 } from './migrations/018_limites_conciliacion_constancia'
 import { migration019 } from './migrations/019_sesion'
+import { migration020 } from './migrations/020_credenciales_sesion'
 
 export class MigrationRunner {
   constructor(private readonly db: BetterSqlite3.Database) {}
@@ -57,7 +58,8 @@ export class MigrationRunner {
       { nombre: '016_limites_pendientes_cumplimiento', fn: migration016 },
       { nombre: '017_limite_cumplimiento', fn: migration017 },
       { nombre: '018_limites_conciliacion_constancia', fn: migration018 },
-      { nombre: '019_sesion', fn: migration019 }
+      { nombre: '019_sesion', fn: migration019 },
+      { nombre: '020_credenciales_sesion', fn: migration020 }
     ]
 
     for (const migration of migrations) {

@@ -8,6 +8,7 @@
 import { Page, Frame } from 'playwright'
 import * as fs from 'fs'
 import { join } from 'path'
+import { logger } from '../services/LoggerService'
 import { SatPortalOperationService } from './SatPortalOperationService'
 import { SatUnifiedAuthService } from './SatUnifiedAuthService'
 import { IPortalConfigProvider, SatOperationResult, SatCredentials, SatOperationOptions } from './SatPortalConfig'
@@ -94,6 +95,10 @@ export class SatConstanciaOperationService extends SatPortalOperationService {
 
     /**
      * Obtiene el frame donde está el formulario de constancia.
+     *
+     * Si el SAT cambia los identificadores (como pasó con #iframetoload), se
+     * busca entre TODOS los frames el que contenga el botón "Generar
+     * Constancia", en vez de fallar directo.
      * @private
      */
     private async obtenerFrameConstancia(page: Page): Promise<Frame> {
@@ -101,16 +106,42 @@ export class SatConstanciaOperationService extends SatPortalOperationService {
 
         await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => null)
 
-        const iframeEl = await page.waitForSelector(config.selectors.iframe || '#iframetoload', {
-            timeout: 15000
-        })
+        const iframeEl = await page
+            .waitForSelector(config.selectors.iframe || '#iframetoload', { timeout: 15000 })
+            .catch(() => null)
 
-        const frame = await iframeEl.contentFrame()
-        if (!frame) {
-            throw new Error('No se pudo obtener el frame del iframe')
+        if (iframeEl) {
+            const frame = await iframeEl.contentFrame()
+            if (frame) return frame
         }
 
-        return frame
+        // Fallback: el SAT pudo renombrar el iframe. Buscar por contenido.
+        logger.warn('sat-constancia', `Selector de iframe no encontrado; buscando frame por contenido`, {
+            url: page.url(),
+            selector: config.selectors.iframe || '#iframetoload'
+        })
+
+        const SELECTOR_BOTON = 'button:has-text("Generar Constancia"), input[value="Generar Constancia"]'
+        for (let intento = 0; intento < 20; intento++) {
+            for (const frame of page.frames()) {
+                if (frame === page.mainFrame()) continue
+                const visible = await frame
+                    .locator(SELECTOR_BOTON)
+                    .first()
+                    .isVisible()
+                    .catch(() => false)
+                if (visible) {
+                    logger.log('sat-constancia', 'Frame de constancia localizado por contenido', { url: frame.url() })
+                    return frame
+                }
+            }
+            await page.waitForTimeout(1000)
+        }
+
+        throw new Error(
+            `No se encontró el formulario de la constancia en la página del SAT. ` +
+            `URL: ${page.url()} · Frames: ${page.frames().map(f => f.url()).join(' | ')}`
+        )
     }
 
     /**
@@ -121,8 +152,8 @@ export class SatConstanciaOperationService extends SatPortalOperationService {
         page: Page,
         boton: ReturnType<Frame['locator']>,
         carpetaTemp: string
-    ): Promise<string | undefined> {
-        return new Promise((resolve) => {
+    ): Promise<string> {
+        return new Promise((resolve, reject) => {
             let resuelto = false
             let popupRef: Page | null = null
 
@@ -131,14 +162,22 @@ export class SatConstanciaOperationService extends SatPortalOperationService {
             }
 
             const timer = setTimeout(() => {
+                if (resuelto) return
                 limpiar()
-                resolve(undefined)
+                logger.warn('sat-constancia', 'Tiempo agotado sin capturar el PDF', { url: page.url() })
+                reject(
+                    new Error(
+                        'El SAT no entregó el PDF de la constancia dentro del tiempo límite. ' +
+                        'Vuelve a intentarlo; si persiste, exporta los logs de soporte desde Soporte.'
+                    )
+                )
             }, 30000)
 
             page.context().route('**IdcGeneraConstancia**', async (route) => {
                 try {
                     const response = await route.fetch()
                     const contentType = response.headers()['content-type'] ?? ''
+                    logger.log('sat-constancia', 'Ruta de generación interceptada', { contentType })
 
                     if (contentType.includes('pdf')) {
                         const buffer = Buffer.from(await response.body())
@@ -146,7 +185,7 @@ export class SatConstanciaOperationService extends SatPortalOperationService {
                             resuelto = true
                             const rutaFinal = join(carpetaTemp, `constancia_${Date.now()}.pdf`)
                             fs.writeFileSync(rutaFinal, buffer)
-                            console.log('[SatConstanciaOperationService] Constancia capturada:', rutaFinal)
+                            logger.log('sat-constancia', 'Constancia capturada', { ruta: rutaFinal, bytes: buffer.length })
                             clearTimeout(timer)
                             limpiar()
                             await route.fulfill({ response }).catch(() => null)
@@ -157,7 +196,8 @@ export class SatConstanciaOperationService extends SatPortalOperationService {
                     }
 
                     await route.fulfill({ response }).catch(() => null)
-                } catch {
+                } catch (error) {
+                    logger.warn('sat-constancia', 'Fallo interceptando la generación', { error: String(error) })
                     await route.abort().catch(() => null)
                 }
             })
@@ -166,7 +206,9 @@ export class SatConstanciaOperationService extends SatPortalOperationService {
                 popupRef = p
             })
 
-            boton.click().catch(() => null)
+            boton
+                .click()
+                .catch((error) => logger.warn('sat-constancia', 'Clic en "Generar Constancia" falló', { error: String(error) }))
         })
     }
 }

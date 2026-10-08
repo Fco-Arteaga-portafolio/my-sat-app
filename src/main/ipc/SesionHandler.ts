@@ -5,8 +5,10 @@ import { BackendService, TokenRechazadoError } from '../services/BackendService'
 
 /**
  * Handler de sesión del escritorio: login directo con las mismas credenciales
- * que el sitio web, renovación silenciosa (refresh token) y declaración
- * automática de la máquina tras cada acceso.
+ * que el sitio web, renovación silenciosa (refresh token) y re-login en segundo
+ * plano con las credenciales guardadas cuando el refresh token expira o se
+ * revoca. La pantalla de login solo aparece si hasta las credenciales
+ * guardadas fallan (p. ej. la contraseña cambió en la web).
  */
 export class SesionHandler {
   constructor(
@@ -21,8 +23,10 @@ export class SesionHandler {
 
     /**
      * Silent login: renueva el par de tokens con el refreshToken persistido.
-     * Si el backend no responde (offline) se conserva la sesión guardada; solo
-     * un rechazo real (401/403) manda de vuelta a la pantalla de login.
+     * Si el backend no responde (offline) se conserva la sesión guardada. Si el
+     * refresh token fue rechazado (401/403 porque expiró o se revocó), se
+     * intenta un re-login en segundo plano con las credenciales guardadas; solo
+     * si eso también falla se regresa a la pantalla de login.
      */
     IpcWrapper.handle('renovar-sesion', async () => {
       const sesion = this.sesionService.obtenerSesion()
@@ -36,7 +40,9 @@ export class SesionHandler {
         return { iniciada: true, nombre: renovada.nombre, email: renovada.email }
       } catch (error) {
         if (error instanceof TokenRechazadoError) {
-          this.limpiarSesion()
+          const restaurada = await this.reintentarLoginEnSegundoPlano()
+          if (restaurada) return restaurada
+          this.sesionService.limpiar()
           return { iniciada: false }
         }
         return { iniciada: true, nombre: sesion.nombre, email: sesion.email }
@@ -49,6 +55,8 @@ export class SesionHandler {
 
       const credenciales = await this.backendService.login(email, datos.password)
       this.sesionService.guardarSesion(credenciales)
+      // Guarda las credenciales (cifradas) para nunca volver a pedir login.
+      this.sesionService.guardarCredencialesLogin(email, datos.password)
       await this.vincularMaquinaAutomatica(credenciales.token)
       await this.sesionService.sincronizarResumen()
       return { iniciada: true, nombre: credenciales.nombre, email: credenciales.email }
@@ -63,7 +71,10 @@ export class SesionHandler {
           // Mejor esfuerzo: el cierre local es lo importante.
         }
       }
-      this.limpiarSesion()
+      // Logout explícito: borra todo (incluidas las credenciales guardadas) y
+      // NO re-loguea en segundo plano. El usuario decidió salir de su cuenta.
+      this.sesionService.limpiar()
+      BrowserWindow.getAllWindows()[0]?.webContents.send('sesion-token-rechazado')
       return {}
     })
 
@@ -85,8 +96,27 @@ export class SesionHandler {
     }
   }
 
-  private limpiarSesion(): void {
-    this.sesionService.limpiar()
-    BrowserWindow.getAllWindows()[0]?.webContents.send('sesion-token-rechazado')
+  /**
+   * Re-loguea en segundo plano con las credenciales guardadas en la BD.
+   * Devuelve la sesión restaurada o null si no hay credenciales guardadas o las
+   * credenciales ya no son válidas (p. ej. cambiaron la contraseña en la web).
+   */
+  private async reintentarLoginEnSegundoPlano(): Promise<{
+    iniciada: true
+    nombre: string
+    email: string
+  } | null> {
+    const credenciales = this.sesionService.obtenerCredenciales()
+    if (!credenciales) return null
+    try {
+      const sesion = await this.backendService.login(credenciales.usuario, credenciales.contrasena)
+      this.sesionService.guardarSesion(sesion)
+      await this.vincularMaquinaAutomatica(sesion.token)
+      await this.sesionService.sincronizarResumen()
+      console.log('Sesión restaurada en segundo plano con las credenciales guardadas')
+      return { iniciada: true, nombre: sesion.nombre, email: sesion.email }
+    } catch {
+      return null
+    }
   }
 }

@@ -89,6 +89,9 @@ export class LimiteUsoService {
     if (jwt && !MODULOS_SOLO_LOCAL.includes(modulo)) {
       try {
         const remoto = await this.backendService.validarUso(jwt, modulo, rfc)
+        // Membresía pagada detectada por el servidor: libera sin exponer el
+        // -1 que el backend devuelve en usosRestantes.
+        if (remoto.usoIlimitado) return { valido: true }
         return {
           valido: remoto.permitido,
           motivo: remoto.permitido ? undefined : (remoto.mensaje ?? 'Límite de uso alcanzado'),

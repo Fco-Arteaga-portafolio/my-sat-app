@@ -36,6 +36,7 @@ import { EfosRepository } from './database/repositories/EfosRepository'
 import { Lista69BService } from './services/Lista69BService'
 import { Lista69BHandler } from './ipc/Lista69BHandler'
 import { LoggerHandler } from './ipc/LoggerHandler'
+import { SoporteHandler } from './ipc/SoporteHandler'
 import { UnifiedSatHandler } from './ipc/UnifiedSatHandler'
 import { PortalConfigProvider } from './scraper/PortalConfigProvider'
 import { SatUnifiedAuthService } from './scraper/SatUnifiedAuthService'
@@ -111,7 +112,9 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   try {
     electronApp.setAppUserModelId('com.electron')
-    app.on('browser-window-created', (_, window) => { optimizer.watchWindowShortcuts(window) })
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
 
     initDatabase()
     const db = Database.getInstance()
@@ -156,8 +159,14 @@ app.whenReady().then(async () => {
 
     // ── Handlers CFDI ──────────────────────────────────────────────────────
     const profileManager = new ProfileManager(db)
-    new PerfilHandler(profileManager, db).registrar()
-    new FacturaHandler(cfdiService, sharedAuthService, configuracionService, limiteUsoService, db).registrar()
+    new PerfilHandler(profileManager, sesionService, backendService).registrar()
+    new FacturaHandler(
+      cfdiService,
+      sharedAuthService,
+      configuracionService,
+      limiteUsoService,
+      db
+    ).registrar()
     new ConciliacionHandler(cfdiService, configuracionService, limiteUsoService).registrar()
     new ImportacionHandler(guardadoService, configuracionService, limiteUsoService).registrar()
     new ConfiguracionHandler(db).registrar()
@@ -167,10 +176,14 @@ app.whenReady().then(async () => {
     new ExportacionHandler(db).registrar()
     new Lista69BHandler(lista69BService).registrar()
     new LoggerHandler().registrar()
+    new SoporteHandler(sesionService, backendService).registrar()
 
     // ── Handlers Cumplimiento / Constancia ─────────────────────────────────
     const constanciaService = new SatConstanciaOperationService(configProvider, sharedAuthService)
-    const cumplimientoService = new SatCumplimientoOperationService(configProvider, sharedAuthService)
+    const cumplimientoService = new SatCumplimientoOperationService(
+      configProvider,
+      sharedAuthService
+    )
 
     new UnifiedSatHandler(
       configuracionService,
@@ -197,7 +210,6 @@ app.whenReady().then(async () => {
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
-
   } catch (err: any) {
     dialog.showErrorBox('Error en arranque', err.stack ?? err.message)
   }

@@ -14,6 +14,7 @@
 
 import { Page, BrowserContext } from 'playwright'
 import { BrowserManager } from './BrowserManager'
+import { logger } from '../services/LoggerService'
 import {
     ISatAuthService,
     SatPortalConfig,
@@ -56,6 +57,13 @@ export class SatUnifiedAuthService implements ISatAuthService {
             // captcha viene inline (data:image). networkidle puede "no resolver"
             // nunca si el SAT mantiene conexiones abiertas.
             await pagina.goto(config.loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+
+            // ¿Las cookies guardadas siguen vivas? Si el IDP redirige al portal y
+            // no muestra el formulario, no hay nada que pedirle al usuario.
+            if (await this.detectarSesionActiva(pagina, config)) {
+                logger.log('sat-auth', `${portalId}: sesión SAT vigente (cookies reanudadas) — sin captcha`)
+                return { imagenBase64: '', sesionActiva: true, timestamp: Date.now() }
+            }
 
             // Esperar a que cargue el captcha
             await pagina.waitForSelector(config.selectors.captchaImage, { timeout: 15000 })
@@ -107,6 +115,17 @@ export class SatUnifiedAuthService implements ISatAuthService {
         }
 
         try {
+            // Página en blanco (no vino del flujo de captcha): navegar al login.
+            if (!/^https?:/i.test(pagina.url())) {
+                await pagina.goto(config.loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+            }
+
+            // Sesión vigente (cookies reanudadas): no se vuelve a pedir ni a enviar login.
+            if (await this.detectarSesionActiva(pagina, config)) {
+                logger.log('sat-auth', `${portalId}: sesión SAT vigente, se omite login CIEC`)
+                return pagina
+            }
+
             // Llenar formulario CIEC
             await this.llenarFormularioCiec(pagina, config, credentials)
 
@@ -118,10 +137,12 @@ export class SatUnifiedAuthService implements ISatAuthService {
                 'ciec'
             )
 
+            logger.log('sat-auth', `${portalId}: login CIEC exitoso`)
             // Mantener la página abierta para operaciones posteriores
             return pagina
         } catch (error) {
             // No cerrar la página aquí - se cerrará en cerrarSesion()
+            logger.error('sat-auth', `${portalId}: login CIEC falló`, { error: String(error) })
             throw error
         }
     }
@@ -147,6 +168,12 @@ export class SatUnifiedAuthService implements ISatAuthService {
 
         try {
             await pagina.goto(config.loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+
+            // Sesión vigente (cookies reanudadas): el IDP no muestra el formulario.
+            if (await this.detectarSesionActiva(pagina, config)) {
+                logger.log('sat-auth', `${portalId}: sesión SAT vigente, se omite login e.firma`)
+                return pagina
+            }
 
             // Cambio a e.firma con reintentos: el botón del SAT se habilita por JS
             // asíncrono y un clic antes de que cargue no surte efecto (no navega al
@@ -194,10 +221,12 @@ export class SatUnifiedAuthService implements ISatAuthService {
                 'fiel'
             )
 
+            logger.log('sat-auth', `${portalId}: login e.firma exitoso`)
             // Mantener la página abierta para operaciones posteriores
             return pagina
         } catch (error) {
             // No cerrar la página aquí - se cerrará en cerrarSesion()
+            logger.error('sat-auth', `${portalId}: login e.firma falló`, { error: String(error) })
             throw error
         }
     }
@@ -206,6 +235,17 @@ export class SatUnifiedAuthService implements ISatAuthService {
      * Cierra la sesión.
      */
     async cerrarSesion(): Promise<void> {
+        // Persistir la sesión SAT antes de destruir el contexto: la próxima
+        // ejecución reutiliza las cookies y no vuelve a pedir credenciales.
+        if (this.context) {
+            try {
+                await this.context.storageState({ path: BrowserManager.sesionSatFile })
+                logger.log('sat-auth', `Sesión SAT guardada en ${BrowserManager.sesionSatFile}`)
+            } catch (error) {
+                logger.warn('sat-auth', `No se pudo guardar la sesión SAT: ${String(error)}`)
+            }
+        }
+
         for (const pagina of this.paginaActiva.values()) {
             await pagina.close().catch(() => null)
         }
@@ -229,6 +269,25 @@ export class SatUnifiedAuthService implements ISatAuthService {
             throw new Error(`Portal ${portalId} no encontrado`)
         }
         return config
+    }
+
+    /**
+     * Detecta si la página ya tiene sesión vigente en el portal: la URL es
+     * http(s) y NO se muestra el formulario de login (rfc/e.firma). Pasa cuando
+     * las cookies reanudadas redirigen al portal en vez de pedir credenciales.
+     * @private
+     */
+    private async detectarSesionActiva(pagina: Page, config: SatPortalConfig): Promise<boolean> {
+        if (!/^https?:/i.test(pagina.url())) return false // about:blank u otras
+        const selectores = [config.selectors.rfcField, config.selectors.cerFileInput]
+            .filter(Boolean)
+            .join(', ')
+        if (!selectores) return false
+        const hayFormulario = await pagina
+            .waitForSelector(selectores, { timeout: 8000 })
+            .then(() => true)
+            .catch(() => false)
+        return !hayFormulario
     }
 
     /**

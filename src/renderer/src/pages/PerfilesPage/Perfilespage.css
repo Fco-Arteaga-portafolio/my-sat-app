@@ -111,6 +111,20 @@
   background: #f5f7fa;
 }
 
+.perfil-accion-btn.deshabilitado {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.4);
+}
+
+.perfil-accion-btn.deshabilitado:hover {
+  background: none;
+}
+
+.perfil-accion-btn:disabled {
+  pointer-events: none;
+}
+
 .perfil-accion-btn:not(:last-child)::after {
   content: '';
   position: absolute;

@@ -7,6 +7,13 @@ export class BrowserManager {
     private static browser: Browser | null = null
 
     /**
+     * Cookies/estado de sesión de los portales SAT. Se guarda al cerrar el
+     * navegador y se recarga al abrir, para no volver a pedir credenciales
+     * mientras el SAT mantenga viva la sesión.
+     */
+    static readonly sesionSatFile = join(app.getPath('userData'), 'sat-session.json')
+
+    /**
      * Único punto de control de la visibilidad del navegador.
      * - Producción (app empaquetada): headless → el usuario nunca ve una ventana.
      * - Desarrollo: ventana visible, para poder depurar el scraping.
@@ -113,9 +120,12 @@ export class BrowserManager {
 
     static async newContext(): Promise<BrowserContext> {
         const browser = await this.getBrowser()
+        // Reanudar la sesión SAT guardada (si existe): con cookies válidas el IDP
+        // redirige al portal y no vuelve a pedir captcha/credenciales.
+        const storageState = existsSync(BrowserManager.sesionSatFile) ? BrowserManager.sesionSatFile : undefined
         return browser.newContext({
             // ESTO AYUDARÁ A QUE NO SEA TAN LENTO EL CARGADO DE JS
-            storageState: undefined,
+            storageState,
             javaScriptEnabled: true,
             acceptDownloads: true,
             viewport: { width: 1280, height: 720 },

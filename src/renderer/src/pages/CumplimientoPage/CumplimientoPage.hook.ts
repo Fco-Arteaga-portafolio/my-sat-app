@@ -45,7 +45,9 @@ export function useCumplimientoPage() {
         } finally {
             setLoading(false)
             setProgreso('')
-            await window.api.cerrarSesion().catch(() => null)
+            // Cierra el navegador del SAT (NO window.api.cerrarSesion: eso es el
+            // logout de la APP y volvía a la pantalla de login tras cada operación).
+            await window.api.cumplimientoCerrarSesion().catch(() => null)
         }
     }
 
@@ -54,7 +56,7 @@ export function useCumplimientoPage() {
         setError('')
         setProgreso('')
         limpiarCaptcha()
-        await window.api.cerrarSesion().catch(() => null)
+        await window.api.cumplimientoCerrarSesion().catch(() => null)
     }
 
     const abrirArchivo = () => {

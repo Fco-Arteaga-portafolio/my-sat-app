@@ -72,16 +72,26 @@ const createImportacionApi = () => {
     importarXmls: (rutas) => electron.ipcRenderer.invoke("importar-xmls", rutas)
   };
 };
-const createPerfilApi = () => {
+function createPerfilApi() {
   return {
     obtenerPerfiles: () => electron.ipcRenderer.invoke("obtener-perfiles"),
+    /**
+     * Regla estricta: el alta de contribuyente solo está habilitado si la cuenta
+     * compró el producto RFC. `rfcs` trae los RFCs de la cuenta sincronizados
+     * (los agregados desde Emite también aparecen).
+     */
+    obtenerEstadoAgregarRfc: () => electron.ipcRenderer.invoke("obtener-estado-agregar-rfc"),
+    /**
+     * Alta de contribuyente: el Desktop registra el RFC en la cuenta (POST
+     * /rfcs) y solo si el backend lo acepta crea el perfil local.
+     */
     crearPerfil: (perfil) => electron.ipcRenderer.invoke("crear-perfil", perfil),
     eliminarPerfil: (rfc) => electron.ipcRenderer.invoke("eliminar-perfil", rfc),
     seleccionarPerfil: (rfc) => electron.ipcRenderer.invoke("seleccionar-perfil", rfc),
     obtenerPerfilActivo: () => electron.ipcRenderer.invoke("obtener-perfil-activo"),
     cerrarPerfil: () => electron.ipcRenderer.invoke("cerrar-perfil")
   };
-};
+}
 const createLicenseApi = () => {
   return {
     obtenerLicencia: () => electron.ipcRenderer.invoke("obtener-licencia"),
@@ -108,7 +118,10 @@ const createCumplimientoApi = () => {
     // ✅ Renombrado para no colisionar con obtenerCaptcha de facturas
     cumplimientoObtenerCaptcha: async () => electron.ipcRenderer.invoke("cumplimiento-obtener-captcha"),
     obtenerOpinion: async (data) => electron.ipcRenderer.invoke("cumplimiento-obtener-opinion", data),
-    cerrarSesion: async () => electron.ipcRenderer.invoke("cumplimiento-cerrar-sesion"),
+    // Nota: NO se llama "cerrarSesion" — createSesionApi() se mezcla después en
+    // window.api y su "cerrarSesion" (logout de la APP) pisaba este. Ese choque
+    // cerraba la sesión del usuario en vez del navegador SAT.
+    cumplimientoCerrarSesion: async () => electron.ipcRenderer.invoke("cumplimiento-cerrar-sesion"),
     onProgresoCumplimiento: (callback) => {
       electron.ipcRenderer.on("progreso-cumplimiento", (_, mensaje) => callback(mensaje));
     }
@@ -166,7 +179,8 @@ function createLoggerApi() {
   return {
     obtenerLogs: async () => electron.ipcRenderer.invoke("obtener-logs"),
     obtenerRutaLogs: async () => electron.ipcRenderer.invoke("obtener-ruta-logs"),
-    limpiarLogs: async () => electron.ipcRenderer.invoke("limpiar-logs")
+    limpiarLogs: async () => electron.ipcRenderer.invoke("limpiar-logs"),
+    exportarLogs: async (opciones) => electron.ipcRenderer.invoke("exportar-logs", opciones)
   };
 }
 const createSesionApi = () => {
@@ -181,6 +195,12 @@ const createSesionApi = () => {
     }
   };
 };
+function createSoporteApi() {
+  return {
+    enviarTicketSoporte: (datos) => electron.ipcRenderer.invoke("enviar-ticket-soporte", datos),
+    obtenerTicketsSoporte: () => electron.ipcRenderer.invoke("obtener-tickets-soporte")
+  };
+}
 if (process.contextIsolated) {
   try {
     electron.contextBridge.exposeInMainWorld("electron", preload.electronAPI);
@@ -199,6 +219,7 @@ if (process.contextIsolated) {
       ...createLista69BApi(),
       ...createLoggerApi(),
       ...createSesionApi(),
+      ...createSoporteApi(),
       ...createMiscApi()
     });
     electron.contextBridge.exposeInMainWorld("electronUpdater", createElectronUpdater());

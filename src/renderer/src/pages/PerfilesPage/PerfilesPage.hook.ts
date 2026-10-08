@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SlotCarpeta, ConfigNombreArchivo } from '../../../../main/services/ConfiguracionService'
 import { validarContribuyenteForm } from '../../utils/validarContribuyenteForm'
-
 
 const ESTRUCTURA_DEFAULT: SlotCarpeta[] = [
   { id: 'contribuyente', label: 'Contribuyente', activo: true },
@@ -59,8 +58,37 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
   const [modalLicenciaVisible, setModalLicenciaVisible] = useState(false)
   const [modalSoporteVisible, setModalSoporteVisible] = useState(false)
 
-  useEffect(() => {
-    cargarPerfiles()
+  /**
+   * Gate "Agregar contribuyente" (regla estricta): habilitado solo si la cuenta
+   * compró el producto RFC. `rfcs` trae los RFCs de la cuenta sincronizados
+   * (los agregados desde Emite también aparecen). Se refresca al montar y al
+   * guardar/abrir para reflejar compras hechas en el web.
+   */
+  const [estadoAgregarRfc, setEstadoAgregarRfc] = useState<{
+    puedeAgregar: boolean
+    motivo?: string
+    rfcs: RfcCuentaUi[]
+    cargando: boolean
+  }>({ puedeAgregar: false, rfcs: [], cargando: true })
+
+  const refrescarEstadoAgregarRfc = useCallback(async () => {
+    setEstadoAgregarRfc((prev) => ({ ...prev, cargando: true }))
+    try {
+      const res = await window.api.obtenerEstadoAgregarRfc()
+      setEstadoAgregarRfc({
+        puedeAgregar: res.success ? !!res.puedeAgregar : false,
+        motivo: res.success ? res.motivo : (res.error ?? 'No se pudo consultar tu licencia'),
+        rfcs: res.success ? (res.rfcs ?? []) : [],
+        cargando: false
+      })
+    } catch (err) {
+      setEstadoAgregarRfc({
+        puedeAgregar: false,
+        motivo: 'No se pudo consultar tu licencia: ' + String(err),
+        rfcs: [],
+        cargando: false
+      })
+    }
   }, [])
 
   const cargarPerfiles = async () => {
@@ -69,6 +97,15 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
     if (res.success && res.perfiles) setPerfiles(res.perfiles)
     setLoading(false)
   }
+
+  useEffect(() => {
+    // La carga inicial difiere el setState a un microtask para respetar la regla
+    // set-state-in-effect de react-hooks (las llamadas quedan dentro de .then()).
+    void Promise.resolve().then(() => {
+      void cargarPerfiles()
+      void refrescarEstadoAgregarRfc()
+    })
+  }, [refrescarEstadoAgregarRfc])
 
   const seleccionar = async (rfc: string) => {
     const res = await window.api.seleccionarPerfil(rfc)
@@ -94,7 +131,10 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
       plantillaDefault: form.plantilla_default,
       configNombreArchivo: form.config_nombre_archivo
     })
-    if (err) { setError(err); return }
+    if (err) {
+      setError(err)
+      return
+    }
     setLoading(true)
     const res = await window.api.crearPerfil(form)
     if (res.success) {
@@ -115,6 +155,7 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
       setModalVisible(false)
       setForm(formVacio())
       await cargarPerfiles()
+      refrescarEstadoAgregarRfc()
     } else {
       setError(res.error || 'Error al guardar perfil')
     }
@@ -142,7 +183,7 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
 
   const cambiarForm = (campo: string, valor: any) => {
     const campoMapeado = CAMPO_MAP[campo] ?? campo
-    setForm(prev => ({ ...prev, [campoMapeado]: valor }))
+    setForm((prev) => ({ ...prev, [campoMapeado]: valor }))
   }
 
   const seleccionarCarpetaEmitidos = async () => {
@@ -161,7 +202,9 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
   }
 
   const seleccionarKey = async () => {
-    const res = await window.api.seleccionarArchivo([{ name: 'Llave privada', extensions: ['key'] }])
+    const res = await window.api.seleccionarArchivo([
+      { name: 'Llave privada', extensions: ['key'] }
+    ])
     if (res.success && res.ruta) cambiarForm('rutaKey', res.ruta)
   }
 
@@ -170,27 +213,37 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
     const slots = [...(form[campo] as SlotCarpeta[])]
     const [item] = slots.splice(desde, 1)
     slots.splice(hasta, 0, item)
-    setForm(prev => ({ ...prev, [campo]: slots }))
+    setForm((prev) => ({ ...prev, [campo]: slots }))
   }
 
   const toggleSlot = (tipo: 'emitidos' | 'recibidos', id: string, activo: boolean) => {
     const campo = tipo === 'emitidos' ? 'estructura_emitidos' : 'estructura_recibidos'
-    const slots = (form[campo] as SlotCarpeta[]).map(s =>
-      s.id === id ? { ...s, activo } : s
-    )
-    setForm(prev => ({ ...prev, [campo]: slots }))
+    const slots = (form[campo] as SlotCarpeta[]).map((s) => (s.id === id ? { ...s, activo } : s))
+    setForm((prev) => ({ ...prev, [campo]: slots }))
   }
 
   return {
-    perfiles, loading, modalVisible, error, form,
-    setModalVisible, seleccionar, guardar, eliminar,
+    perfiles,
+    loading,
+    modalVisible,
+    error,
+    form,
+    setModalVisible,
+    seleccionar,
+    guardar,
+    eliminar,
     cambiarForm,
-    seleccionarCarpetaEmitidos, seleccionarCarpetaRecibidos,
-    seleccionarCer, seleccionarKey,
-    moverSlot, toggleSlot,
+    seleccionarCarpetaEmitidos,
+    seleccionarCarpetaRecibidos,
+    seleccionarCer,
+    seleccionarKey,
+    moverSlot,
+    toggleSlot,
     modalLicenciaVisible,
     setModalLicenciaVisible,
     modalSoporteVisible,
-    setModalSoporteVisible
+    setModalSoporteVisible,
+    estadoAgregarRfc,
+    refrescarEstadoAgregarRfc
   }
 }

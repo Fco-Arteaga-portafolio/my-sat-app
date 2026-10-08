@@ -7,6 +7,10 @@ export interface SesionRow {
   nombre: string
   email: string
   hardware_id: string
+  usuario: string | null
+  contrasena: string | null
+  login_exitoso: number
+  fecha_ultimo_login: string | null
   fecha_creacion: string
   fecha_actualizacion: string
 }
@@ -46,6 +50,26 @@ export class SesionRepository {
   obtener(): SesionRow | null {
     const fila = this.db.prepare('SELECT * FROM sesion WHERE id = 1').get() as SesionRow | undefined
     return fila ?? null
+  }
+
+  /**
+   * Registra que el usuario logueó correctamente y guarda sus credenciales
+   * (la contraseña llega ya cifrada/ofuscada por SesionService) para poder
+   * re-loguear en segundo plano cuando el refresh token expire o se revoque.
+   */
+  marcarLoginExitoso(usuario: string, contrasenaCifrada: string): void {
+    this.db
+      .prepare(
+        `
+        UPDATE sesion
+        SET usuario = ?,
+            contrasena = ?,
+            login_exitoso = 1,
+            fecha_ultimo_login = datetime('now')
+        WHERE id = 1
+      `
+      )
+      .run(usuario, contrasenaCifrada)
   }
 
   limpiar(): void {

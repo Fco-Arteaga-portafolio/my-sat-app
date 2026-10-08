@@ -33,7 +33,9 @@ const PerfilesPage = ({
     modalLicenciaVisible, // ← nuevo
     setModalLicenciaVisible, // ← nuevo
     modalSoporteVisible, // ← nuevo
-    setModalSoporteVisible // ← nuevo
+    setModalSoporteVisible, // ← nuevo
+    estadoAgregarRfc, // ← gate del producto RFC
+    refrescarEstadoAgregarRfc // ← sincroniza compras hechas en Emite
   } = usePerfilesPage(onPerfilSeleccionado)
 
   const [version, setVersion] = useState('')
@@ -90,14 +92,24 @@ const PerfilesPage = ({
         ))}
 
         <div className="perfil-acciones">
-          <button className="perfil-accion-btn" onClick={() => setModalVisible(true)}>
+          <button
+            className={`perfil-accion-btn${estadoAgregarRfc.puedeAgregar ? '' : ' deshabilitado'}`}
+            disabled={!estadoAgregarRfc.puedeAgregar}
+            onClick={() => setModalVisible(true)}
+          >
             <div className="perfil-accion-icono add">➕</div>
             <span className="perfil-accion-label">
               Agregar
               <br />
               contribuyente
             </span>
-            <span className="perfil-accion-sub">RFC + credenciales</span>
+            <span className="perfil-accion-sub">
+              {estadoAgregarRfc.cargando
+                ? 'Sincronizando…'
+                : estadoAgregarRfc.puedeAgregar
+                  ? 'RFC + credenciales'
+                  : 'Compra el producto RFC'}
+            </span>
           </button>
           <button className="perfil-accion-btn" onClick={() => setModalLicenciaVisible(true)}>
             <div className="perfil-accion-icono lic">🔑</div>
@@ -118,6 +130,22 @@ const PerfilesPage = ({
             <span className="perfil-accion-sub">Tickets y errores</span>
           </button>
         </div>
+
+        {/* Gate del producto RFC: comprar en Emite libera el alta de contribuyente */}
+        {!estadoAgregarRfc.cargando && !estadoAgregarRfc.puedeAgregar && (
+          <Alert
+            className="perfiles-alert"
+            message="Agregar contribuyente bloqueado"
+            description={
+              <span>
+                {estadoAgregarRfc.motivo || 'Compra el producto RFC en tu cuenta Emite.'}{' '}
+                <a onClick={refrescarEstadoAgregarRfc}>Reintentar sincronización</a>
+              </span>
+            }
+            type="warning"
+            showIcon
+          />
+        )}
       </div>
 
       {/* Modal nuevo contribuyente */}

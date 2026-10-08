@@ -15,6 +15,7 @@ import { createConstanciaApi } from './constancia'
 import { createLista69BApi } from './lista69b'
 import { createLoggerApi } from './logger'
 import { createSesionApi } from './sesion'
+import { createSoporteApi } from './soporte'
 
 if (process.contextIsolated) {
   try {
@@ -34,6 +35,7 @@ if (process.contextIsolated) {
       ...createLista69BApi(),
       ...createLoggerApi(),
       ...createSesionApi(),
+      ...createSoporteApi(),
       ...createMiscApi(),
     })
     contextBridge.exposeInMainWorld('electronUpdater', createElectronUpdater())

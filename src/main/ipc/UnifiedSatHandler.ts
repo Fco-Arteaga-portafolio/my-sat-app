@@ -99,6 +99,14 @@ export class UnifiedSatHandler {
             onProgreso
           })
 
+          // Un error de scraping vuelve como resultado con "Error:" en la
+          // descripción; se reporta como fallo real para que la UI lo muestre
+          // como alerta (y no como una tarjeta de resultado) y quede en logs.
+          const errorOperacion = this.extraerErrorOperacion(resultado)
+          if (errorOperacion) {
+            return { success: false, error: errorOperacion }
+          }
+
           // Solo se consume el uso cuando la operación realmente produjo el archivo
           if (modulo && resultado?.rutaArchivo) {
             await this.limiteUsoService.consumir(modulo, config.rfc)
@@ -191,6 +199,11 @@ export class UnifiedSatHandler {
             onProgreso
           })
 
+          const errorOperacion = this.extraerErrorOperacion(resultado)
+          if (errorOperacion) {
+            return { success: false, error: errorOperacion }
+          }
+
           // Solo se consume el uso cuando la operación realmente produjo el archivo
           if (modulo && resultado?.rutaArchivo) {
             await this.limiteUsoService.consumir(modulo, config.rfc)
@@ -237,6 +250,19 @@ export class UnifiedSatHandler {
     if (!this.configProvider.existePortal(portalId)) {
       throw new Error(`Portal ${portalId} no existe`)
     }
+  }
+
+  /**
+   * Los servicios de operación devuelven los errores como resultado con
+   * `descripcion` iniciando en "Error:"; eso se traduce a un fallo IPC para
+   * que la página lo muestre como error y no como resultado.
+   */
+  private extraerErrorOperacion(resultado: SatOperationResult | null | undefined): string | null {
+    const descripcion = resultado?.descripcion
+    if (typeof descripcion === 'string' && descripcion.startsWith('Error:')) {
+      return descripcion.slice('Error:'.length).trim()
+    }
+    return null
   }
 
   /**

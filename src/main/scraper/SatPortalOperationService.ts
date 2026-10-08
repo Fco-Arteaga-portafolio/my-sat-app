@@ -1,5 +1,7 @@
 import { Page } from 'playwright'
+import { join } from 'path'
 import { SatUnifiedAuthService } from './SatUnifiedAuthService'
+import { logger } from '../services/LoggerService'
 import {
     IPortalConfigProvider,
     ISatOperation,
@@ -30,12 +32,51 @@ export abstract class SatPortalOperationService implements ISatOperation {
             options.onProgreso?.('Conectando con el SAT...')
             this.paginaActiva = page
             const resultado = await this.ejecutarOperacion(credenciales, options)
+            logger.log(`sat-${this.portalId}`, `Operación finalizada`, {
+                rutaArchivo: resultado?.rutaArchivo ?? null
+            })
             return resultado
         } catch (error: any) {
+            await this.registrarDiagnosticoError(error)
             return this.manejarError(error)
         } finally {
             await this.limpiar()
         }
+    }
+
+    /**
+     * Deja en los logs todo lo necesario para diagnosticar a distancia:
+     * mensaje, URL y título de la página, captura PNG (en la carpeta de logs)
+     * y un recorte del HTML visible. Así, con los logs que envía el cliente se
+     * ve exactamente en qué pantalla se quedó el SAT.
+     */
+    protected async registrarDiagnosticoError(error: unknown): Promise<void> {
+        const diag: Record<string, unknown> = {
+            portal: this.portalId,
+            error: error instanceof Error ? error.message : String(error)
+        }
+        try {
+            const pagina = this.paginaActiva
+            if (pagina && !pagina.isClosed()) {
+                diag.url = pagina.url()
+                diag.titulo = await pagina.title().catch(() => '')
+                try {
+                    const rutaCaptura = join(
+                        logger.getLogsDir(),
+                        `${this.portalId}-error-${Date.now()}.png`
+                    )
+                    await pagina.screenshot({ path: rutaCaptura, timeout: 10000 }).catch(() => null)
+                    diag.captura = rutaCaptura
+                } catch {
+                    // La captura es best-effort.
+                }
+                const html = await pagina.content().catch(() => '')
+                if (html) diag.html = html.slice(0, 8000)
+            }
+        } catch {
+            // El diagnóstico nunca debe enmascarar el error original.
+        }
+        logger.error(`sat-${this.portalId}`, 'Operación fallida', diag)
     }
 
     async obtenerCaptcha() {

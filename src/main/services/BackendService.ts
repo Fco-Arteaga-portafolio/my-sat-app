@@ -87,10 +87,42 @@ export interface ContadorModuloResumen {
   restantes: number
 }
 
+/**
+ * Un RFC de la cuenta (ProductoRfc) tal como viene en GET /licencia/resumen.
+ * `precioPagado` es 0 para el RFC que otorga la demo y >0 cuando se compró el
+ * producto RFC aparte (en Emite). Contrato en CONTRATO_RFC.md.
+ */
+export interface RfcResumen {
+  id: string
+  rfc: string
+  alias: string
+  fechaAlta: string
+  activo: boolean
+  precioPagado: number
+}
+
+/** Cuerpo de POST /rfcs — registra el RFC en la cuenta desde el Desktop. */
+export interface RfcRegistroRequest {
+  rfc: string
+  alias: string
+}
+
+/** Respuesta de POST /rfcs. `yaExistia` = el RFC ya estaba en la cuenta. */
+export interface RfcRegistrado {
+  id: string
+  rfc: string
+  alias: string
+  activo: boolean
+  precioPagado: number
+  yaExistia: boolean
+}
+
 /** Lo que el escritorio consume de GET /licencia/resumen. */
 export interface ResumenLicencia {
   usoIlimitado: boolean
   contadores: ContadorModuloResumen[]
+  /** RFCs de la cuenta (demo gratuita + comprados). Fuente del gate "compró producto RFC". */
+  rfcs: RfcResumen[]
 }
 
 /** Respuesta de POST /uso/validar (fuente autoritativa del límite). */
@@ -110,6 +142,44 @@ export interface ConsumoUsoBackend {
   usosRestantes: number
   usosConsumidos: number
   mensaje?: string | null
+}
+
+/**
+ * Datos para POST /soporte/tickets (contrato implementado en Emite — ver
+ * CONTRATO_SOPORTE.md). `macAddress` y `contenidoLog` son obligatorios en el
+ * backend; el UsuarioId sale del JWT.
+ */
+export interface TicketSoporteRequest {
+  macAddress: string
+  versionIfrat: string
+  asunto: string
+  descripcion: string
+  contenidoLog: string
+}
+
+/** Respuesta de POST /soporte/tickets. */
+export interface TicketSoporteRespuesta {
+  id: string
+  estado: string
+  fechaEnvio: string
+}
+
+/**
+ * Un ticket tal como lo devuelve GET /soporte/tickets (DTO del backend,
+ * serializado en camelCase).
+ */
+export interface TicketSoporte {
+  id: string
+  macAddress: string
+  versionIfrat: string
+  asunto: string
+  descripcion: string
+  contenidoLog: string
+  estado: 'Enviado' | 'Visto' | 'ConSeguimiento' | string
+  fechaEnvio: string
+  fechaVistoPorSoporte?: string | null
+  respuestaSoporte?: string | null
+  fechaRespuesta?: string | null
 }
 
 /** Sobre Result<T> que devuelve el backend (propiedades en camelCase). */
@@ -243,6 +313,22 @@ export class BackendService {
   }
 
   /**
+   * Registra un RFC en la cuenta desde el Desktop (POST /rfcs). El backend
+   * valida el cupo del producto RFC; si el RFC ya está activo devuelve
+   * `yaExistia: true` (idempotente, sirve para configurar un RFC comprado en
+   * Emite). Contrato en CONTRATO_RFC.md.
+   */
+  async registrarRfc(jwt: string, datos: RfcRegistroRequest): Promise<RfcRegistrado> {
+    return this.http<RfcRegistrado>({
+      url: this.url('/rfcs'),
+      method: 'POST',
+      jwt,
+      data: datos,
+      sesion: true
+    })
+  }
+
+  /**
    * Valida si el módulo tiene uso disponible (POST /uso/validar). Es la fuente
    * autoritativa del límite cuando el servidor responde; `rfc` es obligatorio en
    * la práctica porque los contadores del backend son por usuario+RFC+módulo
@@ -273,6 +359,32 @@ export class BackendService {
       method: 'POST',
       jwt,
       data: { modulo: MODULO_BACKEND[modulo], rfc: rfc?.trim() || undefined, cantidad },
+      sesion: true
+    })
+  }
+
+  /** Datos para crear ticket de soporte técnico */
+  async enviarTicketSoporte(
+    jwt: string,
+    datos: TicketSoporteRequest
+  ): Promise<TicketSoporteRespuesta> {
+    return this.http<TicketSoporteRespuesta>({
+      url: this.url('/soporte/tickets'),
+      method: 'POST',
+      jwt,
+      data: datos,
+      sesion: true
+    })
+  }
+
+  /**
+   * Lista los tickets del usuario autenticado (seguimiento: estado, si IFRAT ya
+   * lo vio y si hay respuesta). Contrato implementado en Emite — ver CONTRATO_SOPORTE.md.
+   */
+  async obtenerTicketsSoporte(jwt: string): Promise<TicketSoporte[]> {
+    return this.http<TicketSoporte[]>({
+      url: this.url('/soporte/tickets'),
+      jwt,
       sesion: true
     })
   }

@@ -850,6 +850,20 @@ function migration019(db) {
     );
     `);
 }
+function migration020(db) {
+  const columnas = db.prepare("PRAGMA table_info(sesion)").all().map(
+    (c) => c.name
+  );
+  const agregar = (nombre, definicion) => {
+    if (!columnas.includes(nombre)) {
+      db.exec(`ALTER TABLE sesion ADD COLUMN ${nombre} ${definicion}`);
+    }
+  };
+  agregar("usuario", "TEXT");
+  agregar("contrasena", "TEXT");
+  agregar("login_exitoso", "INTEGER NOT NULL DEFAULT 0");
+  agregar("fecha_ultimo_login", "TEXT");
+}
 class MigrationRunner {
   constructor(db) {
     this.db = db;
@@ -887,7 +901,8 @@ class MigrationRunner {
       { nombre: "016_limites_pendientes_cumplimiento", fn: migration016 },
       { nombre: "017_limite_cumplimiento", fn: migration017 },
       { nombre: "018_limites_conciliacion_constancia", fn: migration018 },
-      { nombre: "019_sesion", fn: migration019 }
+      { nombre: "019_sesion", fn: migration019 },
+      { nombre: "020_credenciales_sesion", fn: migration020 }
     ];
     for (const migration of migrations) {
       const yaEjecutada = this.db.prepare("SELECT id FROM migrations WHERE nombre = ?").get(migration.nombre);
@@ -1051,6 +1066,12 @@ const cat = (catalogo, clave) => catalogo[clave] ? `${clave} - ${catalogo[clave]
 class BrowserManager {
   static browser = null;
   /**
+   * Cookies/estado de sesión de los portales SAT. Se guarda al cerrar el
+   * navegador y se recarga al abrir, para no volver a pedir credenciales
+   * mientras el SAT mantenga viva la sesión.
+   */
+  static sesionSatFile = path.join(electron.app.getPath("userData"), "sat-session.json");
+  /**
    * Único punto de control de la visibilidad del navegador.
    * - Producción (app empaquetada): headless → el usuario nunca ve una ventana.
    * - Desarrollo: ventana visible, para poder depurar el scraping.
@@ -1143,9 +1164,10 @@ class BrowserManager {
   }
   static async newContext() {
     const browser = await this.getBrowser();
+    const storageState = originalFs.existsSync(BrowserManager.sesionSatFile) ? BrowserManager.sesionSatFile : void 0;
     return browser.newContext({
       // ESTO AYUDARÁ A QUE NO SEA TAN LENTO EL CARGADO DE JS
-      storageState: void 0,
+      storageState,
       javaScriptEnabled: true,
       acceptDownloads: true,
       viewport: { width: 1280, height: 720 },
@@ -2118,645 +2140,71 @@ class ImportacionHandler {
     });
   }
 }
-class LicenseService {
-  repository;
-  constructor(repository) {
-    this.repository = repository;
-  }
-  /**
-   * Obtiene información completa de la licencia
-   */
-  obtenerLicencia() {
-    const licencia = this.repository.obtenerLicencia();
-    if (!licencia) {
-      return {
-        estado: "Demo",
-        dias_restantes: null,
-        rfc_disponible: true,
-        maquina_disponible: true,
-        vigente: true
-      };
-    }
-    const diasRestantes = this.calcularDiasRestantes(licencia.fecha_vencimiento);
-    return {
-      estado: licencia.estado,
-      fecha_inicio: licencia.fecha_inicio,
-      fecha_vencimiento: licencia.fecha_vencimiento,
-      dias_restantes: diasRestantes,
-      rfc_maximo: licencia.rfc_maximo,
-      rfc_usado: licencia.rfc_usado,
-      maquinas_maximo: licencia.maquinas_maximo,
-      maquinas_usado: licencia.maquinas_usado,
-      rfc_disponible: this.repository.validarRfcDisponible(),
-      maquina_disponible: this.repository.validarMaquinaDisponible(),
-      vigente: this.repository.validarVigencia()
-    };
-  }
-  /**
-   * Obtiene solo el estado actual
-   */
-  obtenerEstado() {
-    const licencia = this.repository.obtenerLicencia();
-    if (!licencia) return "Demo";
-    return licencia.estado;
-  }
-  /**
-   * Calcula días restantes
-   */
-  calcularDiasRestantes(fechaVencimiento) {
-    if (!fechaVencimiento) return null;
-    const hoy = /* @__PURE__ */ new Date();
-    const vencimiento = new Date(fechaVencimiento);
-    const diferencia = vencimiento.getTime() - hoy.getTime();
-    const dias = Math.ceil(diferencia / (1e3 * 60 * 60 * 24));
-    return dias > 0 ? dias : 0;
-  }
-  /**
-   * Valida si puede agregar un nuevo RFC
-   */
-  validarAgregarRfc() {
-    if (!this.repository.validarVigencia()) {
-      return { valido: false, motivo: "Licencia vencida" };
-    }
-    if (!this.repository.validarRfcDisponible()) {
-      return { valido: false, motivo: "Límite de RFCs alcanzado" };
-    }
-    return { valido: true };
-  }
-  /**
-   * Valida si puede registrar una nueva máquina
-   */
-  validarRegistrarMaquina() {
-    if (!this.repository.validarVigencia()) {
-      return { valido: false, motivo: "Licencia vencida" };
-    }
-    if (!this.repository.validarMaquinaDisponible()) {
-      return { valido: false, motivo: "Límite de máquinas alcanzado" };
-    }
-    return { valido: true };
-  }
-  /**
-   * Valida si puede descargar CFDIs
-   */
-  validarDescargaCfdi() {
-    const licencia = this.repository.obtenerLicencia();
-    if (!licencia) {
-      return { valido: false, motivo: "No hay licencia" };
-    }
-    if (licencia.estado === "Vencido") {
-      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
-    }
-    if (licencia.estado === "Demo") {
-      if (!this.repository.validarDescargasCfdiDisponibles()) {
-        return {
-          valido: false,
-          motivo: "Ha alcanzado el límite de 3 descargas en la versión Demo",
-          usos_restantes: 0
-        };
-      }
-      const restantes = licencia.descargas_cfdi_maximo - licencia.descargas_cfdi_usado;
-      return { valido: true, usos_restantes: restantes - 1 };
-    }
-    return { valido: true };
-  }
-  /**
-   * Valida si puede importar CFDIs
-   */
-  validarImportacionCfdi() {
-    const licencia = this.repository.obtenerLicencia();
-    if (!licencia) {
-      return { valido: false, motivo: "No hay licencia" };
-    }
-    if (licencia.estado === "Vencido") {
-      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
-    }
-    if (licencia.estado === "Demo") {
-      if (!this.repository.validarImportacionesCfdiDisponibles()) {
-        return {
-          valido: false,
-          motivo: "Ha alcanzado el límite de 3 importaciones en la versión Demo",
-          usos_restantes: 0
-        };
-      }
-      const restantes = licencia.importaciones_cfdi_maximo - licencia.importaciones_cfdi_usado;
-      return { valido: true, usos_restantes: restantes - 1 };
-    }
-    return { valido: true };
-  }
-  /**
-   * Valida si puede hacer consolidaciones (conciliaciones)
-   */
-  validarConsolidacion() {
-    const licencia = this.repository.obtenerLicencia();
-    if (!licencia) {
-      return { valido: false, motivo: "No hay licencia" };
-    }
-    if (licencia.estado === "Vencido") {
-      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
-    }
-    if (licencia.estado === "Demo") {
-      if (!this.repository.validarConsolidacionesDisponibles()) {
-        return {
-          valido: false,
-          motivo: "Ha alcanzado el límite de 3 consolidaciones en la versión Demo",
-          usos_restantes: 0
-        };
-      }
-      const restantes = licencia.consolidaciones_maximo - licencia.consolidaciones_usado;
-      return { valido: true, usos_restantes: restantes - 1 };
-    }
-    return { valido: true };
-  }
-  /**
-   * Valida si puede reintentar descargas pendientes
-   */
-  validarPendientesCfdi() {
-    const licencia = this.repository.obtenerLicencia();
-    if (!licencia) {
-      return { valido: false, motivo: "No hay licencia" };
-    }
-    if (licencia.estado === "Vencido") {
-      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
-    }
-    if (licencia.estado === "Demo") {
-      if (!this.repository.validarPendientesDisponibles()) {
-        return {
-          valido: false,
-          motivo: "Ha alcanzado el límite de 3 reintentos de pendientes en la versión Demo",
-          usos_restantes: 0
-        };
-      }
-      const restantes = licencia.pendientes_cfdi_maximo - licencia.pendientes_cfdi_usado;
-      return { valido: true, usos_restantes: restantes - 1 };
-    }
-    return { valido: true };
-  }
-  /**
-   * Valida si puede hacer una consulta de cumplimiento (opinión de cumplimiento)
-   */
-  validarCumplimiento() {
-    const licencia = this.repository.obtenerLicencia();
-    if (!licencia) {
-      return { valido: false, motivo: "No hay licencia" };
-    }
-    if (licencia.estado === "Vencido") {
-      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
-    }
-    if (licencia.estado === "Demo") {
-      if (!this.repository.validarCumplimientoDisponible()) {
-        return {
-          valido: false,
-          motivo: "Ha alcanzado el límite de 1 consulta de cumplimiento en la versión Demo",
-          usos_restantes: 0
-        };
-      }
-      const restantes = licencia.cumplimiento_maximo - licencia.cumplimiento_usado;
-      return { valido: true, usos_restantes: restantes - 1 };
-    }
-    return { valido: true };
-  }
-  /**
-   * Valida si puede descargar la constancia de situación fiscal (1 uso en Demo)
-   */
-  validarConstancia() {
-    const licencia = this.repository.obtenerLicencia();
-    if (!licencia) {
-      return { valido: false, motivo: "No hay licencia" };
-    }
-    if (licencia.estado === "Vencido") {
-      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
-    }
-    if (licencia.estado === "Demo") {
-      if (!this.repository.validarConstanciaDisponible()) {
-        return {
-          valido: false,
-          motivo: "Ha alcanzado el límite de 1 constancia de situación fiscal en la versión Demo",
-          usos_restantes: 0
-        };
-      }
-      const restantes = licencia.constancias_maximo - licencia.constancias_usado;
-      return { valido: true, usos_restantes: restantes - 1 };
-    }
-    return { valido: true };
-  }
-}
-class LicenseRepository {
-  constructor(db) {
-    this.db = db;
-  }
-  /**
-   * Obtiene la licencia actual (siempre es la ID 1)
-   */
-  obtenerLicencia() {
-    const stmt = this.db.prepare("SELECT * FROM licencias WHERE id = 1");
-    return stmt.get() || null;
-  }
-  /**
-   * Actualiza el estado de la licencia
-   */
-  actualizarEstado(estado) {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET estado = ?, fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run(estado);
-    this.registrarAuditoria("ACTUALIZAR_ESTADO", `Estado: ${estado}`);
-  }
-  /**
-   * Actualiza los límites de la licencia
-   */
-  actualizarLimites(rfcMaximo, maquinasMaximo, fechaInicio, fechaVencimiento) {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET 
-        rfc_maximo = ?,
-        maquinas_maximo = ?,
-        fecha_inicio = COALESCE(?, fecha_inicio),
-        fecha_vencimiento = COALESCE(?, fecha_vencimiento),
-        fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run(rfcMaximo, maquinasMaximo, fechaInicio, fechaVencimiento);
-    this.registrarAuditoria(
-      "ACTUALIZAR_LIMITES",
-      `RFC máximo: ${rfcMaximo}, Máquinas máximo: ${maquinasMaximo}`
-    );
-  }
-  /**
-   * Incrementa el contador de RFCs usados
-   */
-  incrementarRfcUsado() {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET rfc_usado = rfc_usado + 1, fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run();
-  }
-  /**
-   * Decrementa el contador de RFCs usados
-   */
-  decrementarRfcUsado() {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET rfc_usado = MAX(0, rfc_usado - 1), fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run();
-  }
-  /**
-   * Registra una nueva máquina
-   */
-  registrarMaquina(identificador, nombre, so) {
-    try {
-      const stmt = this.db.prepare(`
-        INSERT INTO maquinas_registradas (identificador_maquina, nombre_maquina, so)
-        VALUES (?, ?, ?)
-      `);
-      stmt.run(identificador, nombre, so);
-      const updateStmt = this.db.prepare(`
-        UPDATE licencias 
-        SET maquinas_usado = maquinas_usado + 1, fecha_actualizacion = datetime('now')
-        WHERE id = 1
-      `);
-      updateStmt.run();
-      this.registrarAuditoria("REGISTRAR_MAQUINA", `${nombre} (${so})`);
-    } catch (error) {
-      if (error.message.includes("UNIQUE constraint failed")) {
-        this.actualizarUltimoAcceso(identificador);
-      }
-    }
-  }
-  /**
-   * Obtiene todas las máquinas registradas
-   */
-  obtenerMaquinas() {
-    const stmt = this.db.prepare(`
-      SELECT * FROM maquinas_registradas WHERE activa = 1
-      ORDER BY fecha_registro DESC
-    `);
-    return stmt.all();
-  }
-  /**
-   * Actualiza el último acceso de una máquina
-   */
-  actualizarUltimoAcceso(identificador) {
-    const stmt = this.db.prepare(`
-      UPDATE maquinas_registradas 
-      SET fecha_ultimo_acceso = datetime('now')
-      WHERE identificador_maquina = ?
-    `);
-    stmt.run(identificador);
-  }
-  /**
-   * Desactiva una máquina
-   */
-  desactivarMaquina(identificador) {
-    const stmt = this.db.prepare(`
-      UPDATE maquinas_registradas 
-      SET activa = 0
-      WHERE identificador_maquina = ?
-    `);
-    stmt.run(identificador);
-    const updateStmt = this.db.prepare(`
-      UPDATE licencias 
-      SET maquinas_usado = MAX(0, maquinas_usado - 1), fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    updateStmt.run();
-    this.registrarAuditoria("DESACTIVAR_MAQUINA", `Identificador: ${identificador}`);
-  }
-  /**
-   * Valida si puede agregar un nuevo RFC
-   */
-  validarRfcDisponible() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    return licencia.rfc_usado < licencia.rfc_maximo;
-  }
-  /**
-   * Valida si puede registrar una nueva máquina
-   */
-  validarMaquinaDisponible() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    return licencia.maquinas_usado < licencia.maquinas_maximo;
-  }
-  /**
-   * Valida si hay descargas CFDI disponibles
-   */
-  validarDescargasCfdiDisponibles() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
-      return licencia.estado === "Vigente";
-    return licencia.descargas_cfdi_usado < licencia.descargas_cfdi_maximo;
-  }
-  /**
-   * Incrementa contador de descargas CFDI
-   */
-  incrementarDescargasCfdi() {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET descargas_cfdi_usado = descargas_cfdi_usado + 1, fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run();
-    this.registrarAuditoria("DESCARGA_CFDI", "Descarga realizada");
-  }
-  /**
-   * Valida si hay importaciones CFDI disponibles
-   */
-  validarImportacionesCfdiDisponibles() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
-      return licencia.estado === "Vigente";
-    return licencia.importaciones_cfdi_usado < licencia.importaciones_cfdi_maximo;
-  }
-  /**
-   * Incrementa contador de importaciones CFDI
-   */
-  incrementarImportacionesCfdi() {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET importaciones_cfdi_usado = importaciones_cfdi_usado + 1, fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run();
-    this.registrarAuditoria("IMPORTACION_CFDI", "Importación realizada");
-  }
-  /**
-   * Valida si hay consolidaciones (conciliaciones) disponibles
-   */
-  validarConsolidacionesDisponibles() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
-      return licencia.estado === "Vigente";
-    return licencia.consolidaciones_usado < licencia.consolidaciones_maximo;
-  }
-  /**
-   * Incrementa contador de consolidaciones
-   */
-  incrementarConsolidaciones() {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET consolidaciones_usado = consolidaciones_usado + 1, fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run();
-    this.registrarAuditoria("CONSOLIDACION", "Consolidación realizada");
-  }
-  /**
-   * Valida si hay reintentos de pendientes disponibles
-   */
-  validarPendientesDisponibles() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
-      return licencia.estado === "Vigente";
-    return licencia.pendientes_cfdi_usado < licencia.pendientes_cfdi_maximo;
-  }
-  /**
-   * Incrementa contador de reintentos de pendientes
-   */
-  incrementarPendientes() {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET pendientes_cfdi_usado = pendientes_cfdi_usado + 1, fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run();
-    this.registrarAuditoria("PENDIENTES_CFDI", "Reintento de pendientes realizado");
-  }
-  /**
-   * Valida si hay consultas de cumplimiento disponibles
-   */
-  validarCumplimientoDisponible() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
-      return licencia.estado === "Vigente";
-    return licencia.cumplimiento_usado < licencia.cumplimiento_maximo;
-  }
-  /**
-   * Incrementa contador de consultas de cumplimiento
-   */
-  incrementarCumplimiento() {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET cumplimiento_usado = cumplimiento_usado + 1, fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run();
-    this.registrarAuditoria("CUMPLIMIENTO", "Consulta de cumplimiento realizada");
-  }
-  /**
-   * Valida si hay constancias de situación fiscal disponibles
-   */
-  validarConstanciaDisponible() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
-      return licencia.estado === "Vigente";
-    return licencia.constancias_usado < licencia.constancias_maximo;
-  }
-  /**
-   * Incrementa contador de constancias de situación fiscal
-   */
-  incrementarConstancia() {
-    const stmt = this.db.prepare(`
-      UPDATE licencias 
-      SET constancias_usado = constancias_usado + 1, fecha_actualizacion = datetime('now')
-      WHERE id = 1
-    `);
-    stmt.run();
-    this.registrarAuditoria("CONSTANCIA", "Constancia de situación fiscal generada");
-  }
-  /**
-   * Obtiene información de usos disponibles
-   */
-  obtenerUsosDemoBloqueados() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia || licencia.estado !== "Demo") return null;
-    return {
-      descargas_disponibles: Math.max(
-        0,
-        licencia.descargas_cfdi_maximo - licencia.descargas_cfdi_usado
-      ),
-      importaciones_disponibles: Math.max(
-        0,
-        licencia.importaciones_cfdi_maximo - licencia.importaciones_cfdi_usado
-      ),
-      consolidaciones_disponibles: Math.max(
-        0,
-        licencia.consolidaciones_maximo - licencia.consolidaciones_usado
-      ),
-      pendientes_disponibles: Math.max(
-        0,
-        licencia.pendientes_cfdi_maximo - licencia.pendientes_cfdi_usado
-      ),
-      cumplimiento_disponibles: Math.max(
-        0,
-        licencia.cumplimiento_maximo - licencia.cumplimiento_usado
-      ),
-      constancias_disponibles: Math.max(
-        0,
-        licencia.constancias_maximo - licencia.constancias_usado
-      ),
-      descargas_bloqueadas: licencia.descargas_cfdi_usado >= licencia.descargas_cfdi_maximo,
-      importaciones_bloqueadas: licencia.importaciones_cfdi_usado >= licencia.importaciones_cfdi_maximo,
-      consolidaciones_bloqueadas: licencia.consolidaciones_usado >= licencia.consolidaciones_maximo,
-      pendientes_bloqueadas: licencia.pendientes_cfdi_usado >= licencia.pendientes_cfdi_maximo,
-      cumplimiento_bloqueadas: licencia.cumplimiento_usado >= licencia.cumplimiento_maximo,
-      constancias_bloqueadas: licencia.constancias_usado >= licencia.constancias_maximo
-    };
-  }
-  /**
-   * Valida si la licencia está vigente
-   */
-  validarVigencia() {
-    const licencia = this.obtenerLicencia();
-    if (!licencia) return false;
-    if (licencia.estado === "Demo") return true;
-    if (licencia.estado === "Vencido") return false;
-    if (licencia.fecha_vencimiento) {
-      return new Date(licencia.fecha_vencimiento) > /* @__PURE__ */ new Date();
-    }
-    return true;
-  }
-  /**
-   * Registra un evento en auditoría
-   */
-  registrarAuditoria(evento, descripcion) {
-    const stmt = this.db.prepare(`
-      INSERT INTO licencia_auditoria (evento, descripcion)
-      VALUES (?, ?)
-    `);
-    stmt.run(evento, descripcion);
-  }
-  /**
-   * Obtiene el historial de auditoría
-   */
-  obtenerAuditoria(limite = 50) {
-    const stmt = this.db.prepare(`
-      SELECT * FROM licencia_auditoria
-      ORDER BY fecha_evento DESC
-      LIMIT ?
-    `);
-    return stmt.all(limite);
-  }
-}
 class PerfilHandler {
-  constructor(profileManager, db) {
+  constructor(profileManager, sesionService, backendService) {
     this.profileManager = profileManager;
-    if (db) {
-      const licenseRepository = new LicenseRepository(db);
-      this.licenseService = new LicenseService(licenseRepository);
-    } else {
-      this.licenseService = null;
-    }
+    this.sesionService = sesionService;
+    this.backendService = backendService;
   }
-  licenseService;
   registrar() {
-    electron.ipcMain.handle("obtener-perfiles", async () => {
-      try {
-        const perfiles = this.profileManager.obtenerTodos();
-        return { success: true, perfiles };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
+    IpcWrapper.handle("obtener-perfiles", async () => {
+      const perfiles = this.profileManager.obtenerTodos();
+      return { perfiles };
     });
-    electron.ipcMain.handle("crear-perfil", async (_, perfil) => {
+    IpcWrapper.handle("obtener-estado-agregar-rfc", async () => {
+      const estado = this.sesionService.puedeAgregarRfc();
+      return {
+        puedeAgregar: estado.valido,
+        motivo: estado.valido ? void 0 : estado.motivo,
+        rfcs: estado.rfcs
+      };
+    });
+    IpcWrapper.handle("crear-perfil", async (_event, perfil) => {
+      const sesion = this.sesionService.obtenerSesion();
+      if (!sesion) {
+        throw new Error("No hay sesión activa. Vuelve a iniciar sesión en la aplicación.");
+      }
+      const rfc = String(perfil?.rfc ?? "").trim().toUpperCase();
+      if (!rfc) throw new Error("El RFC es requerido.");
+      const alias = String(perfil?.nombre ?? "").trim();
+      const estado = this.sesionService.puedeAgregarRfc();
+      if (!estado.valido) {
+        throw new Error(estado.motivo || "Compra el producto RFC para agregar contribuyentes.");
+      }
+      let registrado;
       try {
-        if (this.licenseService) {
-          const validacion = this.licenseService.validarAgregarRfc();
-          if (!validacion.valido) {
-            return { success: false, error: validacion.motivo || "No puedes agregar más RFCs" };
-          }
+        registrado = await this.backendService.registrarRfc(sesion.token, { rfc, alias });
+      } catch (error) {
+        const mensaje = String(error);
+        if (/404|status code 404/i.test(mensaje)) {
+          throw new Error(
+            "El alta de RFC aún no está disponible en el servidor (POST /rfcs responde 404). No se creó el contribuyente. Detalle en CONTRATO_RFC.md."
+          );
         }
-        this.profileManager.insertar(perfil);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
+        throw error;
       }
+      this.profileManager.insertar(perfil);
+      this.sesionService.sincronizarResumen().catch(() => void 0);
+      return { id: registrado.id, rfc: registrado.rfc, yaExistia: registrado.yaExistia };
     });
-    electron.ipcMain.handle("eliminar-perfil", async (_, rfc) => {
-      try {
-        this.profileManager.eliminar(rfc);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
+    IpcWrapper.handle("eliminar-perfil", async (_event, rfc) => {
+      this.profileManager.eliminar(rfc);
+      return {};
     });
-    electron.ipcMain.handle("seleccionar-perfil", async (_, rfc) => {
-      try {
-        const perfil = this.profileManager.obtenerPorRfc(rfc);
-        if (!perfil) return { success: false, error: "Perfil no encontrado" };
-        ProfileManager.setPerfilActivo(perfil);
-        this.profileManager.crearTablasPerfil(rfc);
-        return { success: true, perfil };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
+    IpcWrapper.handle("seleccionar-perfil", async (_event, rfc) => {
+      const perfil = this.profileManager.obtenerPorRfc(rfc);
+      if (!perfil) throw new Error("Perfil no encontrado");
+      ProfileManager.setPerfilActivo(perfil);
+      this.profileManager.crearTablasPerfil(rfc);
+      return { perfil };
     });
-    electron.ipcMain.handle("obtener-perfil-activo", async () => {
-      try {
-        const perfil = ProfileManager.getPerfilActivo();
-        return { success: true, perfil };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
+    IpcWrapper.handle("obtener-perfil-activo", async () => {
+      const perfil = ProfileManager.getPerfilActivo();
+      return { perfil };
     });
-    electron.ipcMain.handle("cerrar-perfil", async () => {
-      try {
-        ProfileManager.limpiarPerfil();
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: String(error) };
-      }
+    IpcWrapper.handle("cerrar-perfil", async () => {
+      ProfileManager.limpiarPerfil();
+      return {};
     });
   }
 }
@@ -4631,6 +4079,577 @@ class UpdaterService {
     });
   }
 }
+class LicenseService {
+  repository;
+  constructor(repository) {
+    this.repository = repository;
+  }
+  /**
+   * Obtiene información completa de la licencia
+   */
+  obtenerLicencia() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return {
+        estado: "Demo",
+        dias_restantes: null,
+        rfc_disponible: true,
+        maquina_disponible: true,
+        vigente: true
+      };
+    }
+    const diasRestantes = this.calcularDiasRestantes(licencia.fecha_vencimiento);
+    return {
+      estado: licencia.estado,
+      fecha_inicio: licencia.fecha_inicio,
+      fecha_vencimiento: licencia.fecha_vencimiento,
+      dias_restantes: diasRestantes,
+      rfc_maximo: licencia.rfc_maximo,
+      rfc_usado: licencia.rfc_usado,
+      maquinas_maximo: licencia.maquinas_maximo,
+      maquinas_usado: licencia.maquinas_usado,
+      rfc_disponible: this.repository.validarRfcDisponible(),
+      maquina_disponible: this.repository.validarMaquinaDisponible(),
+      vigente: this.repository.validarVigencia()
+    };
+  }
+  /**
+   * Obtiene solo el estado actual
+   */
+  obtenerEstado() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) return "Demo";
+    return licencia.estado;
+  }
+  /**
+   * Calcula días restantes
+   */
+  calcularDiasRestantes(fechaVencimiento) {
+    if (!fechaVencimiento) return null;
+    const hoy = /* @__PURE__ */ new Date();
+    const vencimiento = new Date(fechaVencimiento);
+    const diferencia = vencimiento.getTime() - hoy.getTime();
+    const dias = Math.ceil(diferencia / (1e3 * 60 * 60 * 24));
+    return dias > 0 ? dias : 0;
+  }
+  /**
+   * Valida si puede agregar un nuevo RFC
+   */
+  validarAgregarRfc() {
+    if (!this.repository.validarVigencia()) {
+      return { valido: false, motivo: "Licencia vencida" };
+    }
+    if (!this.repository.validarRfcDisponible()) {
+      return { valido: false, motivo: "Límite de RFCs alcanzado" };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede registrar una nueva máquina
+   */
+  validarRegistrarMaquina() {
+    if (!this.repository.validarVigencia()) {
+      return { valido: false, motivo: "Licencia vencida" };
+    }
+    if (!this.repository.validarMaquinaDisponible()) {
+      return { valido: false, motivo: "Límite de máquinas alcanzado" };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede descargar CFDIs
+   */
+  validarDescargaCfdi() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return { valido: false, motivo: "No hay licencia" };
+    }
+    if (licencia.estado === "Vencido") {
+      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
+    }
+    if (licencia.estado === "Demo") {
+      if (!this.repository.validarDescargasCfdiDisponibles()) {
+        return {
+          valido: false,
+          motivo: "Ha alcanzado el límite de 3 descargas en la versión Demo",
+          usos_restantes: 0
+        };
+      }
+      const restantes = licencia.descargas_cfdi_maximo - licencia.descargas_cfdi_usado;
+      return { valido: true, usos_restantes: restantes - 1 };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede importar CFDIs
+   */
+  validarImportacionCfdi() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return { valido: false, motivo: "No hay licencia" };
+    }
+    if (licencia.estado === "Vencido") {
+      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
+    }
+    if (licencia.estado === "Demo") {
+      if (!this.repository.validarImportacionesCfdiDisponibles()) {
+        return {
+          valido: false,
+          motivo: "Ha alcanzado el límite de 3 importaciones en la versión Demo",
+          usos_restantes: 0
+        };
+      }
+      const restantes = licencia.importaciones_cfdi_maximo - licencia.importaciones_cfdi_usado;
+      return { valido: true, usos_restantes: restantes - 1 };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede hacer consolidaciones (conciliaciones)
+   */
+  validarConsolidacion() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return { valido: false, motivo: "No hay licencia" };
+    }
+    if (licencia.estado === "Vencido") {
+      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
+    }
+    if (licencia.estado === "Demo") {
+      if (!this.repository.validarConsolidacionesDisponibles()) {
+        return {
+          valido: false,
+          motivo: "Ha alcanzado el límite de 3 consolidaciones en la versión Demo",
+          usos_restantes: 0
+        };
+      }
+      const restantes = licencia.consolidaciones_maximo - licencia.consolidaciones_usado;
+      return { valido: true, usos_restantes: restantes - 1 };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede reintentar descargas pendientes
+   */
+  validarPendientesCfdi() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return { valido: false, motivo: "No hay licencia" };
+    }
+    if (licencia.estado === "Vencido") {
+      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
+    }
+    if (licencia.estado === "Demo") {
+      if (!this.repository.validarPendientesDisponibles()) {
+        return {
+          valido: false,
+          motivo: "Ha alcanzado el límite de 3 reintentos de pendientes en la versión Demo",
+          usos_restantes: 0
+        };
+      }
+      const restantes = licencia.pendientes_cfdi_maximo - licencia.pendientes_cfdi_usado;
+      return { valido: true, usos_restantes: restantes - 1 };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede hacer una consulta de cumplimiento (opinión de cumplimiento)
+   */
+  validarCumplimiento() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return { valido: false, motivo: "No hay licencia" };
+    }
+    if (licencia.estado === "Vencido") {
+      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
+    }
+    if (licencia.estado === "Demo") {
+      if (!this.repository.validarCumplimientoDisponible()) {
+        return {
+          valido: false,
+          motivo: "Ha alcanzado el límite de 1 consulta de cumplimiento en la versión Demo",
+          usos_restantes: 0
+        };
+      }
+      const restantes = licencia.cumplimiento_maximo - licencia.cumplimiento_usado;
+      return { valido: true, usos_restantes: restantes - 1 };
+    }
+    return { valido: true };
+  }
+  /**
+   * Valida si puede descargar la constancia de situación fiscal (1 uso en Demo)
+   */
+  validarConstancia() {
+    const licencia = this.repository.obtenerLicencia();
+    if (!licencia) {
+      return { valido: false, motivo: "No hay licencia" };
+    }
+    if (licencia.estado === "Vencido") {
+      return { valido: false, motivo: "Licencia vencida - Debe renovar" };
+    }
+    if (licencia.estado === "Demo") {
+      if (!this.repository.validarConstanciaDisponible()) {
+        return {
+          valido: false,
+          motivo: "Ha alcanzado el límite de 1 constancia de situación fiscal en la versión Demo",
+          usos_restantes: 0
+        };
+      }
+      const restantes = licencia.constancias_maximo - licencia.constancias_usado;
+      return { valido: true, usos_restantes: restantes - 1 };
+    }
+    return { valido: true };
+  }
+}
+class LicenseRepository {
+  constructor(db) {
+    this.db = db;
+  }
+  /**
+   * Obtiene la licencia actual (siempre es la ID 1)
+   */
+  obtenerLicencia() {
+    const stmt = this.db.prepare("SELECT * FROM licencias WHERE id = 1");
+    return stmt.get() || null;
+  }
+  /**
+   * Actualiza el estado de la licencia
+   */
+  actualizarEstado(estado) {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET estado = ?, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run(estado);
+    this.registrarAuditoria("ACTUALIZAR_ESTADO", `Estado: ${estado}`);
+  }
+  /**
+   * Actualiza los límites de la licencia
+   */
+  actualizarLimites(rfcMaximo, maquinasMaximo, fechaInicio, fechaVencimiento) {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET 
+        rfc_maximo = ?,
+        maquinas_maximo = ?,
+        fecha_inicio = COALESCE(?, fecha_inicio),
+        fecha_vencimiento = COALESCE(?, fecha_vencimiento),
+        fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run(rfcMaximo, maquinasMaximo, fechaInicio, fechaVencimiento);
+    this.registrarAuditoria(
+      "ACTUALIZAR_LIMITES",
+      `RFC máximo: ${rfcMaximo}, Máquinas máximo: ${maquinasMaximo}`
+    );
+  }
+  /**
+   * Incrementa el contador de RFCs usados
+   */
+  incrementarRfcUsado() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET rfc_usado = rfc_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+  }
+  /**
+   * Decrementa el contador de RFCs usados
+   */
+  decrementarRfcUsado() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET rfc_usado = MAX(0, rfc_usado - 1), fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+  }
+  /**
+   * Registra una nueva máquina
+   */
+  registrarMaquina(identificador, nombre, so) {
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO maquinas_registradas (identificador_maquina, nombre_maquina, so)
+        VALUES (?, ?, ?)
+      `);
+      stmt.run(identificador, nombre, so);
+      const updateStmt = this.db.prepare(`
+        UPDATE licencias 
+        SET maquinas_usado = maquinas_usado + 1, fecha_actualizacion = datetime('now')
+        WHERE id = 1
+      `);
+      updateStmt.run();
+      this.registrarAuditoria("REGISTRAR_MAQUINA", `${nombre} (${so})`);
+    } catch (error) {
+      if (error.message.includes("UNIQUE constraint failed")) {
+        this.actualizarUltimoAcceso(identificador);
+      }
+    }
+  }
+  /**
+   * Obtiene todas las máquinas registradas
+   */
+  obtenerMaquinas() {
+    const stmt = this.db.prepare(`
+      SELECT * FROM maquinas_registradas WHERE activa = 1
+      ORDER BY fecha_registro DESC
+    `);
+    return stmt.all();
+  }
+  /**
+   * Actualiza el último acceso de una máquina
+   */
+  actualizarUltimoAcceso(identificador) {
+    const stmt = this.db.prepare(`
+      UPDATE maquinas_registradas 
+      SET fecha_ultimo_acceso = datetime('now')
+      WHERE identificador_maquina = ?
+    `);
+    stmt.run(identificador);
+  }
+  /**
+   * Desactiva una máquina
+   */
+  desactivarMaquina(identificador) {
+    const stmt = this.db.prepare(`
+      UPDATE maquinas_registradas 
+      SET activa = 0
+      WHERE identificador_maquina = ?
+    `);
+    stmt.run(identificador);
+    const updateStmt = this.db.prepare(`
+      UPDATE licencias 
+      SET maquinas_usado = MAX(0, maquinas_usado - 1), fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    updateStmt.run();
+    this.registrarAuditoria("DESACTIVAR_MAQUINA", `Identificador: ${identificador}`);
+  }
+  /**
+   * Valida si puede agregar un nuevo RFC
+   */
+  validarRfcDisponible() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    return licencia.rfc_usado < licencia.rfc_maximo;
+  }
+  /**
+   * Valida si puede registrar una nueva máquina
+   */
+  validarMaquinaDisponible() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    return licencia.maquinas_usado < licencia.maquinas_maximo;
+  }
+  /**
+   * Valida si hay descargas CFDI disponibles
+   */
+  validarDescargasCfdiDisponibles() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
+      return licencia.estado === "Vigente";
+    return licencia.descargas_cfdi_usado < licencia.descargas_cfdi_maximo;
+  }
+  /**
+   * Incrementa contador de descargas CFDI
+   */
+  incrementarDescargasCfdi() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET descargas_cfdi_usado = descargas_cfdi_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+    this.registrarAuditoria("DESCARGA_CFDI", "Descarga realizada");
+  }
+  /**
+   * Valida si hay importaciones CFDI disponibles
+   */
+  validarImportacionesCfdiDisponibles() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
+      return licencia.estado === "Vigente";
+    return licencia.importaciones_cfdi_usado < licencia.importaciones_cfdi_maximo;
+  }
+  /**
+   * Incrementa contador de importaciones CFDI
+   */
+  incrementarImportacionesCfdi() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET importaciones_cfdi_usado = importaciones_cfdi_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+    this.registrarAuditoria("IMPORTACION_CFDI", "Importación realizada");
+  }
+  /**
+   * Valida si hay consolidaciones (conciliaciones) disponibles
+   */
+  validarConsolidacionesDisponibles() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
+      return licencia.estado === "Vigente";
+    return licencia.consolidaciones_usado < licencia.consolidaciones_maximo;
+  }
+  /**
+   * Incrementa contador de consolidaciones
+   */
+  incrementarConsolidaciones() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET consolidaciones_usado = consolidaciones_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+    this.registrarAuditoria("CONSOLIDACION", "Consolidación realizada");
+  }
+  /**
+   * Valida si hay reintentos de pendientes disponibles
+   */
+  validarPendientesDisponibles() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
+      return licencia.estado === "Vigente";
+    return licencia.pendientes_cfdi_usado < licencia.pendientes_cfdi_maximo;
+  }
+  /**
+   * Incrementa contador de reintentos de pendientes
+   */
+  incrementarPendientes() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET pendientes_cfdi_usado = pendientes_cfdi_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+    this.registrarAuditoria("PENDIENTES_CFDI", "Reintento de pendientes realizado");
+  }
+  /**
+   * Valida si hay consultas de cumplimiento disponibles
+   */
+  validarCumplimientoDisponible() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
+      return licencia.estado === "Vigente";
+    return licencia.cumplimiento_usado < licencia.cumplimiento_maximo;
+  }
+  /**
+   * Incrementa contador de consultas de cumplimiento
+   */
+  incrementarCumplimiento() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET cumplimiento_usado = cumplimiento_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+    this.registrarAuditoria("CUMPLIMIENTO", "Consulta de cumplimiento realizada");
+  }
+  /**
+   * Valida si hay constancias de situación fiscal disponibles
+   */
+  validarConstanciaDisponible() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Vigente" || licencia.estado === "Vencido")
+      return licencia.estado === "Vigente";
+    return licencia.constancias_usado < licencia.constancias_maximo;
+  }
+  /**
+   * Incrementa contador de constancias de situación fiscal
+   */
+  incrementarConstancia() {
+    const stmt = this.db.prepare(`
+      UPDATE licencias 
+      SET constancias_usado = constancias_usado + 1, fecha_actualizacion = datetime('now')
+      WHERE id = 1
+    `);
+    stmt.run();
+    this.registrarAuditoria("CONSTANCIA", "Constancia de situación fiscal generada");
+  }
+  /**
+   * Obtiene información de usos disponibles
+   */
+  obtenerUsosDemoBloqueados() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia || licencia.estado !== "Demo") return null;
+    return {
+      descargas_disponibles: Math.max(
+        0,
+        licencia.descargas_cfdi_maximo - licencia.descargas_cfdi_usado
+      ),
+      importaciones_disponibles: Math.max(
+        0,
+        licencia.importaciones_cfdi_maximo - licencia.importaciones_cfdi_usado
+      ),
+      consolidaciones_disponibles: Math.max(
+        0,
+        licencia.consolidaciones_maximo - licencia.consolidaciones_usado
+      ),
+      pendientes_disponibles: Math.max(
+        0,
+        licencia.pendientes_cfdi_maximo - licencia.pendientes_cfdi_usado
+      ),
+      cumplimiento_disponibles: Math.max(
+        0,
+        licencia.cumplimiento_maximo - licencia.cumplimiento_usado
+      ),
+      constancias_disponibles: Math.max(
+        0,
+        licencia.constancias_maximo - licencia.constancias_usado
+      ),
+      descargas_bloqueadas: licencia.descargas_cfdi_usado >= licencia.descargas_cfdi_maximo,
+      importaciones_bloqueadas: licencia.importaciones_cfdi_usado >= licencia.importaciones_cfdi_maximo,
+      consolidaciones_bloqueadas: licencia.consolidaciones_usado >= licencia.consolidaciones_maximo,
+      pendientes_bloqueadas: licencia.pendientes_cfdi_usado >= licencia.pendientes_cfdi_maximo,
+      cumplimiento_bloqueadas: licencia.cumplimiento_usado >= licencia.cumplimiento_maximo,
+      constancias_bloqueadas: licencia.constancias_usado >= licencia.constancias_maximo
+    };
+  }
+  /**
+   * Valida si la licencia está vigente
+   */
+  validarVigencia() {
+    const licencia = this.obtenerLicencia();
+    if (!licencia) return false;
+    if (licencia.estado === "Demo") return true;
+    if (licencia.estado === "Vencido") return false;
+    if (licencia.fecha_vencimiento) {
+      return new Date(licencia.fecha_vencimiento) > /* @__PURE__ */ new Date();
+    }
+    return true;
+  }
+  /**
+   * Registra un evento en auditoría
+   */
+  registrarAuditoria(evento, descripcion) {
+    const stmt = this.db.prepare(`
+      INSERT INTO licencia_auditoria (evento, descripcion)
+      VALUES (?, ?)
+    `);
+    stmt.run(evento, descripcion);
+  }
+  /**
+   * Obtiene el historial de auditoría
+   */
+  obtenerAuditoria(limite = 50) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM licencia_auditoria
+      ORDER BY fecha_evento DESC
+      LIMIT ?
+    `);
+    return stmt.all(limite);
+  }
+}
 class LicenseHandler {
   service;
   constructor(db) {
@@ -4839,6 +4858,21 @@ class BackendService {
     });
   }
   /**
+   * Registra un RFC en la cuenta desde el Desktop (POST /rfcs). El backend
+   * valida el cupo del producto RFC; si el RFC ya está activo devuelve
+   * `yaExistia: true` (idempotente, sirve para configurar un RFC comprado en
+   * Emite). Contrato en CONTRATO_RFC.md.
+   */
+  async registrarRfc(jwt, datos) {
+    return this.http({
+      url: this.url("/rfcs"),
+      method: "POST",
+      jwt,
+      data: datos,
+      sesion: true
+    });
+  }
+  /**
    * Valida si el módulo tiene uso disponible (POST /uso/validar). Es la fuente
    * autoritativa del límite cuando el servidor responde; `rfc` es obligatorio en
    * la práctica porque los contadores del backend son por usuario+RFC+módulo
@@ -4866,6 +4900,27 @@ class BackendService {
       sesion: true
     });
   }
+  /** Datos para crear ticket de soporte técnico */
+  async enviarTicketSoporte(jwt, datos) {
+    return this.http({
+      url: this.url("/soporte/tickets"),
+      method: "POST",
+      jwt,
+      data: datos,
+      sesion: true
+    });
+  }
+  /**
+   * Lista los tickets del usuario autenticado (seguimiento: estado, si IFRAT ya
+   * lo vio y si hay respuesta). Contrato implementado en Emite — ver CONTRATO_SOPORTE.md.
+   */
+  async obtenerTicketsSoporte(jwt) {
+    return this.http({
+      url: this.url("/soporte/tickets"),
+      jwt,
+      sesion: true
+    });
+  }
 }
 class SesionHandler {
   constructor(sesionService, backendService) {
@@ -4887,7 +4942,9 @@ class SesionHandler {
         return { iniciada: true, nombre: renovada.nombre, email: renovada.email };
       } catch (error) {
         if (error instanceof TokenRechazadoError) {
-          this.limpiarSesion();
+          const restaurada = await this.reintentarLoginEnSegundoPlano();
+          if (restaurada) return restaurada;
+          this.sesionService.limpiar();
           return { iniciada: false };
         }
         return { iniciada: true, nombre: sesion.nombre, email: sesion.email };
@@ -4898,6 +4955,7 @@ class SesionHandler {
       if (!email || !datos?.password) throw new Error("Ingresa tu correo y contraseña");
       const credenciales = await this.backendService.login(email, datos.password);
       this.sesionService.guardarSesion(credenciales);
+      this.sesionService.guardarCredencialesLogin(email, datos.password);
       await this.vincularMaquinaAutomatica(credenciales.token);
       await this.sesionService.sincronizarResumen();
       return { iniciada: true, nombre: credenciales.nombre, email: credenciales.email };
@@ -4910,7 +4968,8 @@ class SesionHandler {
         } catch {
         }
       }
-      this.limpiarSesion();
+      this.sesionService.limpiar();
+      electron.BrowserWindow.getAllWindows()[0]?.webContents.send("sesion-token-rechazado");
       return {};
     });
     IpcWrapper.handle("obtener-cuenta", async () => {
@@ -4928,9 +4987,24 @@ class SesionHandler {
     } catch {
     }
   }
-  limpiarSesion() {
-    this.sesionService.limpiar();
-    electron.BrowserWindow.getAllWindows()[0]?.webContents.send("sesion-token-rechazado");
+  /**
+   * Re-loguea en segundo plano con las credenciales guardadas en la BD.
+   * Devuelve la sesión restaurada o null si no hay credenciales guardadas o las
+   * credenciales ya no son válidas (p. ej. cambiaron la contraseña en la web).
+   */
+  async reintentarLoginEnSegundoPlano() {
+    const credenciales = this.sesionService.obtenerCredenciales();
+    if (!credenciales) return null;
+    try {
+      const sesion = await this.backendService.login(credenciales.usuario, credenciales.contrasena);
+      this.sesionService.guardarSesion(sesion);
+      await this.vincularMaquinaAutomatica(sesion.token);
+      await this.sesionService.sincronizarResumen();
+      console.log("Sesión restaurada en segundo plano con las credenciales guardadas");
+      return { iniciada: true, nombre: sesion.nombre, email: sesion.email };
+    } catch {
+      return null;
+    }
   }
 }
 class SesionRepository {
@@ -4958,6 +5032,23 @@ class SesionRepository {
   obtener() {
     const fila = this.db.prepare("SELECT * FROM sesion WHERE id = 1").get();
     return fila ?? null;
+  }
+  /**
+   * Registra que el usuario logueó correctamente y guarda sus credenciales
+   * (la contraseña llega ya cifrada/ofuscada por SesionService) para poder
+   * re-loguear en segundo plano cuando el refresh token expire o se revoque.
+   */
+  marcarLoginExitoso(usuario, contrasenaCifrada) {
+    this.db.prepare(
+      `
+        UPDATE sesion
+        SET usuario = ?,
+            contrasena = ?,
+            login_exitoso = 1,
+            fecha_ultimo_login = datetime('now')
+        WHERE id = 1
+      `
+    ).run(usuario, contrasenaCifrada);
   }
   limpiar() {
     this.db.prepare("DELETE FROM sesion WHERE id = 1").run();
@@ -5011,6 +5102,47 @@ class SesionService {
     this.resumen = null;
   }
   /**
+   * Guarda en la BD las credenciales de la cuenta (email + contraseña cifrada)
+   * y registra que el login fue exitoso. Con esto el Desktop puede re-loguear
+   * en segundo plano si el refresh token expira o se revoca, sin volver a
+   * pedirle credenciales al usuario.
+   */
+  guardarCredencialesLogin(usuario, contrasena) {
+    this.repository.marcarLoginExitoso(usuario, this.codificarCredencial(contrasena));
+  }
+  /**
+   * Credenciales del último login exitoso, o null si la cuenta nunca logueó
+   * correctamente desde este equipo o no se pudieron descifrar.
+   */
+  obtenerCredenciales() {
+    const fila = this.repository.obtener();
+    if (!fila || !fila.login_exitoso || !fila.usuario || !fila.contrasena) return null;
+    try {
+      return { usuario: fila.usuario, contrasena: this.decodificarCredencial(fila.contrasena) };
+    } catch {
+      return null;
+    }
+  }
+  /** Cifra la contraseña con el almacén seguro del SO (DPAPI en Windows); si no hay, ofusca en base64. */
+  codificarCredencial(valor) {
+    try {
+      if (electron.safeStorage.isEncryptionAvailable()) {
+        return `v1:${electron.safeStorage.encryptString(valor).toString("base64")}`;
+      }
+    } catch {
+    }
+    return `b64:${Buffer.from(valor, "utf8").toString("base64")}`;
+  }
+  decodificarCredencial(guardado) {
+    const indice = guardado.indexOf(":");
+    const prefijo = indice === -1 ? "" : guardado.slice(0, indice);
+    const payload = indice === -1 ? guardado : guardado.slice(indice + 1);
+    if (prefijo === "v1") {
+      return electron.safeStorage.decryptString(Buffer.from(payload, "base64"));
+    }
+    return Buffer.from(payload, "base64").toString("utf8");
+  }
+  /**
    * Descarga (o refresca) el resumen de licencia. Si el backend no responde
    * devuelve null (se mantiene el resumen anterior).
    */
@@ -5027,6 +5159,32 @@ class SesionService {
   /** Resumen en memoria; null cuando la licencia aún no se sincronizó. */
   obtenerResumen() {
     return this.resumen;
+  }
+  /**
+   * Regla del producto RFC (estricta): el alta de contribuyente solo se habilita
+   * si la cuenta compró el producto RFC — algún RFC activo con `precioPagado > 0`
+   * en el resumen. El RFC gratuito que otorga la demo NO habilita. El backend de
+   * Emite es la fuente autoritativa del cupo (ver CONTRATO_RFC.md).
+   */
+  puedeAgregarRfc() {
+    const resumen = this.resumen;
+    const rfcs = resumen?.rfcs ?? [];
+    if (!resumen) {
+      return {
+        valido: false,
+        motivo: "No se pudo sincronizar tu licencia. Revisa tu conexión y reintenta.",
+        rfcs: []
+      };
+    }
+    const comproProductoRfc = rfcs.some((r) => r.activo && r.precioPagado > 0);
+    if (!comproProductoRfc) {
+      return {
+        valido: false,
+        motivo: "Compra el producto RFC en tu cuenta (web Emite) para poder agregar contribuyentes.",
+        rfcs
+      };
+    }
+    return { valido: true, rfcs };
   }
 }
 const MENSAJE_SIN_SESION = "Inicia sesión con tu cuenta de IFRAT para usar este módulo";
@@ -5070,6 +5228,7 @@ class LimiteUsoService {
     if (jwt && !MODULOS_SOLO_LOCAL.includes(modulo)) {
       try {
         const remoto = await this.backendService.validarUso(jwt, modulo, rfc);
+        if (remoto.usoIlimitado) return { valido: true };
         return {
           valido: remoto.permitido,
           motivo: remoto.permitido ? void 0 : remoto.mensaje ?? "Límite de uso alcanzado",
@@ -5334,6 +5493,139 @@ class LoggerHandler {
       logger.clearLogs();
       return {};
     });
+    IpcWrapper.handle("exportar-logs", async (_event, opciones) => {
+      const partes = [];
+      if (opciones?.contenido) {
+        partes.push(opciones.contenido);
+      }
+      partes.push(this.concatenarArchivosDeLog());
+      const { canceled, filePath } = await electron.dialog.showSaveDialog({
+        title: "Guardar logs de soporte",
+        defaultPath: path__namespace.join(
+          electron.app.getPath("desktop"),
+          `ifrat-logs-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.txt`
+        ),
+        filters: [{ name: "Archivo de texto", extensions: ["txt"] }]
+      });
+      if (canceled || !filePath) {
+        return { cancelado: true };
+      }
+      fs__namespace.writeFileSync(filePath, partes.join("\n\n"), "utf-8");
+      return { ruta: filePath };
+    });
+  }
+  /**
+   * Concatena todos los app-*.log en orden cronológico y lista las capturas
+   * PNG que se generaron al fallar (quedan en la misma carpeta).
+   */
+  concatenarArchivosDeLog() {
+    const dir = logger.getLogsDir();
+    const encabezado = [
+      "===== LOGS IFRAT DESKTOP =====",
+      `Generado: ${(/* @__PURE__ */ new Date()).toISOString()}`,
+      `Carpeta: ${dir}`,
+      ""
+    ].join("\n");
+    let archivos = [];
+    try {
+      archivos = fs__namespace.readdirSync(dir).filter((f) => f.startsWith("app-") && f.endsWith(".log")).sort();
+    } catch {
+    }
+    if (archivos.length === 0 && fs__namespace.existsSync(logger.getLogFile())) {
+      archivos = [path__namespace.basename(logger.getLogFile())];
+    }
+    const secciones = archivos.map((nombre) => {
+      try {
+        const contenido = fs__namespace.readFileSync(path__namespace.join(dir, nombre), "utf-8");
+        return `===== ${nombre} =====
+${contenido}`;
+      } catch (error) {
+        return `===== ${nombre} =====
+(no se pudo leer: ${String(error)})`;
+      }
+    });
+    const capturas = (() => {
+      try {
+        const pngs = fs__namespace.readdirSync(dir).filter((f) => f.endsWith(".png")).sort();
+        return pngs.length ? ["", "Capturas de error (en la misma carpeta):", ...pngs.map((p) => ` - ${path__namespace.join(dir, p)}`)].join("\n") : "";
+      } catch {
+        return "";
+      }
+    })();
+    return [encabezado, capturas, ...secciones].filter(Boolean).join("\n\n");
+  }
+}
+const LIMITES = { asunto: 200, descripcion: 5e3, logs: 2e5 };
+class SoporteHandler {
+  constructor(sesionService, backendService) {
+    this.sesionService = sesionService;
+    this.backendService = backendService;
+  }
+  registrar() {
+    IpcWrapper.handle("enviar-ticket-soporte", async (_event, datos) => {
+      const payload = this.validarYCompletar(datos);
+      const sesion = this.sesionService.obtenerSesion();
+      if (!sesion) {
+        throw new Error("No hay sesión activa. Vuelve a iniciar sesión en la aplicación.");
+      }
+      const resultado = await this.backendService.enviarTicketSoporte(sesion.token, payload);
+      logger.log("soporte", "Ticket de soporte enviado al backend", {
+        id: resultado.id,
+        estado: resultado.estado,
+        asunto: payload.asunto
+      });
+      return {
+        id: resultado.id,
+        estado: resultado.estado,
+        fechaEnvio: resultado.fechaEnvio ?? (/* @__PURE__ */ new Date()).toISOString()
+      };
+    });
+    IpcWrapper.handle("obtener-tickets-soporte", async () => {
+      const sesion = this.sesionService.obtenerSesion();
+      if (!sesion) {
+        throw new Error("No hay sesión activa. Vuelve a iniciar sesión en la aplicación.");
+      }
+      const tickets = await this.backendService.obtenerTicketsSoporte(sesion.token);
+      return { tickets };
+    });
+  }
+  validarYCompletar(datos) {
+    const asunto = String(datos?.asunto ?? "").trim();
+    const descripcion = String(datos?.descripcion ?? "").trim();
+    if (!asunto) throw new Error("El asunto es requerido.");
+    if (!descripcion) throw new Error("La descripción es requerida.");
+    if (asunto.length > LIMITES.asunto) throw new Error("El asunto es demasiado largo.");
+    if (descripcion.length > LIMITES.descripcion)
+      throw new Error("La descripción es demasiado larga.");
+    const adjuntarLogs = datos?.adjuntarLogs !== false;
+    const contenidoLog = adjuntarLogs ? this.formatearLogs() : "(El usuario desactivó adjuntar logs en el reporte.)";
+    if (!contenidoLog.trim()) {
+      throw new Error(
+        "No hay logs que enviar todavía. Vuelve a intentarlo tras usar la aplicación."
+      );
+    }
+    return {
+      macAddress: this.sesionService.obtenerHardwareId(),
+      versionIfrat: electron.app.getVersion(),
+      asunto,
+      descripcion,
+      contenidoLog
+    };
+  }
+  /** Convierte los logs en memoria a texto plano, recortados a ~200 KB. */
+  formatearLogs() {
+    const lineas = logger.getLogs().map((log) => {
+      const base = `[${log.timestamp}] [${String(log.level).toUpperCase()}] [${log.module}] ${log.message}`;
+      if (log.data === void 0 || log.data === null) return base;
+      try {
+        const detalle = JSON.stringify(log.data);
+        return `${base} ${detalle.slice(0, 4e3)}`;
+      } catch {
+        return base;
+      }
+    });
+    const texto = lineas.join("\n");
+    return texto.length > LIMITES.logs ? texto.slice(-2e5) : texto;
   }
 }
 class UnifiedSatHandler {
@@ -5395,6 +5687,10 @@ class UnifiedSatHandler {
             carpetaTemp,
             onProgreso
           });
+          const errorOperacion = this.extraerErrorOperacion(resultado);
+          if (errorOperacion) {
+            return { success: false, error: errorOperacion };
+          }
           if (modulo && resultado?.rutaArchivo) {
             await this.limiteUsoService.consumir(modulo, config.rfc);
           }
@@ -5474,6 +5770,10 @@ class UnifiedSatHandler {
             carpetaTemp,
             onProgreso
           });
+          const errorOperacion = this.extraerErrorOperacion(resultado);
+          if (errorOperacion) {
+            return { success: false, error: errorOperacion };
+          }
           if (modulo && resultado?.rutaArchivo) {
             await this.limiteUsoService.consumir(modulo, config.rfc);
           }
@@ -5515,6 +5815,18 @@ class UnifiedSatHandler {
     if (!this.configProvider.existePortal(portalId)) {
       throw new Error(`Portal ${portalId} no existe`);
     }
+  }
+  /**
+   * Los servicios de operación devuelven los errores como resultado con
+   * `descripcion` iniciando en "Error:"; eso se traduce a un fallo IPC para
+   * que la página lo muestre como error y no como resultado.
+   */
+  extraerErrorOperacion(resultado) {
+    const descripcion = resultado?.descripcion;
+    if (typeof descripcion === "string" && descripcion.startsWith("Error:")) {
+      return descripcion.slice("Error:".length).trim();
+    }
+    return null;
   }
   /**
    * Mapea un portal SAT a su módulo de uso (null si el portal no consume uso).
@@ -5585,6 +5897,10 @@ class SatUnifiedAuthService {
     }
     try {
       await pagina.goto(config.loginUrl, { waitUntil: "domcontentloaded", timeout: 3e4 });
+      if (await this.detectarSesionActiva(pagina, config)) {
+        logger.log("sat-auth", `${portalId}: sesión SAT vigente (cookies reanudadas) — sin captcha`);
+        return { imagenBase64: "", sesionActiva: true, timestamp: Date.now() };
+      }
       await pagina.waitForSelector(config.selectors.captchaImage, { timeout: 15e3 });
       const captchaEl = await pagina.$(config.selectors.captchaImage);
       if (!captchaEl) {
@@ -5621,6 +5937,13 @@ class SatUnifiedAuthService {
       this.paginaActiva.set(portalId, pagina);
     }
     try {
+      if (!/^https?:/i.test(pagina.url())) {
+        await pagina.goto(config.loginUrl, { waitUntil: "domcontentloaded", timeout: 3e4 });
+      }
+      if (await this.detectarSesionActiva(pagina, config)) {
+        logger.log("sat-auth", `${portalId}: sesión SAT vigente, se omite login CIEC`);
+        return pagina;
+      }
       await this.llenarFormularioCiec(pagina, config, credentials);
       await this.intentarLogin(
         pagina,
@@ -5628,8 +5951,10 @@ class SatUnifiedAuthService {
         () => pagina.click(config.selectors.submitButton, { timeout: 9e4 }),
         "ciec"
       );
+      logger.log("sat-auth", `${portalId}: login CIEC exitoso`);
       return pagina;
     } catch (error) {
+      logger.error("sat-auth", `${portalId}: login CIEC falló`, { error: String(error) });
       throw error;
     }
   }
@@ -5650,6 +5975,10 @@ class SatUnifiedAuthService {
     }
     try {
       await pagina.goto(config.loginUrl, { waitUntil: "domcontentloaded", timeout: 3e4 });
+      if (await this.detectarSesionActiva(pagina, config)) {
+        logger.log("sat-auth", `${portalId}: sesión SAT vigente, se omite login e.firma`);
+        return pagina;
+      }
       const hayFormularioFiel = () => pagina.waitForSelector(config.selectors.cerFileInput, { state: "attached", timeout: 3500 }).then(() => true).catch(() => false);
       if (!await hayFormularioFiel() && config.selectors.fielButton) {
         const MAX_INTENTOS_FIEL = 4;
@@ -5677,8 +6006,10 @@ class SatUnifiedAuthService {
         () => pagina.click(config.selectors.submitButton, { timeout: 9e4 }),
         "fiel"
       );
+      logger.log("sat-auth", `${portalId}: login e.firma exitoso`);
       return pagina;
     } catch (error) {
+      logger.error("sat-auth", `${portalId}: login e.firma falló`, { error: String(error) });
       throw error;
     }
   }
@@ -5686,6 +6017,14 @@ class SatUnifiedAuthService {
    * Cierra la sesión.
    */
   async cerrarSesion() {
+    if (this.context) {
+      try {
+        await this.context.storageState({ path: BrowserManager.sesionSatFile });
+        logger.log("sat-auth", `Sesión SAT guardada en ${BrowserManager.sesionSatFile}`);
+      } catch (error) {
+        logger.warn("sat-auth", `No se pudo guardar la sesión SAT: ${String(error)}`);
+      }
+    }
     for (const pagina of this.paginaActiva.values()) {
       await pagina.close().catch(() => null);
     }
@@ -5706,6 +6045,19 @@ class SatUnifiedAuthService {
       throw new Error(`Portal ${portalId} no encontrado`);
     }
     return config;
+  }
+  /**
+   * Detecta si la página ya tiene sesión vigente en el portal: la URL es
+   * http(s) y NO se muestra el formulario de login (rfc/e.firma). Pasa cuando
+   * las cookies reanudadas redirigen al portal en vez de pedir credenciales.
+   * @private
+   */
+  async detectarSesionActiva(pagina, config) {
+    if (!/^https?:/i.test(pagina.url())) return false;
+    const selectores = [config.selectors.rfcField, config.selectors.cerFileInput].filter(Boolean).join(", ");
+    if (!selectores) return false;
+    const hayFormulario = await pagina.waitForSelector(selectores, { timeout: 8e3 }).then(() => true).catch(() => false);
+    return !hayFormulario;
   }
   /**
    * Obtiene o crea el contexto del navegador.
@@ -5863,12 +6215,48 @@ class SatPortalOperationService {
       options.onProgreso?.("Conectando con el SAT...");
       this.paginaActiva = page;
       const resultado = await this.ejecutarOperacion(credenciales, options);
+      logger.log(`sat-${this.portalId}`, `Operación finalizada`, {
+        rutaArchivo: resultado?.rutaArchivo ?? null
+      });
       return resultado;
     } catch (error) {
+      await this.registrarDiagnosticoError(error);
       return this.manejarError(error);
     } finally {
       await this.limpiar();
     }
+  }
+  /**
+   * Deja en los logs todo lo necesario para diagnosticar a distancia:
+   * mensaje, URL y título de la página, captura PNG (en la carpeta de logs)
+   * y un recorte del HTML visible. Así, con los logs que envía el cliente se
+   * ve exactamente en qué pantalla se quedó el SAT.
+   */
+  async registrarDiagnosticoError(error) {
+    const diag = {
+      portal: this.portalId,
+      error: error instanceof Error ? error.message : String(error)
+    };
+    try {
+      const pagina = this.paginaActiva;
+      if (pagina && !pagina.isClosed()) {
+        diag.url = pagina.url();
+        diag.titulo = await pagina.title().catch(() => "");
+        try {
+          const rutaCaptura = path.join(
+            logger.getLogsDir(),
+            `${this.portalId}-error-${Date.now()}.png`
+          );
+          await pagina.screenshot({ path: rutaCaptura, timeout: 1e4 }).catch(() => null);
+          diag.captura = rutaCaptura;
+        } catch {
+        }
+        const html = await pagina.content().catch(() => "");
+        if (html) diag.html = html.slice(0, 8e3);
+      }
+    } catch {
+    }
+    logger.error(`sat-${this.portalId}`, "Operación fallida", diag);
   }
   async obtenerCaptcha() {
     return this.authService.obtenerCaptcha(this.portalId);
@@ -5950,46 +6338,73 @@ class SatConstanciaOperationService extends SatPortalOperationService {
   }
   /**
    * Obtiene el frame donde está el formulario de constancia.
+   *
+   * Si el SAT cambia los identificadores (como pasó con #iframetoload), se
+   * busca entre TODOS los frames el que contenga el botón "Generar
+   * Constancia", en vez de fallar directo.
    * @private
    */
   async obtenerFrameConstancia(page) {
     const config = this.configProvider.obtenerConfiguracion(this.portalId);
     await page.waitForLoadState("networkidle", { timeout: 15e3 }).catch(() => null);
-    const iframeEl = await page.waitForSelector(config.selectors.iframe || "#iframetoload", {
-      timeout: 15e3
-    });
-    const frame = await iframeEl.contentFrame();
-    if (!frame) {
-      throw new Error("No se pudo obtener el frame del iframe");
+    const iframeEl = await page.waitForSelector(config.selectors.iframe || "#iframetoload", { timeout: 15e3 }).catch(() => null);
+    if (iframeEl) {
+      const frame = await iframeEl.contentFrame();
+      if (frame) return frame;
     }
-    return frame;
+    logger.warn("sat-constancia", `Selector de iframe no encontrado; buscando frame por contenido`, {
+      url: page.url(),
+      selector: config.selectors.iframe || "#iframetoload"
+    });
+    const SELECTOR_BOTON = 'button:has-text("Generar Constancia"), input[value="Generar Constancia"]';
+    for (let intento = 0; intento < 20; intento++) {
+      for (const frame of page.frames()) {
+        if (frame === page.mainFrame()) continue;
+        const visible = await frame.locator(SELECTOR_BOTON).first().isVisible().catch(() => false);
+        if (visible) {
+          logger.log("sat-constancia", "Frame de constancia localizado por contenido", { url: frame.url() });
+          return frame;
+        }
+      }
+      await page.waitForTimeout(1e3);
+    }
+    throw new Error(
+      `No se encontró el formulario de la constancia en la página del SAT. URL: ${page.url()} · Frames: ${page.frames().map((f) => f.url()).join(" | ")}`
+    );
   }
   /**
    * Intercepta y descarga el PDF de la constancia.
    * @private
    */
   interceptarYDescargar(page, boton, carpetaTemp) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       let resuelto = false;
       let popupRef = null;
       const limpiar = () => {
         page.context().unroute("**IdcGeneraConstancia**").catch(() => null);
       };
       const timer = setTimeout(() => {
+        if (resuelto) return;
         limpiar();
-        resolve(void 0);
+        logger.warn("sat-constancia", "Tiempo agotado sin capturar el PDF", { url: page.url() });
+        reject(
+          new Error(
+            "El SAT no entregó el PDF de la constancia dentro del tiempo límite. Vuelve a intentarlo; si persiste, exporta los logs de soporte desde Soporte."
+          )
+        );
       }, 3e4);
       page.context().route("**IdcGeneraConstancia**", async (route) => {
         try {
           const response = await route.fetch();
           const contentType = response.headers()["content-type"] ?? "";
+          logger.log("sat-constancia", "Ruta de generación interceptada", { contentType });
           if (contentType.includes("pdf")) {
             const buffer = Buffer.from(await response.body());
             if (buffer.length > 5e3 && !resuelto) {
               resuelto = true;
               const rutaFinal = path.join(carpetaTemp, `constancia_${Date.now()}.pdf`);
               fs__namespace.writeFileSync(rutaFinal, buffer);
-              console.log("[SatConstanciaOperationService] Constancia capturada:", rutaFinal);
+              logger.log("sat-constancia", "Constancia capturada", { ruta: rutaFinal, bytes: buffer.length });
               clearTimeout(timer);
               limpiar();
               await route.fulfill({ response }).catch(() => null);
@@ -5999,14 +6414,15 @@ class SatConstanciaOperationService extends SatPortalOperationService {
             }
           }
           await route.fulfill({ response }).catch(() => null);
-        } catch {
+        } catch (error) {
+          logger.warn("sat-constancia", "Fallo interceptando la generación", { error: String(error) });
           await route.abort().catch(() => null);
         }
       });
       page.context().once("page", (p) => {
         popupRef = p;
       });
-      boton.click().catch(() => null);
+      boton.click().catch((error) => logger.warn("sat-constancia", 'Clic en "Generar Constancia" falló', { error: String(error) }));
     });
   }
 }
@@ -6028,13 +6444,18 @@ class SatCumplimientoOperationService extends SatPortalOperationService {
         this.paginaActiva,
         options.carpetaTemp
       );
+      pdfPromesa.catch(() => null);
       options.onProgreso?.("Navegando al portal de cumplimiento...");
       await this.paginaActiva.waitForURL(`**${config.portalDomain}**`, { timeout: 2e4 });
+      logger.log("sat-cumplimiento", "Portal alcanzado tras login", { url: this.paginaActiva.url() });
       await this.paginaActiva.waitForTimeout(2e3);
       options.onProgreso?.("Descargando opinión...");
       await this.paginaActiva.goto(config.portalRoute || config.baseUrl, {
         waitUntil: "commit",
         timeout: 45e3
+      });
+      logger.log("sat-cumplimiento", "Ruta de opinión solicitada", {
+        ruta: config.portalRoute || config.baseUrl
       });
       await this.paginaActiva.waitForSelector("sat-mf-reporte-opinion-contribuyente-root", { timeout: 3e4 }).catch(() => null);
       const rutaArchivo = await pdfPromesa;
@@ -6047,33 +6468,103 @@ class SatCumplimientoOperationService extends SatPortalOperationService {
   }
   /**
    * Configura el interceptor para capturar el PDF.
+   *
+   * Se suscribe a nivel de CONTEXTO (no de página): si el SAT abre el PDF en
+   * una pestaña nueva, la respuesta viaja por esa página y un listener de la
+   * página principal nunca la vería. Si el cuerpo no se puede leer (visor de
+   * PDF de Chromium que pide el archivo por rangos), se reintenta una vez con
+   * una petición directa usando las cookies de la sesión.
+   *
+   * Si el SAT no entrega el PDF en 60 s, la promesa se RECHAZA (error real,
+   * no un "éxito" sin archivo).
    * @private
    */
   configurarInterceptacionPdf(page, carpetaTemp) {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        page.removeListener("response", handler);
-        resolve(void 0);
-      }, 6e4);
-      const handler = async (response) => {
-        const url = response.url();
-        const contentType = (response.headers()["content-type"] || "").toLowerCase();
-        if (url.includes("GeneraOpinion") || contentType.includes("pdf")) {
-          try {
-            const buffer = await response.body();
-            if (buffer.length > 5e3) {
-              const rutaFinal = path.join(carpetaTemp, `opinion_${Date.now()}.pdf`);
-              fs__namespace.writeFileSync(rutaFinal, buffer);
-              clearTimeout(timer);
-              page.removeListener("response", handler);
-              resolve(rutaFinal);
-            }
-          } catch {
-          }
+    const context = page.context();
+    const candidatos = [];
+    let resuelto = false;
+    let reintentoHecho = false;
+    return new Promise((resolve, reject) => {
+      const limpiar = () => {
+        clearTimeout(timer);
+        context.removeListener("response", handler);
+      };
+      const guardar = (buffer) => {
+        try {
+          const rutaFinal = path.join(carpetaTemp, `opinion_${Date.now()}.pdf`);
+          fs__namespace.writeFileSync(rutaFinal, buffer);
+          logger.log("sat-cumplimiento", "PDF de opinión capturado", { ruta: rutaFinal, bytes: buffer.length });
+          limpiar();
+          resolve(rutaFinal);
+          return true;
+        } catch (error) {
+          logger.warn("sat-cumplimiento", "No se pudo guardar el PDF capturado", { error: String(error) });
+          return false;
         }
       };
-      page.on("response", handler);
+      const timer = setTimeout(() => {
+        if (resuelto) return;
+        limpiar();
+        logger.warn("sat-cumplimiento", "Tiempo agotado sin capturar el PDF", {
+          url: page.url(),
+          candidatos
+        });
+        reject(
+          new Error(
+            "El SAT no entregó el PDF de la opinión dentro del tiempo límite. Vuelve a intentarlo; si persiste, exporta los logs de soporte desde Soporte."
+          )
+        );
+      }, 6e4);
+      const handler = async (response) => {
+        if (resuelto) return;
+        const url = response.url();
+        const contentType = (response.headers()["content-type"] || "").toLowerCase();
+        const esPdf = url.includes("GeneraOpinion") || contentType.includes("pdf") || url.toLowerCase().includes(".pdf");
+        if (!esPdf) return;
+        let buffer;
+        try {
+          buffer = await response.body();
+        } catch (error) {
+          candidatos.push({ url, status: response.status(), contentType, error: String(error) });
+          logger.warn("sat-cumplimiento", "Cuerpo de respuesta PDF ilegible", { url, error: String(error) });
+        }
+        if ((!buffer || buffer.length <= 5e3) && !reintentoHecho) {
+          reintentoHecho = true;
+          const relectura = await this.refetchPdf(context, url);
+          if (relectura && relectura.length > 5e3) buffer = relectura;
+        }
+        if (!buffer) return;
+        candidatos.push({ url, status: response.status(), contentType, bytes: buffer.length });
+        logger.log("sat-cumplimiento", "Respuesta candidata a PDF", {
+          url,
+          status: response.status(),
+          contentType,
+          bytes: buffer.length
+        });
+        if (buffer.length > 5e3) {
+          resuelto = true;
+          if (!guardar(buffer)) resuelto = false;
+        }
+      };
+      context.on("response", handler);
     });
+  }
+  /**
+   * Relectura directa de un PDF con las cookies de la sesión (cuando el
+   * visor de PDF del navegador lo pide por rangos y body() viene truncado).
+   * @private
+   */
+  async refetchPdf(context, url) {
+    try {
+      const respuesta = await context.request.get(url, { timeout: 3e4 });
+      if (!respuesta.ok()) return void 0;
+      const cuerpo = Buffer.from(await respuesta.body());
+      logger.log("sat-cumplimiento", "Relectura directa del PDF", { url, bytes: cuerpo.length });
+      return cuerpo;
+    } catch (error) {
+      logger.warn("sat-cumplimiento", "Relectura directa del PDF falló", { url, error: String(error) });
+      return void 0;
+    }
   }
   /**
    * Formatea la respuesta de la opinión.
@@ -6205,8 +6696,14 @@ electron.app.whenReady().then(async () => {
     const limiteUsoService = new LimiteUsoService(sesionService, licenseHelper, backendService);
     new SesionHandler(sesionService, backendService).registrar();
     const profileManager = new ProfileManager(db);
-    new PerfilHandler(profileManager, db).registrar();
-    new FacturaHandler(cfdiService, sharedAuthService, configuracionService, limiteUsoService, db).registrar();
+    new PerfilHandler(profileManager, sesionService, backendService).registrar();
+    new FacturaHandler(
+      cfdiService,
+      sharedAuthService,
+      configuracionService,
+      limiteUsoService,
+      db
+    ).registrar();
     new ConciliacionHandler(cfdiService, configuracionService, limiteUsoService).registrar();
     new ImportacionHandler(guardadoService, configuracionService, limiteUsoService).registrar();
     new ConfiguracionHandler(db).registrar();
@@ -6216,8 +6713,12 @@ electron.app.whenReady().then(async () => {
     new ExportacionHandler(db).registrar();
     new Lista69BHandler(lista69BService).registrar();
     new LoggerHandler().registrar();
+    new SoporteHandler(sesionService, backendService).registrar();
     const constanciaService = new SatConstanciaOperationService(configProvider, sharedAuthService);
-    const cumplimientoService = new SatCumplimientoOperationService(configProvider, sharedAuthService);
+    const cumplimientoService = new SatCumplimientoOperationService(
+      configProvider,
+      sharedAuthService
+    );
     new UnifiedSatHandler(
       configuracionService,
       {

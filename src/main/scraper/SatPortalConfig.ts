@@ -76,6 +76,8 @@ export type SatCredentials = CiecCredentials | FielCredentials
  */
 export interface CaptchaData {
     imagenBase64: string
+    /** true si el portal ya tenía sesión vigente y no se requiere captcha. */
+    sesionActiva?: boolean
     timestamp?: number
 }
 

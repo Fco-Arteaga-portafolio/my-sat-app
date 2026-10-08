@@ -9,7 +9,10 @@ export const createCumplimientoApi = () => {
         obtenerOpinion: async (data: { captcha?: string }) =>
             ipcRenderer.invoke('cumplimiento-obtener-opinion', data),
 
-        cerrarSesion: async () =>
+        // Nota: NO se llama "cerrarSesion" — createSesionApi() se mezcla después en
+        // window.api y su "cerrarSesion" (logout de la APP) pisaba este. Ese choque
+        // cerraba la sesión del usuario en vez del navegador SAT.
+        cumplimientoCerrarSesion: async () =>
             ipcRenderer.invoke('cumplimiento-cerrar-sesion'),
 
         onProgresoCumplimiento: (callback: (mensaje: string) => void) => {
