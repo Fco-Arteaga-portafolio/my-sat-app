@@ -55,7 +55,6 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
   const [modalVisible, setModalVisible] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<Perfil>(formVacio())
-  const [modalLicenciaVisible, setModalLicenciaVisible] = useState(false)
   const [modalSoporteVisible, setModalSoporteVisible] = useState(false)
 
   /**
@@ -90,6 +89,46 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
       })
     }
   }, [])
+
+  /**
+   * Sincronización manual ("botón de los desesperados"): obliga a hacer lo que
+   * se hace al abrir — bajar el resumen de licencia/productos del backend y
+   * refrescar el gate del producto RFC.
+   */
+  const [sincronizando, setSincronizando] = useState(false)
+  const [avisoSincronizacion, setAvisoSincronizacion] = useState<{
+    tipo: 'success' | 'error'
+    mensaje: string
+  } | null>(null)
+
+  const sincronizar = useCallback(async () => {
+    setSincronizando(true)
+    setAvisoSincronizacion(null)
+    try {
+      const res = await window.api.sincronizarResumen()
+      if (res.success && res.resumen) {
+        const rfcs = res.resumen.rfcs.length
+        const modulos = res.resumen.contadores.length
+        setAvisoSincronizacion({
+          tipo: 'success',
+          mensaje: `Sincronizado con Emite: ${rfcs} RFC${rfcs !== 1 ? 's' : ''} y ${modulos} módulo${modulos !== 1 ? 's' : ''} en tu licencia.`
+        })
+      } else {
+        setAvisoSincronizacion({
+          tipo: 'error',
+          mensaje: res.error ?? 'No se pudo sincronizar la licencia.'
+        })
+      }
+      await refrescarEstadoAgregarRfc()
+    } catch (err) {
+      setAvisoSincronizacion({
+        tipo: 'error',
+        mensaje: 'No se pudo sincronizar: ' + String(err)
+      })
+    } finally {
+      setSincronizando(false)
+    }
+  }, [refrescarEstadoAgregarRfc])
 
   const cargarPerfiles = async () => {
     setLoading(true)
@@ -239,11 +278,13 @@ export const usePerfilesPage = (onPerfilSeleccionado?: (perfil: any) => void) =>
     seleccionarKey,
     moverSlot,
     toggleSlot,
-    modalLicenciaVisible,
-    setModalLicenciaVisible,
     modalSoporteVisible,
     setModalSoporteVisible,
     estadoAgregarRfc,
-    refrescarEstadoAgregarRfc
+    refrescarEstadoAgregarRfc,
+    sincronizando,
+    avisoSincronizacion,
+    setAvisoSincronizacion,
+    sincronizar
   }
 }

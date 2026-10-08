@@ -282,6 +282,31 @@ declare global {
       }>
       onTokenRechazado(callback: () => void): void
 
+      // Tienda y sincronización manual con el backend
+      abrirTienda(): Promise<{ success: boolean; error?: string }>
+      sincronizarResumen(): Promise<{
+        success: boolean
+        resumen?: {
+          usoIlimitado: boolean
+          rfcs: Array<{
+            id: string
+            rfc: string
+            alias: string
+            activo: boolean
+            precioPagado: number
+          }>
+          contadores: Array<{
+            modulo: string
+            rfc: string
+            usos: number
+            limite: number
+            restantes: number
+          }>
+        }
+        sincronizado?: string
+        error?: string
+      }>
+
       // Exportación
       obtenerPreview(filtros: {
         tipoDescarga: 'emitida' | 'recibida'

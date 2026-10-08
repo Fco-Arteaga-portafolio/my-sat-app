@@ -4,7 +4,8 @@ import {
   WindowsOutlined,
   DisconnectOutlined,
   ShoppingCartOutlined,
-  UploadOutlined
+  UploadOutlined,
+  SyncOutlined
 } from '@ant-design/icons'
 import { useState, useEffect } from 'react'
 import './LicenseFooter.css'
@@ -69,13 +70,34 @@ const LicenseFooter = ({
   }
 
   const abrirSitioCompra = () => {
-    // Aquí puedes usar ipcRenderer.invoke('abrir-url', 'https://tu-sitio-de-compra.com')
-    window.open('https://tu-sitio-de-compra.com', '_blank')
+    window.api.abrirTienda()
   }
 
   const subirLicencia = (file: File) => {
     console.log('Archivo cargado:', file)
     // Aquí luego conectas con tu backend para validar el GUID
+  }
+
+  /**
+   * Sincronización manual: fuerza lo que se hace al abrir el programa — baja el
+   * resumen del backend (productos comprados + estado) y recarga la licencia
+   * local. Pensado para "los desesperados" tras comprar en la Tienda.
+   */
+  const [sincronizando, setSincronizando] = useState(false)
+
+  const sincronizarLicencia = async (): Promise<void> => {
+    setSincronizando(true)
+    try {
+      const res = await window.api.sincronizarResumen()
+      if (!res.success) {
+        console.error('Error sincronizando licencia:', res.error)
+      }
+      await cargarDatosLicencia()
+    } catch (error) {
+      console.error('Error sincronizando licencia:', error)
+    } finally {
+      setSincronizando(false)
+    }
   }
 
   return (
@@ -98,7 +120,7 @@ const LicenseFooter = ({
 
             {/* Si está en Demo, mostrar botón de compra */}
             {(actualStatus === 'Demo' || actualStatus === 'Vencido') && (
-              <Tooltip title="Comprar licencia">
+              <Tooltip title="Ir a la Tienda">
                 <ShoppingCartOutlined
                   className="license-footer-icon"
                   style={{ color: '#faad14', cursor: 'pointer' }}
@@ -106,6 +128,16 @@ const LicenseFooter = ({
                 />
               </Tooltip>
             )}
+
+            {/* Sincronización manual con el backend */}
+            <Tooltip title="Sincronizar licencia">
+              <SyncOutlined
+                className="license-footer-icon"
+                style={{ color: '#52c41a', cursor: 'pointer' }}
+                spin={sincronizando}
+                onClick={sincronizarLicencia}
+              />
+            </Tooltip>
 
             {/* Botón Cargar Licencia */}
             <Tooltip title="Cargar licencia">

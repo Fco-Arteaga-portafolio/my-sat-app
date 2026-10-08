@@ -3,7 +3,6 @@ import { Button, Modal, Space, Popconfirm, Alert, Tag, Avatar } from 'antd'
 import { UserOutlined, DeleteOutlined, LoginOutlined } from '@ant-design/icons'
 import { usePerfilesPage } from './PerfilesPage.hook'
 import ContribuyenteForm from '../../components/ContribuyenteForm/ContribuyenteForm'
-import ModalLicencia from '../../components/ModalLicencia/ModalLicencia'
 import ModalSoporte from '../../components/ModalSoporte/ModalSoporte'
 import logoIcon from '../../assets/icon.png'
 import { useEffect, useState } from 'react'
@@ -30,12 +29,14 @@ const PerfilesPage = ({
     seleccionarKey,
     moverSlot,
     toggleSlot,
-    modalLicenciaVisible, // ← nuevo
-    setModalLicenciaVisible, // ← nuevo
     modalSoporteVisible, // ← nuevo
     setModalSoporteVisible, // ← nuevo
     estadoAgregarRfc, // ← gate del producto RFC
-    refrescarEstadoAgregarRfc // ← sincroniza compras hechas en Emite
+    refrescarEstadoAgregarRfc, // ← sincroniza compras hechas en Emite
+    sincronizando,
+    avisoSincronizacion,
+    setAvisoSincronizacion,
+    sincronizar
   } = usePerfilesPage(onPerfilSeleccionado)
 
   const [version, setVersion] = useState('')
@@ -111,14 +112,21 @@ const PerfilesPage = ({
                   : 'Compra el producto RFC'}
             </span>
           </button>
-          <button className="perfil-accion-btn" onClick={() => setModalLicenciaVisible(true)}>
-            <div className="perfil-accion-icono lic">🔑</div>
-            <span className="perfil-accion-label">
-              Licencia &amp;
-              <br />
-              Activación
+          <button className="perfil-accion-btn" onClick={() => window.api.abrirTienda()}>
+            <div className="perfil-accion-icono lic">🛒</div>
+            <span className="perfil-accion-label">Tienda</span>
+            <span className="perfil-accion-sub">Comprar en línea</span>
+          </button>
+          <button
+            className="perfil-accion-btn"
+            onClick={() => sincronizar()}
+            disabled={sincronizando}
+          >
+            <div className="perfil-accion-icono sin">🔄</div>
+            <span className="perfil-accion-label">Sincronizar</span>
+            <span className="perfil-accion-sub">
+              {sincronizando ? 'Actualizando…' : 'Forzar actualización'}
             </span>
-            <span className="perfil-accion-sub">Comprar o activar</span>
           </button>
           <button className="perfil-accion-btn" onClick={() => setModalSoporteVisible(true)}>
             <div className="perfil-accion-icono sup">🎧</div>
@@ -130,6 +138,18 @@ const PerfilesPage = ({
             <span className="perfil-accion-sub">Tickets y errores</span>
           </button>
         </div>
+
+        {/* Aviso de la sincronización manual */}
+        {avisoSincronizacion && (
+          <Alert
+            className="perfiles-alert"
+            message={avisoSincronizacion.mensaje}
+            type={avisoSincronizacion.tipo}
+            showIcon
+            closable
+            onClose={() => setAvisoSincronizacion(null)}
+          />
+        )}
 
         {/* Gate del producto RFC: comprar en Emite libera el alta de contribuyente */}
         {!estadoAgregarRfc.cargando && !estadoAgregarRfc.puedeAgregar && (
@@ -186,8 +206,6 @@ const PerfilesPage = ({
           mostrarNombre={true}
         />
       </Modal>
-
-      {modalLicenciaVisible && <ModalLicencia onClose={() => setModalLicenciaVisible(false)} />}
 
       {modalSoporteVisible && <ModalSoporte onClose={() => setModalSoporteVisible(false)} />}
     </div>

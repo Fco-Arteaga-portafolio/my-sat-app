@@ -1,6 +1,6 @@
 {
   "name": "ifrat",
-  "version": "1.2.21",
+  "version": "1.3.0",
   "description": "IFRAT Desktop - Plataforma fiscal y facturación para México",
   "main": "out/main/index.js",
   "author": "Francisco Emmanuel Arteaga Ayala",
@@ -86,10 +86,6 @@
       }
     ],
     "files": [
-      {
-        "from": "dist",
-        "to": "dist"
-      },
       {
         "from": "out",
         "to": "out"

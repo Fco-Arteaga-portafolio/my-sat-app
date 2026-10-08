@@ -192,7 +192,9 @@ const createSesionApi = () => {
     obtenerCuenta: () => electron.ipcRenderer.invoke("obtener-cuenta"),
     onTokenRechazado: (callback) => {
       electron.ipcRenderer.on("sesion-token-rechazado", () => callback());
-    }
+    },
+    abrirTienda: () => electron.ipcRenderer.invoke("abrir-tienda"),
+    sincronizarResumen: () => electron.ipcRenderer.invoke("sincronizar-resumen")
   };
 };
 function createSoporteApi() {

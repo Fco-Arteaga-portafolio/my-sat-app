@@ -1,5 +1,23 @@
 import { ipcRenderer } from 'electron'
 
+export interface ResumenSincronizadoUi {
+  usoIlimitado: boolean
+  rfcs: Array<{
+    id: string
+    rfc: string
+    alias: string
+    activo: boolean
+    precioPagado: number
+  }>
+  contadores: Array<{
+    modulo: string
+    rfc: string
+    usos: number
+    limite: number
+    restantes: number
+  }>
+}
+
 export interface SesionApi {
   obtenerEstadoSesion: () => Promise<{ success: boolean; iniciada?: boolean; error?: string }>
   renovarSesion: () => Promise<{
@@ -26,6 +44,13 @@ export interface SesionApi {
     error?: string
   }>
   onTokenRechazado: (callback: () => void) => void
+  abrirTienda: () => Promise<{ success: boolean; error?: string }>
+  sincronizarResumen: () => Promise<{
+    success: boolean
+    resumen?: ResumenSincronizadoUi
+    sincronizado?: string
+    error?: string
+  }>
 }
 
 export const createSesionApi = (): SesionApi => {
@@ -38,6 +63,8 @@ export const createSesionApi = (): SesionApi => {
     obtenerCuenta: () => ipcRenderer.invoke('obtener-cuenta'),
     onTokenRechazado: (callback: () => void) => {
       ipcRenderer.on('sesion-token-rechazado', () => callback())
-    }
+    },
+    abrirTienda: () => ipcRenderer.invoke('abrir-tienda'),
+    sincronizarResumen: () => ipcRenderer.invoke('sincronizar-resumen')
   }
 }

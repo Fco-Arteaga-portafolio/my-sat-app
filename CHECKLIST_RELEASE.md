@@ -45,21 +45,20 @@ del backend/UI de Emite, no del Desktop.
 
 ## Fase 2 — Empaquetado / release (mi parte) — HAY PENDIENTES REALES
 
-- [ ] **Resolver conflicto de config** (HOY: `electron-builder.yml` gana sobre `package.json > build`):
-      - `electron-builder.yml` trae placeholders de plantilla: `appId com.electron.app`,
-        `productName my-sat-app`, publish `https://example.com/auto-updates`.
-      - `package.json > build` trae lo real: `appId com.ifrat.app`, `productName IFRAT`,
-        publish GitHub `Fco-Arteaga-portafolio/ifrat-releases`, output `infrat-releases`.
-      - Decidir fuente única de verdad (borrar `electron-builder.yml` o alinearlo con package.json)
-        para que el instalador y el updater usen los valores correctos.
-- [ ] **Publish URL del auto-updater** — hoy apunta a `https://example.com/auto-updates`
-      (placeholder): sin corregir, `UpdaterService.checkForUpdates()` falla en producción.
-- [ ] Definir `directories.output` y `artifactName` de release (hoy apunta a carpeta local
-      `C:/Users/pako_/source/repos/infrat-releases`).
+- [x] **Resolver conflicto de config** — se eliminó `electron-builder.yml`; `package.json > build`
+      quedó como fuente única de verdad (`appId com.ifrat.app`, `productName IFRAT`,
+      publish GitHub `Fco-Arteaga-portafolio/ifrat-releases`, output `infrat-releases`).
+      Verificado con `electron-builder --dir`: `loaded configuration file=package.json`.
+- [x] **Publish URL del auto-updater** — al quedar `package.json > build.publish` (provider github)
+      como única fuente, el updater ya apunta al release real de GitHub (ya no a `https://example.com/...`).
+- [x] Definir `directories.output` y `artifactName` de release — output `infrat-releases`
+      (en `package.json`); artifactName NSIS por defecto (`IFRAT Setup <version>.exe`).
 - [ ] Verificar empaquetado: `npm run build:win` (NSIS) → instalar en máquina limpia.
+      (Validado el paso previo: `build:unpack` OK — salida `infrat-releases/win-unpacked/IFRAT.exe`
+      con `better-sqlite3` reconstruido para Electron 39.)
 - [ ] Verificar `better-sqlite3` (nativa) empaquetada y reconstruida (`electron-builder install-app-deps`);
       revisar que `npmRebuild: false` del yml no rompa el module nativo.
-- [ ] Verificar que el número de versión visible en el Desktop salga de `package.json` (hoy 1.2.21),
+- [ ] Verificar que el número de versión visible en el Desktop salga de `package.json` (hoy 1.3.0),
       no hardcodeado.
 - [ ] Probar actualización: publicar release en GitHub (releases repo), abrir Desktop anterior →
       detecta versión → descarga → instala.

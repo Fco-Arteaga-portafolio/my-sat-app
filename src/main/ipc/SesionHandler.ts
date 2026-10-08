@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, shell } from 'electron'
 import { IpcWrapper } from './IpcWrapper'
 import { SesionService } from '../services/SesionService'
 import { BackendService, TokenRechazadoError } from '../services/BackendService'
@@ -81,6 +81,36 @@ export class SesionHandler {
     IpcWrapper.handle('obtener-cuenta', async () => {
       const sesion = this.sesionService.obtenerSesion()
       return sesion ? { nombre: sesion.nombre, email: sesion.email } : null
+    })
+
+    /**
+     * Sincronización manual (para "los desesperados"): obliga a hacer lo que en
+     * teoría se hace al abrir el programa — bajar de nuevo el resumen desde el
+     * backend para ver productos nuevos comprados y el estado de la licencia.
+     */
+    IpcWrapper.handle('sincronizar-resumen', async () => {
+      const resumen = await this.sesionService.sincronizarResumen()
+      if (!resumen) {
+        throw new Error('No se pudo sincronizar. Revisa tu conexión e inicia sesión.')
+      }
+      return {
+        resumen: {
+          usoIlimitado: resumen.usoIlimitado,
+          rfcs: resumen.rfcs,
+          contadores: resumen.contadores
+        },
+        sincronizado: new Date().toISOString()
+      }
+    })
+
+    /**
+     * Abre la tienda web en el navegador del sistema. Si el navegador no tiene
+     * sesión iniciada, Emite manda al login por su cuenta (comportamiento
+     * esperado del web).
+     */
+    IpcWrapper.handle('abrir-tienda', async () => {
+      await shell.openExternal('https://ifrat.ar-sa.com.mx/tienda')
+      return {}
     })
   }
 

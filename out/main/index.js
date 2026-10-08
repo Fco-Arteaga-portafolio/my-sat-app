@@ -4976,6 +4976,24 @@ class SesionHandler {
       const sesion = this.sesionService.obtenerSesion();
       return sesion ? { nombre: sesion.nombre, email: sesion.email } : null;
     });
+    IpcWrapper.handle("sincronizar-resumen", async () => {
+      const resumen = await this.sesionService.sincronizarResumen();
+      if (!resumen) {
+        throw new Error("No se pudo sincronizar. Revisa tu conexión e inicia sesión.");
+      }
+      return {
+        resumen: {
+          usoIlimitado: resumen.usoIlimitado,
+          rfcs: resumen.rfcs,
+          contadores: resumen.contadores
+        },
+        sincronizado: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    });
+    IpcWrapper.handle("abrir-tienda", async () => {
+      await electron.shell.openExternal("https://ifrat.ar-sa.com.mx/tienda");
+      return {};
+    });
   }
   /**
    * Declara la máquina en la cuenta (idempotente, `yaExistia`). No bloquea el
